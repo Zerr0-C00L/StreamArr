@@ -201,6 +201,7 @@ class EpisodeCacheDB {
     
     /**
      * Save available streams for a movie/episode
+     * Limits to 5 streams per quality to reduce database size
      */
     public function saveStreams($imdbId, $type, $streams, $season = null, $episode = null) {
         // Delete old streams for this content
@@ -211,6 +212,36 @@ class EpisodeCacheDB {
         $stmt->bindValue(':episode', $episode, $episode ? SQLITE3_INTEGER : SQLITE3_NULL);
         $stmt->execute();
         
+        // Sort streams by quality and size before limiting
+        usort($streams, function($a, $b) {
+            $qualityOrder = ['2160P' => 1, '4K' => 1, '1080P' => 2, '720P' => 3, '480P' => 4];
+            $qa = $qualityOrder[$a['quality'] ?? ''] ?? 5;
+            $qb = $qualityOrder[$b['quality'] ?? ''] ?? 5;
+            
+            if ($qa !== $qb) {
+                return $qa - $qb;
+            }
+            
+            // Parse size for sorting (larger first)
+            $sizeA = $this->parseSizeToBytes($a['title'] ?? '');
+            $sizeB = $this->parseSizeToBytes($b['title'] ?? '');
+            return $sizeB - $sizeA;
+        });
+        
+        // Limit to 5 streams per quality
+        $qualityCounts = [];
+        $maxPerQuality = 5;
+        $limitedStreams = [];
+        
+        foreach ($streams as $stream) {
+            $quality = $stream['quality'] ?? 'unknown';
+            $qualityCounts[$quality] = ($qualityCounts[$quality] ?? 0) + 1;
+            
+            if ($qualityCounts[$quality] <= $maxPerQuality) {
+                $limitedStreams[] = $stream;
+            }
+        }
+        
         // Insert new streams
         $insertStmt = $this->db->prepare('
             INSERT OR REPLACE INTO streams (imdb_id, type, season, episode, quality, size, title, hash, file_idx, resolve_url, cached_at)
@@ -220,7 +251,7 @@ class EpisodeCacheDB {
         $count = 0;
         $time = time();
         
-        foreach ($streams as $stream) {
+        foreach ($limitedStreams as $stream) {
             $insertStmt->bindValue(':imdb', $imdbId, SQLITE3_TEXT);
             $insertStmt->bindValue(':type', $type, SQLITE3_TEXT);
             $insertStmt->bindValue(':season', $season, $season ? SQLITE3_INTEGER : SQLITE3_NULL);
