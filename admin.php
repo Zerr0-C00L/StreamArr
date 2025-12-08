@@ -793,18 +793,14 @@ function populateStreamsFromLists() {
                 continue;
             }
             
-            // Fetch streams from Comet first, then MediaFusion
-            $streams = [];
-            foreach (['comet', 'mediafusion'] as $provider) {
-                $streams = fetchStreamsFromProviderForPopulate($provider, $imdbId, 'movie', null, null, $rdKey);
-                if (!empty($streams)) {
-                    break;
-                }
-            }
+            // Fetch streams from Comet only (MediaFusion has strict rate limits)
+            $streams = fetchStreamsFromProviderForPopulate('comet', $imdbId, 'movie', null, null, $rdKey);
             
             if (empty($streams)) {
                 $log("No streams found for: $name ($imdbId)");
                 $errors++;
+                // Add delay even on error to avoid hammering API
+                usleep(1000000); // 1 second
                 continue;
             }
             
@@ -844,7 +840,7 @@ function populateStreamsFromLists() {
             }
             
             $updateStatus('running', round(($processed / max($totalMovies, 1)) * 100), "Processed: $processed / $totalMovies");
-            usleep(300000); // 300ms between provider requests
+            usleep(2000000); // 2 seconds between requests to avoid rate limiting
         }
     }
     
