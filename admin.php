@@ -4,6 +4,14 @@
  * Monitor services, start/stop daemons, modify settings
  */
 
+// Handle CLI stream population mode
+if (php_sapi_name() === 'cli' && in_array('--populate-streams', $argv ?? [])) {
+    require_once __DIR__ . '/config.php';
+    require_once __DIR__ . '/libs/episode_cache_db.php';
+    populateStreamsFromLists();
+    exit;
+}
+
 session_start();
 require_once __DIR__ . '/config.php';
 
@@ -130,6 +138,23 @@ if (isset($_GET['api'])) {
             $data = json_decode(file_get_contents('php://input'), true);
             $result = addCollectionToPlaylist($data['movies'] ?? []);
             echo json_encode($result);
+            break;
+            
+        case 'sync-github':
+            // First sync playlists from GitHub
+            $syncResult = shell_exec('php ' . __DIR__ . '/background_sync_daemon.php 2>&1');
+            // Then trigger stream population in background
+            shell_exec('nohup php ' . __DIR__ . '/admin.php --populate-streams > /dev/null 2>&1 &');
+            echo json_encode(['success' => true, 'message' => 'Sync started, stream population running in background']);
+            break;
+            
+        case 'populate-streams-status':
+            $statusFile = __DIR__ . '/cache/stream_populate_status.json';
+            if (file_exists($statusFile)) {
+                echo file_get_contents($statusFile);
+            } else {
+                echo json_encode(['status' => 'idle', 'progress' => 0]);
+            }
             break;
             
         default:
@@ -634,6 +659,258 @@ function updateFilterConfig($filters) {
     );
     
     return file_put_contents($configFile, $content) !== false;
+}
+
+/**
+ * Populate streams from GitHub lists using Comet/MediaFusion providers
+ * This runs in CLI mode after saving settings
+ */
+function populateStreamsFromLists() {
+    global $PRIVATE_TOKEN, $apiKey;
+    
+    $statusFile = __DIR__ . '/cache/stream_populate_status.json';
+    $logFile = __DIR__ . '/logs/stream_populate.log';
+    
+    $log = function($msg) use ($logFile) {
+        $timestamp = date('Y-m-d H:i:s');
+        echo "[$timestamp] $msg\n";
+        @file_put_contents($logFile, "[$timestamp] $msg\n", FILE_APPEND);
+    };
+    
+    $updateStatus = function($status, $progress, $details = '') use ($statusFile) {
+        file_put_contents($statusFile, json_encode([
+            'status' => $status,
+            'progress' => $progress,
+            'details' => $details,
+            'updated' => date('Y-m-d H:i:s')
+        ], JSON_PRETTY_PRINT));
+    };
+    
+    $log("=== STARTING STREAM POPULATION ===");
+    $updateStatus('running', 0, 'Starting stream population...');
+    
+    // GitHub list URLs
+    $movieLists = [
+        'now_playing' => 'https://raw.githubusercontent.com/Zerr0-C00L/public-files/main/movie_lists/now_playing_movies.json',
+        'popular' => 'https://raw.githubusercontent.com/Zerr0-C00L/public-files/main/movie_lists/popular_movies.json',
+        'top_rated' => 'https://raw.githubusercontent.com/Zerr0-C00L/public-files/main/movie_lists/top_rated_movies.json',
+        'upcoming' => 'https://raw.githubusercontent.com/Zerr0-C00L/public-files/main/movie_lists/upcoming_movies.json',
+        'latest_releases' => 'https://raw.githubusercontent.com/Zerr0-C00L/public-files/main/movie_lists/latest_releases_movies.json'
+    ];
+    
+    // Check which lists are enabled in config
+    $enabledLists = [];
+    if ($GLOBALS['INCLUDE_NOW_PLAYING'] ?? false) $enabledLists['now_playing'] = $movieLists['now_playing'];
+    if ($GLOBALS['INCLUDE_POPULAR_MOVIES'] ?? false) $enabledLists['popular'] = $movieLists['popular'];
+    if ($GLOBALS['INCLUDE_TOP_RATED_MOVIES'] ?? false) $enabledLists['top_rated'] = $movieLists['top_rated'];
+    if ($GLOBALS['INCLUDE_UPCOMING'] ?? false) $enabledLists['upcoming'] = $movieLists['upcoming'];
+    if ($GLOBALS['INCLUDE_LATEST_RELEASES_MOVIES'] ?? false) $enabledLists['latest_releases'] = $movieLists['latest_releases'];
+    
+    if (empty($enabledLists)) {
+        $log("No movie lists enabled, nothing to populate");
+        $updateStatus('complete', 100, 'No lists enabled');
+        return;
+    }
+    
+    $log("Enabled lists: " . implode(', ', array_keys($enabledLists)));
+    
+    $db = new EpisodeCacheDB();
+    $rdKey = $PRIVATE_TOKEN;
+    $processed = 0;
+    $cached = 0;
+    $skipped = 0;
+    $errors = 0;
+    $totalMovies = 0;
+    
+    // First pass: count total movies
+    foreach ($enabledLists as $listName => $url) {
+        $log("Fetching $listName list...");
+        $response = @file_get_contents($url);
+        if ($response) {
+            $movies = json_decode($response, true) ?? [];
+            $totalMovies += count($movies);
+        }
+    }
+    $log("Total movies to process: $totalMovies");
+    
+    // Second pass: process each list
+    foreach ($enabledLists as $listName => $url) {
+        $log("Processing $listName list...");
+        $updateStatus('running', round(($processed / max($totalMovies, 1)) * 100), "Processing $listName...");
+        
+        $response = @file_get_contents($url);
+        if (!$response) {
+            $log("Failed to fetch $listName");
+            continue;
+        }
+        
+        $movies = json_decode($response, true) ?? [];
+        $log("Found " . count($movies) . " movies in $listName");
+        
+        foreach ($movies as $movie) {
+            $processed++;
+            $tmdbId = $movie['stream_id'] ?? $movie['tmdb_id'] ?? null;
+            $name = $movie['name'] ?? 'Unknown';
+            
+            if (!$tmdbId) {
+                $skipped++;
+                continue;
+            }
+            
+            // Get IMDB ID from cache or TMDB API
+            $imdbId = null;
+            $movieData = $db->getMovie($tmdbId);
+            if ($movieData && !empty($movieData['imdb_id'])) {
+                $imdbId = $movieData['imdb_id'];
+            } else {
+                // Fetch from TMDB
+                $tmdbUrl = "https://api.themoviedb.org/3/movie/{$tmdbId}/external_ids?api_key={$apiKey}";
+                $extIds = @file_get_contents($tmdbUrl);
+                if ($extIds) {
+                    $ids = json_decode($extIds, true);
+                    $imdbId = $ids['imdb_id'] ?? null;
+                    if ($imdbId) {
+                        $db->setMovie($tmdbId, $name, $imdbId, 0);
+                    }
+                }
+                usleep(100000); // 100ms rate limit for TMDB
+            }
+            
+            if (!$imdbId) {
+                $log("No IMDB ID for: $name (TMDB: $tmdbId)");
+                $skipped++;
+                continue;
+            }
+            
+            // Check if we already have streams cached
+            if ($db->hasValidStreams($imdbId, 'movie', null, null, 168)) { // 7 days TTL
+                $skipped++;
+                continue;
+            }
+            
+            // Fetch streams from Comet first, then MediaFusion
+            $streams = [];
+            foreach (['comet', 'mediafusion'] as $provider) {
+                $streams = fetchStreamsFromProviderForPopulate($provider, $imdbId, 'movie', null, null, $rdKey);
+                if (!empty($streams)) {
+                    break;
+                }
+            }
+            
+            if (empty($streams)) {
+                $log("No streams found for: $name ($imdbId)");
+                $errors++;
+                continue;
+            }
+            
+            // Process and cache streams
+            $streamsToCache = [];
+            foreach ($streams as $s) {
+                $sName = $s['name'] ?? '';
+                if (strpos($sName, '[RD+]') !== false || strpos($sName, 'RD') !== false || strpos($sName, '⚡') !== false) {
+                    $sTitle = $s['title'] ?? $s['description'] ?? '';
+                    $sQuality = 'unknown';
+                    if (preg_match('/\b(4K|2160p|UHD)\b/i', $sTitle)) $sQuality = '2160P';
+                    elseif (preg_match('/\b1080p\b/i', $sTitle)) $sQuality = '1080P';
+                    elseif (preg_match('/\b720p\b/i', $sTitle)) $sQuality = '720P';
+                    elseif (preg_match('/\b480p\b/i', $sTitle)) $sQuality = '480P';
+                    
+                    $hash = $s['infoHash'] ?? '';
+                    if (empty($hash) && !empty($s['url'])) {
+                        if (preg_match('/\/([a-f0-9]{40})\//i', $s['url'], $hMatch)) {
+                            $hash = $hMatch[1];
+                        }
+                    }
+                    
+                    $streamsToCache[] = [
+                        'quality' => $sQuality,
+                        'title' => $sTitle,
+                        'hash' => $hash,
+                        'file_idx' => $s['fileIdx'] ?? 0,
+                        'resolve_url' => $s['url'] ?? ''
+                    ];
+                }
+            }
+            
+            if (!empty($streamsToCache)) {
+                $db->saveStreams($imdbId, 'movie', $streamsToCache);
+                $cached++;
+                $log("Cached " . count($streamsToCache) . " streams for: $name ($imdbId)");
+            }
+            
+            $updateStatus('running', round(($processed / max($totalMovies, 1)) * 100), "Processed: $processed / $totalMovies");
+            usleep(300000); // 300ms between provider requests
+        }
+    }
+    
+    $log("=== STREAM POPULATION COMPLETE ===");
+    $log("Processed: $processed, Cached: $cached, Skipped: $skipped, Errors: $errors");
+    $updateStatus('complete', 100, "Cached $cached movies, skipped $skipped, errors $errors");
+}
+
+/**
+ * Fetch streams from a provider for population (standalone function for CLI)
+ */
+function fetchStreamsFromProviderForPopulate($provider, $imdbId, $type, $season, $episode, $rdKey) {
+    $url = '';
+    
+    switch ($provider) {
+        case 'comet':
+            $cometConfig = [
+                'indexers' => $GLOBALS['COMET_INDEXERS'] ?? ['bktorrent', 'thepiratebay', 'yts', 'eztv'],
+                'debridService' => 'realdebrid',
+                'debridApiKey' => $rdKey
+            ];
+            $configBase64 = base64_encode(json_encode($cometConfig));
+            $url = "https://comet.elfhosted.com/{$configBase64}/stream/movie/{$imdbId}.json";
+            break;
+            
+        case 'mediafusion':
+            $mfConfig = [
+                'streaming_provider' => [
+                    'token' => $rdKey,
+                    'service' => 'realdebrid'
+                ],
+                'selected_catalogs' => ['torrentio_streams'],
+                'enable_catalogs' => false
+            ];
+            $configBase64 = base64_encode(json_encode($mfConfig));
+            $url = "https://mediafusion.elfhosted.com/{$configBase64}/stream/movie/{$imdbId}.json";
+            break;
+    }
+    
+    $ch = curl_init($url);
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT => 15,
+        CURLOPT_USERAGENT => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        CURLOPT_FOLLOWLOCATION => true
+    ]);
+    $response = curl_exec($ch);
+    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+    
+    if ($httpCode !== 200 || !$response) {
+        return [];
+    }
+    
+    $data = json_decode($response, true);
+    $streams = $data['streams'] ?? [];
+    
+    // Normalize stream names
+    foreach ($streams as &$stream) {
+        $name = $stream['name'] ?? '';
+        if ($provider === 'comet' && strpos($name, '[RD⚡]') !== false) {
+            $stream['name'] = str_replace('[RD⚡]', '[RD+]', $name);
+        }
+        if ($provider === 'mediafusion') {
+            if ((strpos($name, '⚡') !== false || strpos($name, 'RD') !== false) && strpos($name, '[RD+]') === false) {
+                $stream['name'] = '[RD+] ' . $name;
+            }
+        }
+    }
+    
+    return $streams;
 }
 
 function formatBytes($bytes) {
@@ -2157,7 +2434,9 @@ async function triggerAutoSync() {
         const result = await response.json();
         
         if (result.success) {
-            showToast('Sync complete! Playlists updated.', 'success');
+            showToast('Sync complete! Stream population running in background...', 'success');
+            // Start polling for stream population status
+            pollStreamPopulationStatus();
         } else {
             showToast('Sync issue: ' + (result.error || 'Check logs'), 'error');
         }
@@ -2166,6 +2445,40 @@ async function triggerAutoSync() {
         showToast('Sync error: ' + error.message, 'error');
         refreshStatus();
     }
+}
+
+// Poll for stream population status
+let streamPopulationPollInterval = null;
+async function pollStreamPopulationStatus() {
+    if (streamPopulationPollInterval) {
+        clearInterval(streamPopulationPollInterval);
+    }
+    
+    streamPopulationPollInterval = setInterval(async () => {
+        try {
+            const response = await fetch('?api=populate-streams-status');
+            const status = await response.json();
+            
+            if (status.status === 'running') {
+                showToast(`Populating streams: ${status.progress}% - ${status.details}`, 'success');
+            } else if (status.status === 'complete') {
+                showToast(`Stream population complete! ${status.details}`, 'success');
+                clearInterval(streamPopulationPollInterval);
+                streamPopulationPollInterval = null;
+                refreshStatus();
+            }
+        } catch (error) {
+            // Silent fail on status check
+        }
+    }, 5000); // Poll every 5 seconds
+    
+    // Stop polling after 30 minutes max
+    setTimeout(() => {
+        if (streamPopulationPollInterval) {
+            clearInterval(streamPopulationPollInterval);
+            streamPopulationPollInterval = null;
+        }
+    }, 30 * 60 * 1000);
 }
 
 function getSelectedProviders() {
