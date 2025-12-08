@@ -191,6 +191,57 @@ if (isset($_GET['api'])) {
             echo json_encode($result);
             break;
             
+        case 'clear-episode-cache':
+            // Clear episode cache
+            $cacheFile = __DIR__ . '/cache/episode_lookup.json';
+            $shardDir = __DIR__ . '/cache/episode_shards';
+            $cleared = 0;
+            if (file_exists($cacheFile)) {
+                unlink($cacheFile);
+                $cleared++;
+            }
+            if (is_dir($shardDir)) {
+                $files = glob($shardDir . '/*.json');
+                foreach ($files as $file) {
+                    unlink($file);
+                    $cleared++;
+                }
+            }
+            echo json_encode(['success' => true, 'message' => "Cleared $cleared episode cache files"]);
+            break;
+            
+        case 'clear-m3u8':
+            // Clear M3U8 and regenerate empty
+            $m3uFile = __DIR__ . '/playlist.m3u8';
+            if (file_exists($m3uFile)) {
+                file_put_contents($m3uFile, "#EXTM3U\n");
+                echo json_encode(['success' => true, 'message' => 'M3U8 playlist cleared']);
+            } else {
+                echo json_encode(['success' => true, 'message' => 'M3U8 file not found']);
+            }
+            break;
+            
+        case 'clear-all-playlists':
+            // Clear all playlists (movies, series, m3u8)
+            $cleared = [];
+            $files = [
+                'playlist.json' => __DIR__ . '/playlist.json',
+                'tv_playlist.json' => __DIR__ . '/tv_playlist.json',
+                'playlist.m3u8' => __DIR__ . '/playlist.m3u8'
+            ];
+            foreach ($files as $name => $path) {
+                if (file_exists($path)) {
+                    if (strpos($name, '.json') !== false) {
+                        file_put_contents($path, '[]');
+                    } else {
+                        file_put_contents($path, "#EXTM3U\n");
+                    }
+                    $cleared[] = $name;
+                }
+            }
+            echo json_encode(['success' => true, 'message' => 'Cleared: ' . implode(', ', $cleared)]);
+            break;
+            
         default:
             echo json_encode(['error' => 'Unknown action']);
     }
@@ -1517,13 +1568,13 @@ function formatBytes($bytes) {
                 <div class="stat-value" id="stat-series">-</div>
                 <div class="stat-label">TV Series</div>
             </div>
-            <div class="stat-card">
+            <div class="stat-card" style="cursor: pointer;" onclick="clearEpisodeCache()" title="Click to clear">
                 <div class="stat-value" id="stat-episodes">-</div>
-                <div class="stat-label">Cached Episodes</div>
+                <div class="stat-label">Cached Episodes 🗑️</div>
             </div>
-            <div class="stat-card">
+            <div class="stat-card" style="cursor: pointer;" onclick="clearM3U8()" title="Click to clear">
                 <div class="stat-value" id="stat-m3u">-</div>
-                <div class="stat-label">M3U8 Entries</div>
+                <div class="stat-label">M3U8 Entries 🗑️</div>
             </div>
         </div>
         
@@ -2391,6 +2442,44 @@ async function runAction(action) {
             refreshStatus();
         } else {
             showToast('Action failed: ' + (result.error || 'Unknown error'), 'error');
+        }
+    } catch (error) {
+        showToast('Error: ' + error.message, 'error');
+    }
+}
+
+// Clear episode cache
+async function clearEpisodeCache() {
+    if (!confirm('Clear all cached episodes? This will require re-caching for playback.')) return;
+    
+    showToast('Clearing episode cache...', 'success');
+    try {
+        const response = await fetch('?api=clear-episode-cache');
+        const result = await response.json();
+        if (result.success) {
+            showToast(result.message, 'success');
+            refreshStatus();
+        } else {
+            showToast('Failed to clear cache', 'error');
+        }
+    } catch (error) {
+        showToast('Error: ' + error.message, 'error');
+    }
+}
+
+// Clear M3U8 playlist
+async function clearM3U8() {
+    if (!confirm('Clear M3U8 playlist? You will need to sync again to restore content.')) return;
+    
+    showToast('Clearing M3U8...', 'success');
+    try {
+        const response = await fetch('?api=clear-m3u8');
+        const result = await response.json();
+        if (result.success) {
+            showToast(result.message, 'success');
+            refreshStatus();
+        } else {
+            showToast('Failed to clear M3U8', 'error');
         }
     } catch (error) {
         showToast('Error: ' + error.message, 'error');
