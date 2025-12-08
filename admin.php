@@ -1514,27 +1514,7 @@ function formatBytes($bytes) {
                 </div>
             </div>
             
-            <div class="provider-row">
-                <div>
-                    <h4>MediaFusion</h4>
-                    <p style="font-size: 0.85rem; color: var(--text-secondary);">ElfHosted instance, datacenter friendly</p>
-                </div>
-                <div class="provider-status">
-                    <span id="provider-mediafusion-status" class="status-badge status-stopped">Not Tested</span>
-                    <button class="btn btn-secondary" onclick="testProvider('mediafusion')">Test</button>
-                </div>
-            </div>
-            
-            <div class="provider-row">
-                <div>
-                    <h4>Torrentio</h4>
-                    <p style="font-size: 0.85rem; color: var(--text-secondary);">May be blocked by Cloudflare on datacenter IPs</p>
-                </div>
-                <div class="provider-status">
-                    <span id="provider-torrentio-status" class="status-badge status-stopped">Not Tested</span>
-                    <button class="btn btn-secondary" onclick="testProvider('torrentio')">Test</button>
-                </div>
-            </div>
+            <!-- MediaFusion and Torrentio removed - Comet is the only reliable provider -->
         </div>
     </div>
     
@@ -1945,25 +1925,13 @@ function formatBytes($bytes) {
             
             <div class="settings-form">
                 <div class="form-group">
-                    <label>Provider Priority (drag to reorder)</label>
+                    <label>Stream Provider</label>
                     <div style="display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.5rem;">
                         <label style="display: flex; align-items: center; gap: 0.5rem; background: var(--bg-tertiary); padding: 0.5rem 1rem; border-radius: 6px; cursor: pointer;">
-                            <input type="checkbox" id="provider-comet" checked> Comet
-                        </label>
-                        <label style="display: flex; align-items: center; gap: 0.5rem; background: var(--bg-tertiary); padding: 0.5rem 1rem; border-radius: 6px; cursor: pointer;">
-                            <input type="checkbox" id="provider-mediafusion" checked> MediaFusion
-                        </label>
-                        <label style="display: flex; align-items: center; gap: 0.5rem; background: var(--bg-tertiary); padding: 0.5rem 1rem; border-radius: 6px; cursor: pointer;">
-                            <input type="checkbox" id="provider-torrentio"> Torrentio
+                            <input type="checkbox" id="provider-comet" checked disabled> Comet (Active)
                         </label>
                     </div>
-                    <span style="font-size: 0.75rem; color: var(--text-secondary);">First enabled provider is used. Fallback to next if unavailable.</span>
-                </div>
-                
-                <div class="form-group">
-                    <label>Torrentio Providers</label>
-                    <input type="text" id="setting-torrentioProviders" placeholder="yts,eztv,rarbg,1337x,thepiratebay" style="font-family: monospace;">
-                    <span style="font-size: 0.75rem; color: var(--text-secondary);">Comma-separated list of torrent indexers</span>
+                    <span style="font-size: 0.75rem; color: var(--text-secondary);">Comet is the only reliable provider for datacenter IPs. MediaFusion has rate limits, Torrentio is blocked by Cloudflare.</span>
                 </div>
             </div>
         </div>
@@ -2483,11 +2451,8 @@ async function pollStreamPopulationStatus() {
 }
 
 function getSelectedProviders() {
-    const providers = [];
-    if (document.getElementById('provider-comet')?.checked) providers.push('comet');
-    if (document.getElementById('provider-mediafusion')?.checked) providers.push('mediafusion');
-    if (document.getElementById('provider-torrentio')?.checked) providers.push('torrentio');
-    return providers;
+    // Only Comet is supported - MediaFusion has rate limits, Torrentio is blocked
+    return ['comet'];
 }
 
 // Keep old function name for backward compatibility
