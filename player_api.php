@@ -3,6 +3,7 @@
 require_once 'config.php';
 require_once 'generate_live_playlist.php';
 require_once 'libs/cached_sources.php';
+require_once 'libs/episode_cache_db.php';
 
 set_time_limit(0);
 accessLog();
@@ -17,6 +18,100 @@ $streamId = $_GET['stream_id'] ?? $_GET['vod_id'] ?? $_GET['series_id'] ?? 'none
 if (!$GLOBALS['DEBUG']) {
     error_reporting(0);	
 }	
+
+/**
+ * Fetch streams from a specific provider (Comet, MediaFusion, or Torrentio)
+ * Used for populating available_sources in get_vod_info
+ */
+function fetchStreamsFromProviderForApi($provider, $imdbId, $type, $season, $episode, $rdKey) {
+    $url = '';
+    
+    switch ($provider) {
+        case 'comet':
+            $cometConfig = [
+                'indexers' => $GLOBALS['COMET_INDEXERS'] ?? ['bktorrent', 'thepiratebay', 'yts', 'eztv'],
+                'debridService' => 'realdebrid',
+                'debridApiKey' => $rdKey
+            ];
+            $configBase64 = base64_encode(json_encode($cometConfig));
+            
+            if ($type === 'series' && $season !== null && $episode !== null) {
+                $url = "https://comet.elfhosted.com/{$configBase64}/stream/series/{$imdbId}:{$season}:{$episode}.json";
+            } else {
+                $url = "https://comet.elfhosted.com/{$configBase64}/stream/movie/{$imdbId}.json";
+            }
+            break;
+            
+        case 'mediafusion':
+            $mfConfig = [
+                'streaming_provider' => [
+                    'token' => $rdKey,
+                    'service' => 'realdebrid'
+                ],
+                'selected_catalogs' => ['torrentio_streams'],
+                'enable_catalogs' => false
+            ];
+            $configBase64 = base64_encode(json_encode($mfConfig));
+            
+            if ($type === 'series' && $season !== null && $episode !== null) {
+                $url = "https://mediafusion.elfhosted.com/{$configBase64}/stream/series/{$imdbId}:{$season}:{$episode}.json";
+            } else {
+                $url = "https://mediafusion.elfhosted.com/{$configBase64}/stream/movie/{$imdbId}.json";
+            }
+            break;
+            
+        case 'torrentio':
+        default:
+            $providers = $GLOBALS['TORRENTIO_PROVIDERS'] ?? 'yts,eztv,rarbg,1337x,thepiratebay,kickasstorrents,torrentgalaxy,magnetdl';
+            $config = "providers={$providers}|sort=qualitysize|debridoptions=nodownloadlinks,nocatalog|realdebrid={$rdKey}";
+            
+            if ($type === 'series' && $season !== null && $episode !== null) {
+                $url = "https://torrentio.strem.fun/{$config}/stream/series/{$imdbId}:{$season}:{$episode}.json";
+            } else {
+                $url = "https://torrentio.strem.fun/{$config}/stream/movie/{$imdbId}.json";
+            }
+            break;
+    }
+    
+    $ch = curl_init($url);
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT => 15,
+        CURLOPT_USERAGENT => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        CURLOPT_FOLLOWLOCATION => true
+    ]);
+    $response = curl_exec($ch);
+    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+    
+    if ($httpCode !== 200 || strpos($response, 'Cloudflare') !== false || strpos($response, 'Attention Required') !== false) {
+        return [];
+    }
+    
+    $data = json_decode($response, true);
+    $streams = $data['streams'] ?? [];
+    
+    // Normalize stream format
+    foreach ($streams as &$stream) {
+        if ($provider === 'comet') {
+            $name = $stream['name'] ?? '';
+            if (strpos($name, '[RD⚡]') !== false) {
+                $stream['name'] = str_replace('[RD⚡]', '[RD+]', $name);
+            }
+            if (empty($stream['title']) && !empty($stream['description'])) {
+                $stream['title'] = $stream['description'];
+            }
+        }
+        if ($provider === 'mediafusion') {
+            $name = $stream['name'] ?? '';
+            if ((strpos($name, '⚡') !== false || strpos($name, 'RD') !== false) && strpos($name, '[RD+]') === false) {
+                $stream['name'] = '[RD+] ' . $name;
+            }
+        }
+    }
+    
+    return $streams;
+}
 
 
 $BasePath = locateBaseURL();
@@ -428,40 +523,123 @@ if (isset($_GET['action']) && $_GET['action'] == 'get_vod_info') {
 
 $directorsString = implode(', ', $directors);
 	
-  // Get IMDB ID and fetch cached sources
+  // Get IMDB ID and fetch cached sources from SQLite (populated by play.php)
   $imdbId = $details['external_ids']['imdb_id'] ?? null;
   $directSource = "";
   $availableSources = [];
   
   if ($imdbId && isset($GLOBALS['PRIVATE_TOKEN'])) {
-      $sourceFinder = new CachedStreamSources($GLOBALS['PRIVATE_TOKEN']);
-      $cachedSources = $sourceFinder->getCachedSources($imdbId, 'movie');
+      $baseUrl = rtrim($BasePath, '/');
       
-      if (!empty($cachedSources)) {
-          // Format sources for direct_source - array of stream objects with playable URLs
-          $baseUrl = rtrim($BasePath, '/');  // Remove trailing slash
-          foreach ($cachedSources as $source) {
-              // Create URL that will resolve to actual stream via Torrentio
-              $streamUrl = $baseUrl . "/play.php?hash=" . urlencode($source['hash']);
-              $streamUrl .= "&fileIdx=" . ($source['fileIdx'] ?? 0);
-              if (!empty($source['fileName'])) {
-                  $streamUrl .= "&name=" . urlencode($source['fileName']);
+      // First, try SQLite cache (populated when users play content via play.php)
+      try {
+          $cacheDb = new EpisodeCacheDB();
+          $cachedStreams = $cacheDb->getStreams($imdbId, 'movie');
+          
+          if (!empty($cachedStreams)) {
+              foreach ($cachedStreams as $stream) {
+                  // Build URL using stream ID for select_stream.php
+                  $streamUrl = $baseUrl . "/select_stream.php?stream_id=" . $stream['id'];
+                  
+                  // Extract size from title (format: 💾 XX.XX GB)
+                  $sizeStr = '';
+                  if (preg_match('/💾\s*([\d.]+\s*[GMKT]B)/i', $stream['title'], $sizeMatch)) {
+                      $sizeStr = $sizeMatch[1];
+                  } elseif (!empty($stream['size'])) {
+                      $sizeStr = $stream['size'];
+                  }
+                  
+                  $availableSources[] = [
+                      'title' => $stream['quality'] ?: 'Unknown',
+                      'description' => $stream['title'] ?? '',
+                      'quality' => $stream['quality'] ?? 'unknown',
+                      'size' => $sizeStr,
+                      'source' => 'Cached',
+                      'cached' => true,
+                      'hash' => $stream['hash'] ?? '',
+                      'url' => $streamUrl,
+                      'fileIdx' => $stream['file_idx'] ?? 0
+                  ];
               }
               
-              $availableSources[] = [
-                  'title' => $source['title'],
-                  'description' => $source['description'] ?? '',
-                  'quality' => $source['quality'] ?? 'unknown',
-                  'size' => CachedStreamSources::formatBytes($source['bytes'] ?? 0),
-                  'source' => $source['source'] ?? 'Torrentio',
-                  'cached' => $source['cached'] ?? false,
-                  'hash' => $source['hash'],
-                  'url' => $streamUrl,
-                  'fileIdx' => $source['fileIdx'] ?? 0
-              ];
+              // Set direct_source to the first (best quality) stream
+              if (!empty($availableSources)) {
+                  $directSource = $availableSources[0]['url'];
+              }
           }
-          // Set direct_source to the first (best) source URL for compatibility
-          $directSource = $availableSources[0]['url'];
+      } catch (Exception $e) {
+          // SQLite cache failed, continue without it
+      }
+      
+      // If no cached streams, try fetching fresh from providers
+      if (empty($availableSources)) {
+          $providers = $GLOBALS['STREAM_PROVIDERS'] ?? ['comet', 'mediafusion', 'torrentio'];
+          $rdKey = $GLOBALS['PRIVATE_TOKEN'];
+          
+          foreach ($providers as $provider) {
+              $streams = fetchStreamsFromProviderForApi($provider, $imdbId, 'movie', null, null, $rdKey);
+              if (!empty($streams)) {
+                  // Cache streams to SQLite for future use
+                  $streamsToCache = [];
+                  foreach ($streams as $s) {
+                      $sName = $s['name'] ?? '';
+                      if (strpos($sName, '[RD+]') !== false || strpos($sName, 'RD') !== false) {
+                          $sTitle = $s['title'] ?? $s['description'] ?? '';
+                          $sQuality = 'unknown';
+                          if (preg_match('/\b(4K|2160p|UHD)\b/i', $sTitle)) $sQuality = '2160P';
+                          elseif (preg_match('/\b1080p\b/i', $sTitle)) $sQuality = '1080P';
+                          elseif (preg_match('/\b720p\b/i', $sTitle)) $sQuality = '720P';
+                          elseif (preg_match('/\b480p\b/i', $sTitle)) $sQuality = '480P';
+                          
+                          $hash = $s['infoHash'] ?? '';
+                          if (empty($hash) && !empty($s['url'])) {
+                              if (preg_match('/\/([a-f0-9]{40})\//i', $s['url'], $hMatch)) {
+                                  $hash = $hMatch[1];
+                              }
+                          }
+                          
+                          $streamsToCache[] = [
+                              'quality' => $sQuality,
+                              'title' => $sTitle,
+                              'hash' => $hash,
+                              'file_idx' => $s['fileIdx'] ?? 0,
+                              'resolve_url' => $s['url'] ?? ''
+                          ];
+                      }
+                  }
+                  
+                  // Save to cache
+                  if (!empty($streamsToCache)) {
+                      try {
+                          $cacheDb = new EpisodeCacheDB();
+                          $cacheDb->saveStreams($imdbId, 'movie', $streamsToCache);
+                          
+                          // Format for response
+                          $savedStreams = $cacheDb->getStreams($imdbId, 'movie');
+                          foreach ($savedStreams as $stream) {
+                              $streamUrl = $baseUrl . "/select_stream.php?stream_id=" . $stream['id'];
+                              $availableSources[] = [
+                                  'title' => $stream['quality'] ?: 'Unknown',
+                                  'description' => $stream['title'] ?? '',
+                                  'quality' => $stream['quality'] ?? 'unknown',
+                                  'size' => $stream['size'] ?? '',
+                                  'source' => ucfirst($provider),
+                                  'cached' => true,
+                                  'hash' => $stream['hash'] ?? '',
+                                  'url' => $streamUrl,
+                                  'fileIdx' => $stream['file_idx'] ?? 0
+                              ];
+                          }
+                          if (!empty($availableSources)) {
+                              $directSource = $availableSources[0]['url'];
+                          }
+                      } catch (Exception $e) {
+                          // Continue without caching
+                      }
+                  }
+                  break; // Got streams, stop trying providers
+              }
+          }
       }
   }
 
