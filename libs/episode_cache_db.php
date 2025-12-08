@@ -300,12 +300,22 @@ class EpisodeCacheDB {
             return ($b['_size_bytes'] ?? 0) - ($a['_size_bytes'] ?? 0);
         });
         
-        // Remove internal field
-        foreach ($streams as &$s) {
-            unset($s['_size_bytes']);
+        // Limit to 5 streams per quality
+        $limitedStreams = [];
+        $qualityCounts = [];
+        $maxPerQuality = 5;
+        
+        foreach ($streams as $s) {
+            $quality = $s['quality'] ?? 'unknown';
+            $qualityCounts[$quality] = ($qualityCounts[$quality] ?? 0) + 1;
+            
+            if ($qualityCounts[$quality] <= $maxPerQuality) {
+                unset($s['_size_bytes']); // Remove internal field
+                $limitedStreams[] = $s;
+            }
         }
         
-        return $streams;
+        return $limitedStreams;
     }
     
     /**
