@@ -1836,9 +1836,15 @@ function formatBytes($bytes) {
                 <span class="card-title">Quick Actions</span>
             </div>
             <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
-                <button class="btn btn-primary" onclick="runAction('sync-now')">
+                <button class="btn btn-primary" onclick="runMDBListSyncAndMerge()">
                     <svg width="16" height="16" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1z" clip-rule="evenodd"></path></svg>
-                    Sync from GitHub
+                    Sync MDBList
+                </button>
+                <button class="btn btn-secondary" onclick="regenerateM3U8()">
+                    📺 Regenerate M3U8
+                </button>
+                <button class="btn btn-secondary" onclick="regenerateLiveTV()">
+                    📡 Refresh Live TV
                 </button>
             </div>
         </div>
@@ -2972,11 +2978,9 @@ async function saveAllSettings() {
         const result = await response.json();
         
         if (result.success) {
-            showToast('Settings saved! Starting sync...', 'success');
+            showToast('Settings saved!', 'success');
             settingsDirty = false; // Reset dirty flag after successful save
-            
-            // Auto-sync from GitHub after saving list settings
-            triggerAutoSync();
+            refreshStatus();
         } else {
             showToast('Failed to save settings: ' + (result.error || 'Unknown error'), 'error');
         }
@@ -2985,15 +2989,15 @@ async function saveAllSettings() {
     }
 }
 
-// Auto-sync after saving settings
+// Auto-sync after saving settings (now uses MDBList)
 async function triggerAutoSync() {
     try {
-        showToast('Syncing playlists from GitHub...', 'success');
-        const response = await fetch('?api=sync-github');
+        showToast('Syncing from MDBList...', 'success');
+        const response = await fetch('?api=mdblist-sync-and-merge');
         const result = await response.json();
         
         if (result.success) {
-            showToast('GitHub sync complete!', 'success');
+            showToast(`Sync complete! Library: ${result.total_movies} movies, ${result.total_series} series`, 'success');
         } else {
             showToast('Sync issue: ' + (result.error || 'Check logs'), 'error');
         }
