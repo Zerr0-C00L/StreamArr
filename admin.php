@@ -168,38 +168,20 @@ if (isset($_GET['api'])) {
             }
             break;
             
-        case 'save-custom-providers':
-            $data = json_decode(file_get_contents('php://input'), true);
-            $providers = $data['providers'] ?? [];
-            $providersFile = __DIR__ . '/cache/custom_providers.json';
-            file_put_contents($providersFile, json_encode($providers, JSON_PRETTY_PRINT));
-            echo json_encode(['success' => true]);
-            break;
-            
-        case 'get-custom-providers':
-            $providersFile = __DIR__ . '/cache/custom_providers.json';
-            if (file_exists($providersFile)) {
-                echo file_get_contents($providersFile);
-            } else {
-                echo json_encode([]);
-            }
-            break;
-            
-        case 'test-custom-provider':
-            $data = json_decode(file_get_contents('php://input'), true);
-            $result = testCustomProviderEndpoint($data['url'] ?? '');
-            echo json_encode($result);
-            break;
-            
         case 'clear-episode-cache':
-            // Clear episode cache
+            // Clear episode cache (JSON files AND SQLite database)
             $cacheFile = __DIR__ . '/cache/episode_lookup.json';
             $shardDir = __DIR__ . '/cache/episode_shards';
+            $cacheDb = __DIR__ . '/cache/episodes.db';
             $cleared = 0;
+            
+            // Clear JSON file
             if (file_exists($cacheFile)) {
                 unlink($cacheFile);
                 $cleared++;
             }
+            
+            // Clear shard files
             if (is_dir($shardDir)) {
                 $files = glob($shardDir . '/*.json');
                 foreach ($files as $file) {
@@ -207,7 +189,17 @@ if (isset($_GET['api'])) {
                     $cleared++;
                 }
             }
-            echo json_encode(['success' => true, 'message' => "Cleared $cleared episode cache files"]);
+            
+            // Clear SQLite database
+            if (file_exists($cacheDb)) {
+                $db = new SQLite3($cacheDb);
+                $db->exec('DELETE FROM episodes');
+                $db->exec('VACUUM');
+                $db->close();
+                $cleared++;
+            }
+            
+            echo json_encode(['success' => true, 'message' => "Cleared episode cache ($cleared items)"]);
             break;
             
         case 'clear-m3u8':
@@ -241,6 +233,145 @@ if (isset($_GET['api'])) {
             }
             echo json_encode(['success' => true, 'message' => 'Cleared: ' . implode(', ', $cleared)]);
             break;
+        
+        // ========== MDBLIST API HANDLERS ==========
+        case 'mdblist-test':
+            require_once __DIR__ . '/libs/mdblist.php';
+            $mdblist = new MDBListProvider();
+            $result = $mdblist->testConnection();
+            echo json_encode($result);
+            break;
+            
+        case 'mdblist-get-lists':
+            require_once __DIR__ . '/libs/mdblist.php';
+            $lists = MDBListProvider::getSavedLists();
+            echo json_encode(['success' => true, 'lists' => $lists]);
+            break;
+            
+        case 'mdblist-add-list':
+            require_once __DIR__ . '/libs/mdblist.php';
+            $data = json_decode(file_get_contents('php://input'), true);
+            $url = $data['url'] ?? '';
+            $name = $data['name'] ?? '';
+            
+            if (empty($url)) {
+                echo json_encode(['success' => false, 'error' => 'URL is required']);
+                break;
+            }
+            
+            // Validate URL format
+            if (!preg_match('/mdblist\.com\/lists\//', $url)) {
+                echo json_encode(['success' => false, 'error' => 'Invalid MDBList URL format']);
+                break;
+            }
+            
+            // Test fetch the list first
+            $mdblist = new MDBListProvider();
+            $testResult = $mdblist->fetchListByUrl($url);
+            
+            if (!$testResult['success']) {
+                echo json_encode(['success' => false, 'error' => 'Failed to fetch list: ' . ($testResult['error'] ?? 'Unknown error')]);
+                break;
+            }
+            
+            $result = MDBListProvider::addList($url, $name);
+            if ($result['success']) {
+                $result['preview'] = [
+                    'movies' => $testResult['movie_count'] ?? 0,
+                    'series' => $testResult['series_count'] ?? 0,
+                    'total' => $testResult['total'] ?? 0
+                ];
+            }
+            echo json_encode($result);
+            break;
+            
+        case 'mdblist-remove-list':
+            require_once __DIR__ . '/libs/mdblist.php';
+            $data = json_decode(file_get_contents('php://input'), true);
+            $url = $data['url'] ?? '';
+            
+            if (empty($url)) {
+                echo json_encode(['success' => false, 'error' => 'URL is required']);
+                break;
+            }
+            
+            $result = MDBListProvider::removeList($url);
+            echo json_encode($result);
+            break;
+            
+        case 'mdblist-toggle-list':
+            require_once __DIR__ . '/libs/mdblist.php';
+            $data = json_decode(file_get_contents('php://input'), true);
+            $url = $data['url'] ?? '';
+            $enabled = $data['enabled'] ?? true;
+            
+            $result = MDBListProvider::toggleList($url, $enabled);
+            echo json_encode($result);
+            break;
+            
+        case 'mdblist-preview':
+            require_once __DIR__ . '/libs/mdblist.php';
+            $url = $_GET['url'] ?? '';
+            
+            if (empty($url)) {
+                echo json_encode(['success' => false, 'error' => 'URL is required']);
+                break;
+            }
+            
+            $mdblist = new MDBListProvider();
+            $result = $mdblist->fetchListByUrl($url);
+            echo json_encode($result);
+            break;
+            
+        case 'mdblist-sync':
+            require_once __DIR__ . '/libs/mdblist.php';
+            $mdblist = new MDBListProvider();
+            $result = $mdblist->fetchAllConfiguredLists();
+            
+            // Store the result for playlist generation
+            if ($result['success']) {
+                $cacheFile = __DIR__ . '/cache/mdblist_items.json';
+                file_put_contents($cacheFile, json_encode($result, JSON_PRETTY_PRINT));
+            }
+            
+            echo json_encode($result);
+            break;
+            
+        case 'mdblist-search':
+            require_once __DIR__ . '/libs/mdblist.php';
+            $query = $_GET['q'] ?? '';
+            
+            if (empty($query)) {
+                echo json_encode(['success' => false, 'error' => 'Search query required']);
+                break;
+            }
+            
+            $mdblist = new MDBListProvider();
+            $result = $mdblist->searchLists($query);
+            echo json_encode($result);
+            break;
+            
+        case 'mdblist-top-lists':
+            require_once __DIR__ . '/libs/mdblist.php';
+            $type = $_GET['type'] ?? 'movie';
+            
+            $mdblist = new MDBListProvider();
+            $result = $mdblist->getTopLists($type);
+            echo json_encode($result);
+            break;
+            
+        case 'mdblist-clear-cache':
+            require_once __DIR__ . '/libs/mdblist.php';
+            $mdblist = new MDBListProvider();
+            $count = $mdblist->clearCache();
+            echo json_encode(['success' => true, 'message' => "Cleared $count cached items"]);
+            break;
+            
+        case 'mdblist-save-settings':
+            $data = json_decode(file_get_contents('php://input'), true);
+            $result = updateMDBListConfig($data);
+            echo json_encode(['success' => $result]);
+            break;
             
         default:
             echo json_encode(['error' => 'Unknown action']);
@@ -266,6 +397,11 @@ function getSystemStatus() {
                 if ($value === 'true') $configValues[$key] = true;
                 elseif ($value === 'false') $configValues[$key] = false;
                 elseif (is_numeric($value)) $configValues[$key] = (int)$value;
+                elseif (preg_match('/^\[.*\]$/', $value)) {
+                    // Parse array values like ['comet', 'mediafusion']
+                    preg_match_all("/'([^']+)'/", $value, $arrayMatches);
+                    $configValues[$key] = $arrayMatches[1] ?? [];
+                }
                 else $configValues[$key] = trim($value, "'\"");
             }
         }
@@ -278,6 +414,11 @@ function getSystemStatus() {
                 if ($value === 'true') $configValues[$key] = true;
                 elseif ($value === 'false') $configValues[$key] = false;
                 elseif (is_numeric($value)) $configValues[$key] = (int)$value;
+                elseif (preg_match('/^\[.*\]$/', $value)) {
+                    // Parse array values
+                    preg_match_all("/'([^']+)'/", $value, $arrayMatches);
+                    $configValues[$key] = $arrayMatches[1] ?? [];
+                }
                 else $configValues[$key] = trim($value, "'\"");
             }
         }
@@ -451,6 +592,7 @@ function getSystemStatus() {
         
         // Stream providers
         'streamProviders' => is_array($GLOBALS['STREAM_PROVIDERS'] ?? ['comet']) ? ($GLOBALS['STREAM_PROVIDERS'] ?? ['comet']) : [$GLOBALS['STREAM_PROVIDERS']],
+        'cometIndexers' => $GLOBALS['COMET_INDEXERS'] ?? ['bktorrent', 'thepiratebay', 'yts', 'eztv', 'kickasstorrents'],
         'torrentioProviders' => $GLOBALS['TORRENTIO_PROVIDERS'] ?? 'yts,eztv,rarbg,1337x,thepiratebay',
         'mediafusionEnabled' => $GLOBALS['MEDIAFUSION_ENABLED'] ?? true
     ];
@@ -463,6 +605,31 @@ function getSystemStatus() {
         'qualities' => $GLOBALS['EXCLUDED_QUALITIES'] ?? '',
         'custom' => $GLOBALS['EXCLUDED_CUSTOM'] ?? ''
     ];
+    
+    // MDBList settings
+    $status['mdblist'] = [
+        'enabled' => $GLOBALS['MDBLIST_ENABLED'] ?? false,
+        'apiKey' => $GLOBALS['MDBLIST_API_KEY'] ?? '',
+        'syncInterval' => $GLOBALS['MDBLIST_SYNC_INTERVAL'] ?? 6,
+        'mergePlaylist' => $GLOBALS['MDBLIST_MERGE_PLAYLIST'] ?? true
+    ];
+    
+    // Load MDBList saved lists
+    require_once __DIR__ . '/libs/mdblist.php';
+    $status['mdblist']['lists'] = MDBListProvider::getSavedLists();
+    
+    // Check for cached MDBList items
+    $mdblistCache = __DIR__ . '/cache/mdblist_items.json';
+    if (file_exists($mdblistCache)) {
+        $mdblistData = json_decode(file_get_contents($mdblistCache), true);
+        $status['mdblist']['cachedMovies'] = $mdblistData['movie_count'] ?? 0;
+        $status['mdblist']['cachedSeries'] = $mdblistData['series_count'] ?? 0;
+        $status['mdblist']['lastSync'] = $mdblistData['fetched_at'] ?? 'Never';
+    } else {
+        $status['mdblist']['cachedMovies'] = 0;
+        $status['mdblist']['cachedSeries'] = 0;
+        $status['mdblist']['lastSync'] = 'Never';
+    }
     
     return $status;
 }
@@ -537,67 +704,6 @@ function testProvider($provider) {
         'streams' => $streamCount,
         'response_time' => $responseTime . 'ms'
     ];
-}
-
-/**
- * Test a custom Stremio provider
- */
-function testCustomProviderEndpoint($baseUrl) {
-    global $PRIVATE_TOKEN;
-    
-    if (empty($baseUrl)) {
-        return ['success' => false, 'error' => 'No URL provided'];
-    }
-    
-    $testImdb = 'tt0137523'; // Fight Club
-    $rdKey = $PRIVATE_TOKEN;
-    
-    // Try to build a stream URL with RD config
-    // Most Stremio addons follow the pattern: {base}/{config}/stream/movie/{imdb}.json
-    $config = base64_encode(json_encode([
-        'debridService' => 'realdebrid',
-        'debridApiKey' => $rdKey,
-        'streaming_provider' => ['token' => $rdKey, 'service' => 'realdebrid']
-    ]));
-    
-    // Try multiple URL patterns
-    $urlPatterns = [
-        "$baseUrl/$config/stream/movie/$testImdb.json",
-        "$baseUrl/stream/movie/$testImdb.json",
-        "$baseUrl/$testImdb.json"
-    ];
-    
-    foreach ($urlPatterns as $url) {
-        $ch = curl_init($url);
-        curl_setopt_array($ch, [
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_TIMEOUT => 15,
-            CURLOPT_FOLLOWLOCATION => true,
-            CURLOPT_USERAGENT => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-        ]);
-        
-        $startTime = microtime(true);
-        $response = curl_exec($ch);
-        $responseTime = round((microtime(true) - $startTime) * 1000);
-        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        curl_close($ch);
-        
-        if ($httpCode === 200) {
-            $data = json_decode($response, true);
-            $streamCount = isset($data['streams']) ? count($data['streams']) : 0;
-            
-            if ($streamCount > 0) {
-                return [
-                    'success' => true,
-                    'streams' => $streamCount,
-                    'time' => $responseTime,
-                    'url_pattern' => $url
-                ];
-            }
-        }
-    }
-    
-    return ['success' => false, 'error' => 'No streams found with any URL pattern', 'time' => $responseTime ?? 0];
 }
 
 function updateConfigFile($settings) {
@@ -757,6 +863,17 @@ function updateConfigFile($settings) {
         );
     }
     
+    // Handle Comet Indexers array
+    if (isset($settings['cometIndexers']) && is_array($settings['cometIndexers'])) {
+        $indexers = array_map(function($i) { return "'$i'"; }, $settings['cometIndexers']);
+        $indexersStr = implode(', ', $indexers);
+        $content = preg_replace(
+            "/\\\$GLOBALS\['COMET_INDEXERS'\]\s*=\s*\[[^\]]*\]/",
+            "\$GLOBALS['COMET_INDEXERS'] = [$indexersStr]",
+            $content
+        );
+    }
+    
     // Handle MediaFusion enabled (GLOBALS)
     if (isset($settings['mediafusionEnabled'])) {
         $value = $settings['mediafusionEnabled'] ? 'true' : 'false';
@@ -811,6 +928,56 @@ function updateFilterConfig($filters) {
         "\$GLOBALS['ENABLE_RELEASE_FILTERS'] = $enabled",
         $content
     );
+    
+    return file_put_contents($configFile, $content) !== false;
+}
+
+/**
+ * Update MDBList configuration in config.php
+ */
+function updateMDBListConfig($settings) {
+    $configFile = __DIR__ . '/config.php';
+    $content = file_get_contents($configFile);
+    
+    // Update API key
+    if (isset($settings['apiKey'])) {
+        $apiKey = str_replace("'", "\\'", $settings['apiKey']);
+        $content = preg_replace(
+            "/\\\$GLOBALS\['MDBLIST_API_KEY'\]\s*=\s*'[^']*';/",
+            "\$GLOBALS['MDBLIST_API_KEY'] = '$apiKey';",
+            $content
+        );
+    }
+    
+    // Update enabled status
+    if (isset($settings['enabled'])) {
+        $value = $settings['enabled'] ? 'true' : 'false';
+        $content = preg_replace(
+            "/\\\$GLOBALS\['MDBLIST_ENABLED'\]\s*=\s*(true|false);/",
+            "\$GLOBALS['MDBLIST_ENABLED'] = $value;",
+            $content
+        );
+    }
+    
+    // Update sync interval
+    if (isset($settings['syncInterval'])) {
+        $interval = intval($settings['syncInterval']);
+        $content = preg_replace(
+            "/\\\$GLOBALS\['MDBLIST_SYNC_INTERVAL'\]\s*=\s*\d+;/",
+            "\$GLOBALS['MDBLIST_SYNC_INTERVAL'] = $interval;",
+            $content
+        );
+    }
+    
+    // Update merge playlist setting
+    if (isset($settings['mergePlaylist'])) {
+        $value = $settings['mergePlaylist'] ? 'true' : 'false';
+        $content = preg_replace(
+            "/\\\$GLOBALS\['MDBLIST_MERGE_PLAYLIST'\]\s*=\s*(true|false);/",
+            "\$GLOBALS['MDBLIST_MERGE_PLAYLIST'] = $value;",
+            $content
+        );
+    }
     
     return file_put_contents($configFile, $content) !== false;
 }
@@ -1522,11 +1689,6 @@ function formatBytes($bytes) {
         Services
     </a>
     
-    <a class="nav-item" data-page="providers">
-        <svg fill="currentColor" viewBox="0 0 20 20"><path d="M5.5 16a3.5 3.5 0 01-.369-6.98 4 4 0 117.753-1.977A4.5 4.5 0 1113.5 16h-8z"></path></svg>
-        Providers
-    </a>
-    
     <a class="nav-item" data-page="logs">
         <svg fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4z" clip-rule="evenodd"></path></svg>
         Logs
@@ -1540,6 +1702,11 @@ function formatBytes($bytes) {
     <a class="nav-item" data-page="settings">
         <svg fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z" clip-rule="evenodd"></path></svg>
         Settings
+    </a>
+    
+    <a class="nav-item" href="media_browser.php">
+        <svg fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M4 3a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V5a2 2 0 00-2-2H4zm3 2h6v4H7V5zm8 8v2h1v-2h-1zm-2-2H7v4h6v-4zm2 0h1V9h-1v2zm1-4V5h-1v2h1zM5 5v2H4V5h1zm0 4H4v2h1V9zm-1 4h1v2H4v-2z" clip-rule="evenodd"></path></svg>
+        Media Browser
     </a>
     
     <a class="nav-item" href="?logout=1" style="margin-top: auto; position: absolute; bottom: 1rem; width: calc(100% - 2rem); margin: 0 1rem;">
@@ -1568,13 +1735,15 @@ function formatBytes($bytes) {
                 <div class="stat-value" id="stat-series">-</div>
                 <div class="stat-label">TV Series</div>
             </div>
-            <div class="stat-card" style="cursor: pointer;" onclick="clearEpisodeCache()" title="Click to clear">
+            <div class="stat-card">
                 <div class="stat-value" id="stat-episodes">-</div>
-                <div class="stat-label">Cached Episodes 🗑️</div>
+                <div class="stat-label">Cached Episodes</div>
+                <button class="btn btn-danger" style="margin-top: 0.5rem; padding: 0.25rem 0.5rem; font-size: 0.75rem;" onclick="clearEpisodeCache()">Clear</button>
             </div>
-            <div class="stat-card" style="cursor: pointer;" onclick="clearM3U8()" title="Click to clear">
+            <div class="stat-card">
                 <div class="stat-value" id="stat-m3u">-</div>
-                <div class="stat-label">M3U8 Entries 🗑️</div>
+                <div class="stat-label">M3U8 Entries</div>
+                <button class="btn btn-danger" style="margin-top: 0.5rem; padding: 0.25rem 0.5rem; font-size: 0.75rem;" onclick="clearM3U8()">Clear</button>
             </div>
         </div>
         
@@ -1653,33 +1822,6 @@ function formatBytes($bytes) {
                     <button class="btn btn-primary" onclick="runAction('generate-playlist')">Run Now</button>
                 </div>
             </div>
-        </div>
-    </div>
-    
-    <!-- Providers Page -->
-    <div id="page-providers" class="page hidden">
-        <div class="page-header">
-            <h2>Stream Providers</h2>
-            <button class="btn btn-secondary" onclick="testAllProviders()">Test All</button>
-        </div>
-        
-        <div class="card">
-            <div class="card-header">
-                <span class="card-title">Provider Status</span>
-            </div>
-            
-            <div class="provider-row">
-                <div>
-                    <h4>Comet</h4>
-                    <p style="font-size: 0.85rem; color: var(--text-secondary);">Works on datacenter IPs (Hetzner, DO, etc.)</p>
-                </div>
-                <div class="provider-status">
-                    <span id="provider-comet-status" class="status-badge status-stopped">Not Tested</span>
-                    <button class="btn btn-secondary" onclick="testProvider('comet')">Test</button>
-                </div>
-            </div>
-            
-            <!-- MediaFusion and Torrentio removed - Comet is the only reliable provider -->
         </div>
     </div>
     
@@ -2090,32 +2232,201 @@ function formatBytes($bytes) {
             
             <div class="settings-form">
                 <div class="form-group">
-                    <label>Default Provider</label>
-                    <div style="display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.5rem;">
-                        <label style="display: flex; align-items: center; gap: 0.5rem; background: var(--bg-tertiary); padding: 0.5rem 1rem; border-radius: 6px; cursor: pointer;">
-                            <input type="checkbox" id="provider-comet" checked disabled> Comet (Active)
+                    <label>Enable Providers (in priority order)</label>
+                    <div style="display: flex; flex-direction: column; gap: 0.75rem; margin-top: 0.5rem;">
+                        <label style="display: flex; align-items: center; gap: 0.5rem; background: var(--bg-tertiary); padding: 0.75rem 1rem; border-radius: 6px; cursor: pointer;">
+                            <input type="checkbox" id="provider-comet" checked> 
+                            <span style="font-weight: 500;">☄️ Comet</span>
+                            <span style="font-size: 0.75rem; color: var(--text-secondary); margin-left: auto;">Best for datacenter IPs (Hetzner, etc.)</span>
+                        </label>
+                        <label style="display: flex; align-items: center; gap: 0.5rem; background: var(--bg-tertiary); padding: 0.75rem 1rem; border-radius: 6px; cursor: pointer;">
+                            <input type="checkbox" id="provider-mediafusion"> 
+                            <span style="font-weight: 500;">🌐 MediaFusion</span>
+                            <span style="font-size: 0.75rem; color: var(--text-secondary); margin-left: auto;">ElfHosted instance, datacenter-friendly</span>
+                        </label>
+                        <label style="display: flex; align-items: center; gap: 0.5rem; background: var(--bg-tertiary); padding: 0.75rem 1rem; border-radius: 6px; cursor: pointer;">
+                            <input type="checkbox" id="provider-torrentio"> 
+                            <span style="font-weight: 500;">🔥 Torrentio</span>
+                            <span style="font-size: 0.75rem; color: var(--text-secondary); margin-left: auto;">May be blocked on datacenter IPs</span>
                         </label>
                     </div>
-                    <span style="font-size: 0.75rem; color: var(--text-secondary);">Comet is the default provider. You can add custom Stremio addons below.</span>
+                    <span style="font-size: 0.75rem; color: var(--text-secondary);">First working provider is used. Drag to reorder priority.</span>
                 </div>
                 
-                <div class="form-group">
-                    <label>Custom Providers</label>
-                    <div id="custom-providers-list" style="margin-bottom: 0.5rem;"></div>
+                <div class="form-group" id="comet-settings" style="border-top: 1px solid var(--border-color); padding-top: 1rem; margin-top: 0.5rem;">
+                    <label>☄️ Comet Indexers</label>
+                    <div style="display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.5rem;">
+                        <label style="display: flex; align-items: center; gap: 0.25rem; background: var(--bg-tertiary); padding: 0.4rem 0.75rem; border-radius: 4px; cursor: pointer; font-size: 0.85rem;">
+                            <input type="checkbox" id="comet-bktorrent" class="comet-indexer" value="bktorrent"> bktorrent
+                        </label>
+                        <label style="display: flex; align-items: center; gap: 0.25rem; background: var(--bg-tertiary); padding: 0.4rem 0.75rem; border-radius: 4px; cursor: pointer; font-size: 0.85rem;">
+                            <input type="checkbox" id="comet-thepiratebay" class="comet-indexer" value="thepiratebay"> ThePirateBay
+                        </label>
+                        <label style="display: flex; align-items: center; gap: 0.25rem; background: var(--bg-tertiary); padding: 0.4rem 0.75rem; border-radius: 4px; cursor: pointer; font-size: 0.85rem;">
+                            <input type="checkbox" id="comet-yts" class="comet-indexer" value="yts"> YTS
+                        </label>
+                        <label style="display: flex; align-items: center; gap: 0.25rem; background: var(--bg-tertiary); padding: 0.4rem 0.75rem; border-radius: 4px; cursor: pointer; font-size: 0.85rem;">
+                            <input type="checkbox" id="comet-eztv" class="comet-indexer" value="eztv"> EZTV
+                        </label>
+                        <label style="display: flex; align-items: center; gap: 0.25rem; background: var(--bg-tertiary); padding: 0.4rem 0.75rem; border-radius: 4px; cursor: pointer; font-size: 0.85rem;">
+                            <input type="checkbox" id="comet-kickasstorrents" class="comet-indexer" value="kickasstorrents"> KickassTorrents
+                        </label>
+                        <label style="display: flex; align-items: center; gap: 0.25rem; background: var(--bg-tertiary); padding: 0.4rem 0.75rem; border-radius: 4px; cursor: pointer; font-size: 0.85rem;">
+                            <input type="checkbox" id="comet-torrentgalaxy" class="comet-indexer" value="torrentgalaxy"> TorrentGalaxy
+                        </label>
+                        <label style="display: flex; align-items: center; gap: 0.25rem; background: var(--bg-tertiary); padding: 0.4rem 0.75rem; border-radius: 4px; cursor: pointer; font-size: 0.85rem;">
+                            <input type="checkbox" id="comet-nyaasi" class="comet-indexer" value="nyaasi"> Nyaa.si
+                        </label>
+                        <label style="display: flex; align-items: center; gap: 0.25rem; background: var(--bg-tertiary); padding: 0.4rem 0.75rem; border-radius: 4px; cursor: pointer; font-size: 0.85rem;">
+                            <input type="checkbox" id="comet-1337x" class="comet-indexer" value="1337x"> 1337x
+                        </label>
+                    </div>
+                    <span style="font-size: 0.75rem; color: var(--text-secondary);">Select which torrent indexers Comet should search. All are international/English-focused.</span>
+                </div>
+                
+                <div class="form-group" id="torrentio-settings" style="border-top: 1px solid var(--border-color); padding-top: 1rem; margin-top: 0.5rem;">
+                    <label>🔥 Torrentio Providers</label>
+                    <input type="text" id="setting-torrentioProviders" placeholder="yts,eztv,rarbg,1337x,thepiratebay,kickasstorrents,torrentgalaxy" style="font-family: monospace;">
+                    <span style="font-size: 0.75rem; color: var(--text-secondary);">Comma-separated list: yts, eztv, rarbg, 1337x, thepiratebay, kickasstorrents, torrentgalaxy, magnetdl, etc.</span>
+                </div>
+                
+                <div class="form-group" style="border-top: 1px solid var(--border-color); padding-top: 1rem; margin-top: 0.5rem;">
+                    <label>Test Providers</label>
                     <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
-                        <input type="text" id="new-provider-name" placeholder="Provider Name (e.g., MyAddon)" style="flex: 1; min-width: 150px;">
-                        <input type="text" id="new-provider-url" placeholder="Stremio Manifest URL (e.g., https://addon.example.com/manifest.json)" style="flex: 2; min-width: 300px;">
-                        <button class="btn btn-primary" onclick="addCustomProvider()">Add</button>
+                        <button class="btn btn-secondary" onclick="testProvider('comet')">Test Comet</button>
+                        <button class="btn btn-secondary" onclick="testProvider('mediafusion')">Test MediaFusion</button>
+                        <button class="btn btn-secondary" onclick="testProvider('torrentio')">Test Torrentio</button>
                     </div>
-                    <span style="font-size: 0.75rem; color: var(--text-secondary);">Add custom Stremio addons. Use the manifest.json URL. Provider must support Real-Debrid.</span>
+                    <div id="provider-test-result" style="margin-top: 0.5rem; padding: 0.5rem; background: var(--bg-tertiary); border-radius: 4px; font-size: 0.85rem; display: none;"></div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- MDBList Integration Section -->
+        <div class="card">
+            <div class="card-header">
+                <span class="card-title">📋 MDBList Integration</span>
+                <label class="toggle-switch">
+                    <input type="checkbox" id="mdblist-enabled">
+                    <span class="toggle-slider"></span>
+                </label>
+            </div>
+            
+            <div style="background: var(--bg-tertiary); padding: 0.75rem 1rem; border-radius: 6px; margin-bottom: 1rem; font-size: 0.85rem; color: var(--text-secondary);">
+                📋 Import curated movie/TV lists from <a href="https://mdblist.com" target="_blank" style="color: var(--primary);">MDBList.com</a>. 
+                Add popular lists like "Top Watched Movies of the Week" or create your own custom lists.
+                <a href="https://mdblist.com/preferences/" target="_blank" style="color: var(--primary);">Get your API key here</a> (optional - only needed for private lists).
+            </div>
+            
+            <div class="settings-form">
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>MDBList API Key (Optional)</label>
+                        <div style="position: relative;">
+                            <input type="password" id="mdblist-apiKey" placeholder="Your MDBList API key">
+                            <button type="button" onclick="togglePassword('mdblist-apiKey')" style="position: absolute; right: 8px; top: 50%; transform: translateY(-50%); background: none; border: none; color: var(--text-secondary); cursor: pointer;">👁</button>
+                        </div>
+                        <span style="font-size: 0.75rem; color: var(--text-secondary);">Only required for private lists and user-specific lists</span>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Auto-Sync Interval</label>
+                        <select id="mdblist-syncInterval">
+                            <option value="0">Manual Only</option>
+                            <option value="1">Every 1 Hour</option>
+                            <option value="3">Every 3 Hours</option>
+                            <option value="6">Every 6 Hours</option>
+                            <option value="12">Every 12 Hours</option>
+                            <option value="24">Every 24 Hours</option>
+                        </select>
+                    </div>
                 </div>
                 
-                <div class="form-group">
-                    <label>Provider Priority</label>
-                    <div id="provider-priority-list" style="background: var(--bg-tertiary); padding: 0.5rem; border-radius: 6px; min-height: 40px;">
-                        <span style="color: var(--text-secondary); font-size: 0.85rem;">Drag providers to reorder. First working provider is used.</span>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Merge with Main Playlist</label>
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="mdblist-mergePlaylist" checked>
+                            <span class="toggle-slider"></span>
+                        </label>
+                        <span style="font-size: 0.75rem; color: var(--text-secondary);">Add MDBList items to your main movie/series playlists</span>
+                    </div>
+                    
+                    <div class="form-group">
+                        <button class="btn btn-secondary" onclick="testMDBListConnection()">
+                            🔌 Test Connection
+                        </button>
+                        <span id="mdblist-connection-status" style="margin-left: 0.5rem; font-size: 0.85rem;"></span>
                     </div>
                 </div>
+            </div>
+            
+            <!-- Add New List -->
+            <div style="border-top: 1px solid var(--border-color); padding-top: 1rem; margin-top: 1rem;">
+                <h4 style="margin-bottom: 0.75rem; color: var(--text-primary);">Add MDBList URL</h4>
+                <div style="display: flex; gap: 0.5rem; margin-bottom: 0.5rem;">
+                    <input type="text" id="mdblist-new-url" placeholder="https://mdblist.com/lists/username/list-name" style="flex: 1;">
+                    <button class="btn btn-primary" onclick="addMDBList()">
+                        ➕ Add List
+                    </button>
+                </div>
+                <span style="font-size: 0.75rem; color: var(--text-secondary);">
+                    Paste any public MDBList URL. Examples: 
+                    <code>mdblist.com/lists/linaspuransen/top-watched-movies-of-the-week</code>
+                </span>
+                
+                <!-- Popular Lists Quick Add -->
+                <div style="margin-top: 1rem;">
+                    <label style="font-size: 0.85rem; color: var(--text-secondary);">Popular Lists:</label>
+                    <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.5rem;">
+                        <button class="btn btn-secondary" style="font-size: 0.75rem; padding: 0.4rem 0.75rem;" onclick="quickAddMDBList('https://mdblist.com/lists/linaspuransen/top-watched-movies-of-the-week', 'Top Watched Movies')">
+                            🎬 Top Watched Movies
+                        </button>
+                        <button class="btn btn-secondary" style="font-size: 0.75rem; padding: 0.4rem 0.75rem;" onclick="quickAddMDBList('https://mdblist.com/lists/hdlists/top-ten-pirated-movies-of-the-week', 'Top Pirated Movies')">
+                            🏴‍☠️ Top Pirated
+                        </button>
+                        <button class="btn btn-secondary" style="font-size: 0.75rem; padding: 0.4rem 0.75rem;" onclick="quickAddMDBList('https://mdblist.com/lists/linaspuransen/top-watched-tv-shows-of-the-week', 'Top Watched TV')">
+                            📺 Top Watched TV
+                        </button>
+                        <button class="btn btn-secondary" style="font-size: 0.75rem; padding: 0.4rem 0.75rem;" onclick="searchMDBLists()">
+                            🔍 Search Lists...
+                        </button>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Configured Lists -->
+            <div style="border-top: 1px solid var(--border-color); padding-top: 1rem; margin-top: 1rem;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
+                    <h4 style="margin: 0; color: var(--text-primary);">Your MDBList Sources</h4>
+                    <div style="display: flex; gap: 0.5rem;">
+                        <button class="btn btn-secondary" style="font-size: 0.75rem;" onclick="syncMDBLists()">
+                            🔄 Sync Now
+                        </button>
+                        <button class="btn btn-secondary" style="font-size: 0.75rem;" onclick="clearMDBListCache()">
+                            🗑️ Clear Cache
+                        </button>
+                    </div>
+                </div>
+                
+                <div id="mdblist-sources" style="max-height: 300px; overflow-y: auto;">
+                    <!-- Lists will be populated by JavaScript -->
+                    <div class="loading" style="text-align: center; padding: 1rem; color: var(--text-secondary);">Loading lists...</div>
+                </div>
+                
+                <!-- Sync Status -->
+                <div id="mdblist-sync-status" style="margin-top: 1rem; padding: 0.75rem; background: var(--bg-tertiary); border-radius: 6px; font-size: 0.85rem; display: none;">
+                    <div style="display: flex; justify-content: space-between;">
+                        <span>Last Sync: <span id="mdblist-last-sync">Never</span></span>
+                        <span>Movies: <span id="mdblist-movie-count">0</span> | Series: <span id="mdblist-series-count">0</span></span>
+                    </div>
+                </div>
+            </div>
+            
+            <div style="margin-top: 1rem;">
+                <button class="btn btn-primary" onclick="saveMDBListSettings()">
+                    💾 Save MDBList Settings
+                </button>
             </div>
         </div>
         
@@ -2137,6 +2448,25 @@ function formatBytes($bytes) {
             <button class="btn btn-primary btn-lg" onclick="saveAllSettings()" style="width: 100%; padding: 1rem; font-size: 1.1rem;">
                 💾 Save All Settings
             </button>
+        </div>
+    </div>
+    
+    <!-- MDBList Search Modal -->
+    <div class="modal" id="mdblist-search-modal">
+        <div class="modal-content" style="max-width: 700px;">
+            <div class="modal-header">
+                <h3>🔍 Search MDBList</h3>
+                <button class="modal-close" onclick="closeMDBListSearchModal()">×</button>
+            </div>
+            <div class="modal-body">
+                <div style="display: flex; gap: 0.5rem; margin-bottom: 1rem;">
+                    <input type="text" id="mdblist-search-query" placeholder="Search for lists..." style="flex: 1;" onkeyup="if(event.key==='Enter') performMDBListSearch()">
+                    <button class="btn btn-primary" onclick="performMDBListSearch()">Search</button>
+                </div>
+                <div id="mdblist-search-results" style="max-height: 400px; overflow-y: auto;">
+                    <p style="text-align: center; color: var(--text-secondary);">Enter a search term to find MDBLists</p>
+                </div>
+            </div>
         </div>
     </div>
     
@@ -2399,6 +2729,15 @@ function updateDashboard(status) {
         
         const torrentioProvidersEl = document.getElementById('setting-torrentioProviders');
         if (torrentioProvidersEl) torrentioProvidersEl.value = status.config.torrentioProviders || '';
+        
+        // Load Comet indexers
+        const cometIndexers = status.config.cometIndexers || ['bktorrent', 'thepiratebay', 'yts', 'eztv', 'kickasstorrents'];
+        document.querySelectorAll('.comet-indexer').forEach(el => {
+            el.checked = cometIndexers.includes(el.value);
+        });
+        
+        // Show/hide provider-specific settings based on enabled providers
+        updateProviderSettingsVisibility();
     }
     
     // Filters
@@ -2590,6 +2929,7 @@ async function saveAllSettings() {
         
         // Stream providers
         streamProviders: getSelectedProviders(),
+        cometIndexers: getSelectedCometIndexers(),
         torrentioProviders: document.getElementById('setting-torrentioProviders')?.value || '',
         mediafusionEnabled: document.getElementById('provider-mediafusion')?.checked || false
     };
@@ -2669,167 +3009,89 @@ async function pollStreamPopulationStatus() {
     }, 30 * 60 * 1000);
 }
 
-// Custom Providers Management
-let customProviders = [];
-
-function loadCustomProviders() {
-    const saved = localStorage.getItem('customProviders');
-    if (saved) {
-        try {
-            customProviders = JSON.parse(saved);
-        } catch (e) {
-            customProviders = [];
-        }
-    }
-    renderCustomProviders();
-    renderProviderPriority();
-}
-
-function saveCustomProviders() {
-    localStorage.setItem('customProviders', JSON.stringify(customProviders));
-    // Also save to server config
-    saveProvidersToServer();
-}
-
-async function saveProvidersToServer() {
-    try {
-        await fetch('?api=save-custom-providers', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ providers: customProviders })
-        });
-    } catch (e) {
-        console.error('Failed to save providers to server:', e);
-    }
-}
-
-function renderCustomProviders() {
-    const container = document.getElementById('custom-providers-list');
-    if (!container) return;
-    
-    if (customProviders.length === 0) {
-        container.innerHTML = '<span style="color: var(--text-secondary); font-size: 0.85rem;">No custom providers added yet.</span>';
-        return;
-    }
-    
-    container.innerHTML = customProviders.map((p, idx) => `
-        <div style="display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem; background: var(--bg-tertiary); border-radius: 6px; margin-bottom: 0.5rem;">
-            <span style="flex: 1;">
-                <strong>${escapeHtml(p.name)}</strong>
-                <span style="color: var(--text-secondary); font-size: 0.8rem; margin-left: 0.5rem;">${escapeHtml(p.url.substring(0, 50))}...</span>
-            </span>
-            <button class="btn btn-secondary" onclick="testCustomProvider(${idx})" style="padding: 0.25rem 0.5rem; font-size: 0.8rem;">Test</button>
-            <button class="btn btn-secondary" onclick="removeCustomProvider(${idx})" style="padding: 0.25rem 0.5rem; font-size: 0.8rem; color: #ef4444;">Remove</button>
-        </div>
-    `).join('');
-}
-
-function renderProviderPriority() {
-    const container = document.getElementById('provider-priority-list');
-    if (!container) return;
-    
-    const allProviders = [
-        { id: 'comet', name: 'Comet (Default)', isDefault: true },
-        ...customProviders.map((p, idx) => ({ id: `custom_${idx}`, name: p.name, isDefault: false }))
-    ];
-    
-    container.innerHTML = allProviders.map((p, idx) => `
-        <div draggable="true" data-provider-idx="${idx}" style="display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.5rem 1rem; background: ${p.isDefault ? 'var(--accent)' : 'var(--bg-secondary)'}; color: ${p.isDefault ? 'white' : 'var(--text-primary)'}; border-radius: 6px; margin: 0.25rem; cursor: move;">
-            <span style="cursor: grab;">☰</span>
-            <span>${escapeHtml(p.name)}</span>
-        </div>
-    `).join('');
-}
-
 function escapeHtml(text) {
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
 }
 
-function addCustomProvider() {
-    const nameInput = document.getElementById('new-provider-name');
-    const urlInput = document.getElementById('new-provider-url');
-    
-    const name = nameInput.value.trim();
-    let url = urlInput.value.trim();
-    
-    if (!name || !url) {
-        showToast('Please enter both provider name and URL', 'error');
-        return;
-    }
-    
-    // Normalize URL - extract base URL from manifest.json
-    if (url.endsWith('/manifest.json')) {
-        url = url.replace('/manifest.json', '');
-    }
-    
-    // Validate URL format
-    try {
-        new URL(url);
-    } catch (e) {
-        showToast('Invalid URL format', 'error');
-        return;
-    }
-    
-    customProviders.push({ name, url, enabled: true });
-    saveCustomProviders();
-    renderCustomProviders();
-    renderProviderPriority();
-    
-    nameInput.value = '';
-    urlInput.value = '';
-    
-    showToast(`Provider "${name}" added!`, 'success');
-}
-
-function removeCustomProvider(idx) {
-    if (confirm(`Remove provider "${customProviders[idx].name}"?`)) {
-        customProviders.splice(idx, 1);
-        saveCustomProviders();
-        renderCustomProviders();
-        renderProviderPriority();
-        showToast('Provider removed', 'success');
-    }
-}
-
-async function testCustomProvider(idx) {
-    const provider = customProviders[idx];
-    showToast(`Testing ${provider.name}...`, 'success');
-    
-    try {
-        const response = await fetch('?api=test-custom-provider', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ url: provider.url })
-        });
-        const result = await response.json();
-        
-        if (result.success) {
-            showToast(`${provider.name}: OK (${result.streams} streams, ${result.time}ms)`, 'success');
-        } else {
-            showToast(`${provider.name}: Failed - ${result.error}`, 'error');
-        }
-    } catch (e) {
-        showToast(`${provider.name}: Error - ${e.message}`, 'error');
-    }
-}
-
 function getSelectedProviders() {
-    // Return comet + any enabled custom providers
-    const providers = ['comet'];
-    customProviders.forEach((p, idx) => {
-        if (p.enabled) {
-            providers.push(`custom_${idx}`);
-        }
-    });
+    const providers = [];
+    
+    if (document.getElementById('provider-comet')?.checked) {
+        providers.push('comet');
+    }
+    if (document.getElementById('provider-mediafusion')?.checked) {
+        providers.push('mediafusion');
+    }
+    if (document.getElementById('provider-torrentio')?.checked) {
+        providers.push('torrentio');
+    }
+    
+    // Ensure at least comet is selected
+    if (providers.length === 0) {
+        providers.push('comet');
+    }
+    
     return providers;
 }
 
-// Load custom providers on page load
+function getSelectedCometIndexers() {
+    const indexers = [];
+    document.querySelectorAll('.comet-indexer:checked').forEach(el => {
+        indexers.push(el.value);
+    });
+    // Default to some indexers if none selected
+    if (indexers.length === 0) {
+        indexers.push('bktorrent', 'thepiratebay', 'yts');
+    }
+    return indexers;
+}
+
+function updateProviderSettingsVisibility() {
+    const cometSettings = document.getElementById('comet-settings');
+    const torrentioSettings = document.getElementById('torrentio-settings');
+    
+    if (cometSettings) {
+        cometSettings.style.display = document.getElementById('provider-comet')?.checked ? 'block' : 'none';
+    }
+    if (torrentioSettings) {
+        torrentioSettings.style.display = document.getElementById('provider-torrentio')?.checked ? 'block' : 'none';
+    }
+}
+
+// Add event listeners for provider toggles
 document.addEventListener('DOMContentLoaded', () => {
-    loadCustomProviders();
+    // Toggle visibility of provider settings when checkboxes change
+    ['provider-comet', 'provider-mediafusion', 'provider-torrentio'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) {
+            el.addEventListener('change', updateProviderSettingsVisibility);
+        }
+    });
 });
+
+// Test provider function
+async function testProvider(provider) {
+    const resultDiv = document.getElementById('provider-test-result');
+    if (resultDiv) {
+        resultDiv.style.display = 'block';
+        resultDiv.innerHTML = `<span style="color: var(--text-secondary);">Testing ${provider}...</span>`;
+    }
+    
+    try {
+        const response = await fetch(`?api=test-provider&provider=${provider}`);
+        const result = await response.json();
+        
+        if (result.success) {
+            resultDiv.innerHTML = `<span style="color: var(--success);">✅ ${provider}: OK - ${result.streams} streams found (${result.response_time})</span>`;
+        } else {
+            resultDiv.innerHTML = `<span style="color: var(--danger);">❌ ${provider}: Failed - ${result.error || 'No streams'}</span>`;
+        }
+    } catch (e) {
+        resultDiv.innerHTML = `<span style="color: var(--danger);">❌ ${provider}: Error - ${e.message}</span>`;
+    }
+}
 
 // Keep old function name for backward compatibility
 async function saveSettings() {
@@ -2952,6 +3214,349 @@ document.querySelectorAll('#page-settings input, #page-settings select').forEach
     el.addEventListener('change', () => { settingsDirty = true; });
     el.addEventListener('input', () => { settingsDirty = true; });
 });
+
+// ========== MDBLIST FUNCTIONS ==========
+
+// Load MDBList settings into the UI
+function loadMDBListSettings(status) {
+    if (!status.mdblist) return;
+    
+    const enabledEl = document.getElementById('mdblist-enabled');
+    if (enabledEl) enabledEl.checked = status.mdblist.enabled === true;
+    
+    const apiKeyEl = document.getElementById('mdblist-apiKey');
+    if (apiKeyEl) apiKeyEl.value = status.mdblist.apiKey || '';
+    
+    const syncIntervalEl = document.getElementById('mdblist-syncInterval');
+    if (syncIntervalEl) syncIntervalEl.value = status.mdblist.syncInterval || 6;
+    
+    const mergeEl = document.getElementById('mdblist-mergePlaylist');
+    if (mergeEl) mergeEl.checked = status.mdblist.mergePlaylist !== false;
+    
+    // Update sync status display
+    const syncStatusEl = document.getElementById('mdblist-sync-status');
+    if (syncStatusEl && (status.mdblist.cachedMovies > 0 || status.mdblist.cachedSeries > 0)) {
+        syncStatusEl.style.display = 'block';
+        document.getElementById('mdblist-last-sync').textContent = status.mdblist.lastSync || 'Never';
+        document.getElementById('mdblist-movie-count').textContent = status.mdblist.cachedMovies || 0;
+        document.getElementById('mdblist-series-count').textContent = status.mdblist.cachedSeries || 0;
+    }
+    
+    // Load configured lists
+    renderMDBListSources(status.mdblist.lists || []);
+}
+
+// Render MDBList sources in the UI
+function renderMDBListSources(lists) {
+    const container = document.getElementById('mdblist-sources');
+    if (!container) return;
+    
+    if (!lists || lists.length === 0) {
+        container.innerHTML = `
+            <div style="text-align: center; padding: 2rem; color: var(--text-secondary);">
+                <p>📋 No MDBLists configured yet</p>
+                <p style="font-size: 0.85rem; margin-top: 0.5rem;">Add a list URL above or click one of the popular lists to get started</p>
+            </div>
+        `;
+        return;
+    }
+    
+    container.innerHTML = lists.map((list, index) => `
+        <div class="mdblist-item" style="display: flex; align-items: center; justify-content: space-between; padding: 0.75rem; background: var(--bg-tertiary); border-radius: 6px; margin-bottom: 0.5rem;">
+            <div style="flex: 1; min-width: 0;">
+                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                    <label class="toggle-switch" style="margin: 0;">
+                        <input type="checkbox" ${list.enabled !== false ? 'checked' : ''} onchange="toggleMDBList('${escapeHtml(list.url)}', this.checked)">
+                        <span class="toggle-slider"></span>
+                    </label>
+                    <span style="font-weight: 500; color: var(--text-primary);">${escapeHtml(list.name || 'Unnamed List')}</span>
+                </div>
+                <div style="font-size: 0.75rem; color: var(--text-secondary); margin-top: 0.25rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                    ${escapeHtml(list.url)}
+                </div>
+                ${list.added ? `<div style="font-size: 0.7rem; color: var(--text-muted); margin-top: 0.25rem;">Added: ${list.added}</div>` : ''}
+            </div>
+            <div style="display: flex; gap: 0.5rem; margin-left: 1rem;">
+                <button class="btn btn-secondary" style="padding: 0.25rem 0.5rem; font-size: 0.75rem;" onclick="previewMDBList('${escapeHtml(list.url)}')" title="Preview">
+                    👁
+                </button>
+                <button class="btn btn-danger" style="padding: 0.25rem 0.5rem; font-size: 0.75rem;" onclick="removeMDBList('${escapeHtml(list.url)}')" title="Remove">
+                    🗑️
+                </button>
+            </div>
+        </div>
+    `).join('');
+}
+
+// Test MDBList API connection
+async function testMDBListConnection() {
+    const statusEl = document.getElementById('mdblist-connection-status');
+    statusEl.innerHTML = '<span style="color: var(--text-secondary);">Testing...</span>';
+    
+    try {
+        const response = await fetch('?api=mdblist-test');
+        const result = await response.json();
+        
+        if (result.success) {
+            statusEl.innerHTML = `<span style="color: var(--success);">✅ Connected (${result.api_requests_remaining} requests remaining)</span>`;
+        } else {
+            statusEl.innerHTML = `<span style="color: var(--danger);">❌ ${result.error || 'Connection failed'}</span>`;
+        }
+    } catch (e) {
+        statusEl.innerHTML = `<span style="color: var(--danger);">❌ Error: ${e.message}</span>`;
+    }
+}
+
+// Add a new MDBList
+async function addMDBList() {
+    const urlInput = document.getElementById('mdblist-new-url');
+    const url = urlInput.value.trim();
+    
+    if (!url) {
+        showToast('Please enter a MDBList URL', 'error');
+        return;
+    }
+    
+    if (!url.includes('mdblist.com/lists/')) {
+        showToast('Invalid MDBList URL format', 'error');
+        return;
+    }
+    
+    showToast('Adding list...', 'success');
+    
+    try {
+        const response = await fetch('?api=mdblist-add-list', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url })
+        });
+        const result = await response.json();
+        
+        if (result.success) {
+            showToast(`List added! (${result.preview?.total || 0} items)`, 'success');
+            urlInput.value = '';
+            refreshStatus();
+        } else {
+            showToast('Failed: ' + (result.error || 'Unknown error'), 'error');
+        }
+    } catch (e) {
+        showToast('Error: ' + e.message, 'error');
+    }
+}
+
+// Quick add popular list
+function quickAddMDBList(url, name) {
+    document.getElementById('mdblist-new-url').value = url;
+    addMDBList();
+}
+
+// Remove a MDBList
+async function removeMDBList(url) {
+    if (!confirm('Remove this list from your sources?')) return;
+    
+    try {
+        const response = await fetch('?api=mdblist-remove-list', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url })
+        });
+        const result = await response.json();
+        
+        if (result.success) {
+            showToast('List removed', 'success');
+            refreshStatus();
+        } else {
+            showToast('Failed to remove list', 'error');
+        }
+    } catch (e) {
+        showToast('Error: ' + e.message, 'error');
+    }
+}
+
+// Toggle MDBList enabled status
+async function toggleMDBList(url, enabled) {
+    try {
+        const response = await fetch('?api=mdblist-toggle-list', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url, enabled })
+        });
+        const result = await response.json();
+        
+        if (!result.success) {
+            showToast('Failed to update list', 'error');
+            refreshStatus();
+        }
+    } catch (e) {
+        showToast('Error: ' + e.message, 'error');
+    }
+}
+
+// Preview a MDBList
+async function previewMDBList(url) {
+    showToast('Fetching list preview...', 'success');
+    
+    try {
+        const response = await fetch(`?api=mdblist-preview&url=${encodeURIComponent(url)}`);
+        const result = await response.json();
+        
+        if (result.success) {
+            alert(`List Preview:\n\nMovies: ${result.movie_count}\nSeries: ${result.series_count}\nTotal: ${result.total}\n\nFirst 5 items:\n${
+                [...(result.movies || []).slice(0, 3), ...(result.series || []).slice(0, 2)]
+                    .map(i => '• ' + (i.title || i.name)).join('\n')
+            }`);
+        } else {
+            showToast('Preview failed: ' + (result.error || 'Unknown'), 'error');
+        }
+    } catch (e) {
+        showToast('Error: ' + e.message, 'error');
+    }
+}
+
+// Sync all MDBLists now
+async function syncMDBLists() {
+    showToast('Syncing MDBLists...', 'success');
+    
+    try {
+        const response = await fetch('?api=mdblist-sync');
+        const result = await response.json();
+        
+        if (result.success) {
+            showToast(`Synced! Movies: ${result.movie_count}, Series: ${result.series_count}`, 'success');
+            refreshStatus();
+        } else {
+            showToast('Sync failed: ' + (result.error || 'Unknown'), 'error');
+        }
+    } catch (e) {
+        showToast('Error: ' + e.message, 'error');
+    }
+}
+
+// Clear MDBList cache
+async function clearMDBListCache() {
+    if (!confirm('Clear all cached MDBList data?')) return;
+    
+    try {
+        const response = await fetch('?api=mdblist-clear-cache');
+        const result = await response.json();
+        
+        if (result.success) {
+            showToast(result.message, 'success');
+            refreshStatus();
+        } else {
+            showToast('Failed to clear cache', 'error');
+        }
+    } catch (e) {
+        showToast('Error: ' + e.message, 'error');
+    }
+}
+
+// Save MDBList settings
+async function saveMDBListSettings() {
+    const settings = {
+        enabled: document.getElementById('mdblist-enabled')?.checked || false,
+        apiKey: document.getElementById('mdblist-apiKey')?.value || '',
+        syncInterval: parseInt(document.getElementById('mdblist-syncInterval')?.value) || 6,
+        mergePlaylist: document.getElementById('mdblist-mergePlaylist')?.checked || false
+    };
+    
+    try {
+        const response = await fetch('?api=mdblist-save-settings', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(settings)
+        });
+        const result = await response.json();
+        
+        if (result.success) {
+            showToast('MDBList settings saved!', 'success');
+            
+            // Also sync if enabled
+            if (settings.enabled) {
+                syncMDBLists();
+            }
+        } else {
+            showToast('Failed to save settings', 'error');
+        }
+    } catch (e) {
+        showToast('Error: ' + e.message, 'error');
+    }
+}
+
+// Search MDBLists modal
+function searchMDBLists() {
+    document.getElementById('mdblist-search-modal').classList.add('show');
+    document.getElementById('mdblist-search-query').focus();
+}
+
+function closeMDBListSearchModal() {
+    document.getElementById('mdblist-search-modal').classList.remove('show');
+}
+
+// Perform MDBList search
+async function performMDBListSearch() {
+    const query = document.getElementById('mdblist-search-query').value.trim();
+    if (!query) return;
+    
+    const resultsDiv = document.getElementById('mdblist-search-results');
+    resultsDiv.innerHTML = '<p style="text-align: center; color: var(--text-secondary);">Searching...</p>';
+    
+    try {
+        const response = await fetch(`?api=mdblist-search&q=${encodeURIComponent(query)}`);
+        const result = await response.json();
+        
+        if (result.success && result.lists && result.lists.length > 0) {
+            resultsDiv.innerHTML = result.lists.map(list => `
+                <div style="display: flex; align-items: center; justify-content: space-between; padding: 0.75rem; background: var(--bg-tertiary); border-radius: 6px; margin-bottom: 0.5rem;">
+                    <div style="flex: 1;">
+                        <div style="font-weight: 500;">${escapeHtml(list.name || 'Unnamed')}</div>
+                        <div style="font-size: 0.75rem; color: var(--text-secondary);">
+                            ${list.mediatype || 'mixed'} • ${list.items || 0} items • by ${escapeHtml(list.user_name || 'unknown')}
+                        </div>
+                    </div>
+                    <button class="btn btn-primary" style="font-size: 0.8rem;" onclick="addSearchResultList('https://mdblist.com/lists/${escapeHtml(list.user_name)}/${escapeHtml(list.slug)}')">
+                        ➕ Add
+                    </button>
+                </div>
+            `).join('');
+        } else {
+            resultsDiv.innerHTML = '<p style="text-align: center; color: var(--text-secondary);">No lists found</p>';
+        }
+    } catch (e) {
+        resultsDiv.innerHTML = `<p style="text-align: center; color: var(--danger);">Error: ${e.message}</p>`;
+    }
+}
+
+// Add list from search results
+async function addSearchResultList(url) {
+    showToast('Adding list...', 'success');
+    
+    try {
+        const response = await fetch('?api=mdblist-add-list', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url })
+        });
+        const result = await response.json();
+        
+        if (result.success) {
+            showToast(`List added!`, 'success');
+            closeMDBListSearchModal();
+            refreshStatus();
+        } else {
+            showToast('Failed: ' + (result.error || 'Unknown'), 'error');
+        }
+    } catch (e) {
+        showToast('Error: ' + e.message, 'error');
+    }
+}
+
+// Update updateDashboard to include MDBList settings
+const originalUpdateDashboard = updateDashboard;
+updateDashboard = function(status) {
+    originalUpdateDashboard(status);
+    loadMDBListSettings(status);
+};
 
 // Initial load
 refreshStatus();

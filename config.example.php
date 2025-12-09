@@ -324,5 +324,37 @@ $GLOBALS['EXCLUDED_CUSTOM'] = '';
 // Enable/disable filtering (set to false to disable all filtering)
 $GLOBALS['ENABLE_RELEASE_FILTERS'] = true;
 
+// ========== MDBLIST INTEGRATION SETTINGS ==========
+// MDBList.com provides curated movie/TV lists that can be automatically 
+// imported into your playlist. Get your API key from https://mdblist.com/preferences/
+// 
+// Features:
+// - Import from any public MDBList URL
+// - Support for custom user lists
+// - Automatic TMDB ID resolution
+// - Scheduled sync with your configured lists
+
+// Your MDBList API key (optional - needed for private lists and user lists)
+// Get it from: https://mdblist.com/preferences/
+$GLOBALS['MDBLIST_API_KEY'] = '';
+
+// Enable MDBList integration
+$GLOBALS['MDBLIST_ENABLED'] = false;
+
+// MDBList URLs to import (add your favorite lists here)
+// Example URLs:
+// - https://mdblist.com/lists/linaspuransen/top-watched-movies-of-the-week
+// - https://mdblist.com/lists/hdlists/top-ten-pirated-movies-of-the-week
+// - https://mdblist.com/lists/garycrawfordgc/top-100-movies-on-imdb
+$GLOBALS['MDBLIST_URLS'] = [];
+
+// Auto-sync interval for MDBList (in hours, 0 to disable auto-sync)
+// Lists will be re-fetched and merged into your playlist at this interval
+$GLOBALS['MDBLIST_SYNC_INTERVAL'] = 6;
+
+// Include MDBList items in main playlist generation
+// When true, MDBList items are merged with TMDB lists during playlist generation
+$GLOBALS['MDBLIST_MERGE_PLAYLIST'] = true;
+
  
 ?>
