@@ -2015,10 +2015,10 @@ function formatBytes($bytes) {
             
             <div class="daemon-row">
                 <div class="daemon-info">
-                    <h4>Episode Cache Daemon</h4>
-                    <p>Pre-caches episode information for TV series</p>
+                    <h4>Episode Cache Task</h4>
+                    <p>Pre-caches episode information for TV series (runs daily at 3 AM via cron)</p>
                     <p style="margin-top: 0.5rem;">
-                        Status: <span id="daemon-cache-status" class="status-badge status-stopped">Stopped</span>
+                        Status: <span class="status-badge status-warning">⏰ Scheduled (Cron)</span>
                     </p>
                 </div>
                 <div class="daemon-actions">
