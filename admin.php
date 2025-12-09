@@ -643,18 +643,27 @@ if (isset($_GET['api'])) {
             break;
             
         case 'check-cron':
-            $output = [];
-            exec('crontab -l 2>&1', $output);
-            $cronContent = implode("\n", $output);
+            // Read from cached crontab status file (created by root)
+            $cronStatusFile = __DIR__ . '/cache/crontab_status.txt';
+            $cronContent = '';
+            
+            if (file_exists($cronStatusFile)) {
+                $cronContent = file_get_contents($cronStatusFile);
+            } else {
+                // Fallback to trying to read crontab directly
+                $output = [];
+                exec('crontab -l 2>&1', $output);
+                $cronContent = implode("\n", $output);
+            }
             
             // Check for our cron jobs
             $hasSync = strpos($cronContent, 'background_sync_daemon') !== false;
-            $hasCache = strpos($cronContent, 'auto_cache_daemon') !== false;
-            $hasMdblist = strpos($cronContent, 'mdblist') !== false;
+            $hasCache = strpos($cronContent, 'auto_cache_daemon') !== false || strpos($cronContent, 'auto_playlist_daemon') !== false;
+            $hasMdblist = strpos($cronContent, 'mdblist') !== false || strpos($cronContent, 'MDBList') !== false;
             
             echo json_encode([
                 'success' => true,
-                'crontab' => $cronContent,
+                'crontab' => $cronContent ?: '(No crontab found - run: crontab -l > /var/www/streaming/cache/crontab_status.txt)',
                 'has_sync' => $hasSync,
                 'has_cache' => $hasCache,
                 'has_mdblist' => $hasMdblist
