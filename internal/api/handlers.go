@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/Zerr0-C00L/StreamArr/internal/database"
@@ -1655,5 +1656,81 @@ func (h *Handler) ExecuteDatabaseAction(w http.ResponseWriter, r *http.Request) 
 	respondJSON(w, http.StatusOK, map[string]interface{}{
 		"success": true,
 		"message": message,
+	})
+}
+
+// Version info - set at build time via ldflags
+var (
+	Version   = "dev"
+	Commit    = "unknown"
+	BuildDate = "unknown"
+)
+
+// GetVersion returns the current version info
+func (h *Handler) GetVersion(w http.ResponseWriter, r *http.Request) {
+	respondJSON(w, http.StatusOK, map[string]interface{}{
+		"current_version": Version,
+		"current_commit":  Commit,
+		"build_date":      BuildDate,
+	})
+}
+
+// CheckForUpdates checks GitHub for the latest version
+func (h *Handler) CheckForUpdates(w http.ResponseWriter, r *http.Request) {
+	// Fetch latest commit from GitHub API
+	resp, err := http.Get("https://api.github.com/repos/Zerr0-C00L/StreamArr/commits/main")
+	if err != nil {
+		respondJSON(w, http.StatusOK, map[string]interface{}{
+			"current_version": Version,
+			"current_commit":  Commit,
+			"build_date":      BuildDate,
+			"error":           "Failed to check for updates",
+		})
+		return
+	}
+	defer resp.Body.Close()
+
+	var commitData struct {
+		SHA    string `json:"sha"`
+		Commit struct {
+			Message string `json:"message"`
+			Author  struct {
+				Date string `json:"date"`
+			} `json:"author"`
+		} `json:"commit"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&commitData); err != nil {
+		respondJSON(w, http.StatusOK, map[string]interface{}{
+			"current_version": Version,
+			"current_commit":  Commit,
+			"build_date":      BuildDate,
+			"error":           "Failed to parse update info",
+		})
+		return
+	}
+
+	// Check if update is available by comparing commits
+	updateAvailable := Commit != "unknown" && Commit != commitData.SHA[:len(Commit)]
+	if Commit == "unknown" {
+		// If we don't have a commit hash, we can't compare
+		updateAvailable = false
+	}
+
+	// Get first line of commit message as changelog
+	changelog := commitData.Commit.Message
+	if idx := strings.Index(changelog, "\n"); idx > 0 {
+		changelog = changelog[:idx]
+	}
+
+	respondJSON(w, http.StatusOK, map[string]interface{}{
+		"current_version":  Version,
+		"current_commit":   Commit,
+		"build_date":       BuildDate,
+		"latest_version":   "latest",
+		"latest_commit":    commitData.SHA,
+		"latest_date":      commitData.Commit.Author.Date,
+		"update_available": updateAvailable,
+		"changelog":        changelog,
 	})
 }

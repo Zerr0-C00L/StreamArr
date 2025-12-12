@@ -80,6 +80,10 @@ func SetupRoutes(handler *Handler) http.Handler {
 	api.HandleFunc("/database/stats", handler.GetDatabaseStats).Methods("GET")
 	api.HandleFunc("/database/{action}", handler.ExecuteDatabaseAction).Methods("POST")
 
+	// Version / Updates
+	api.HandleFunc("/version", handler.GetVersion).Methods("GET")
+	api.HandleFunc("/version/check", handler.CheckForUpdates).Methods("GET")
+
 	// Serve static UI files (SPA)
 	uiPath := getUIPath()
 	if uiPath != "" {
@@ -250,6 +254,10 @@ func SetupRoutesWithXtream(handler *Handler, xtreamHandler interface{ RegisterRo
 	// Database management
 	api.HandleFunc("/database/stats", handler.GetDatabaseStats).Methods("GET")
 	api.HandleFunc("/database/{action}", handler.ExecuteDatabaseAction).Methods("POST")
+
+	// Version / Updates
+	api.HandleFunc("/version", handler.GetVersion).Methods("GET")
+	api.HandleFunc("/version/check", handler.CheckForUpdates).Methods("GET")
 
 	// Serve static UI files (SPA)
 	uiPath := getUIPath()

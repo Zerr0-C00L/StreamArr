@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Save, Key, Layers, Settings as SettingsIcon, List, Bell, Code, Plus, X, Tv, Server, Activity, Play, Clock, RefreshCw, Filter, Database, Trash2, AlertTriangle } from 'lucide-react';
+import { Save, Key, Layers, Settings as SettingsIcon, List, Bell, Code, Plus, X, Tv, Server, Activity, Play, Clock, RefreshCw, Filter, Database, Trash2, AlertTriangle, Info, Github, Download, ExternalLink, CheckCircle, AlertCircle } from 'lucide-react';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || '/api/v1';
 
@@ -92,7 +92,18 @@ interface ServiceStatus {
   items_total: number;
 }
 
-type TabType = 'api' | 'providers' | 'quality' | 'playlist' | 'livetv' | 'filters' | 'services' | 'xtream' | 'notifications' | 'database' | 'advanced';
+type TabType = 'api' | 'providers' | 'quality' | 'playlist' | 'livetv' | 'filters' | 'services' | 'xtream' | 'notifications' | 'database' | 'advanced' | 'about';
+
+interface VersionInfo {
+  current_version: string;
+  current_commit: string;
+  build_date: string;
+  latest_version: string;
+  latest_commit: string;
+  latest_date: string;
+  update_available: boolean;
+  changelog: string;
+}
 
 export default function Settings() {
   const [settings, setSettings] = useState<SettingsData | null>(null);
@@ -116,12 +127,15 @@ export default function Settings() {
   const [dbOperation, setDbOperation] = useState<string | null>(null);
   const [confirmDialog, setConfirmDialog] = useState<{ action: string; title: string; message: string } | null>(null);
   const [dbStats, setDbStats] = useState<{ movies: number; series: number; episodes: number; streams: number; collections: number } | null>(null);
+  const [versionInfo, setVersionInfo] = useState<VersionInfo | null>(null);
+  const [checkingUpdate, setCheckingUpdate] = useState(false);
 
   useEffect(() => {
     fetchSettings();
     fetchChannelStats();
     fetchServices();
     fetchDbStats();
+    fetchVersionInfo();
   }, []);
 
   // Poll services status when on services tab
@@ -201,6 +215,39 @@ export default function Settings() {
       setTimeout(() => setMessage(''), 5000);
     }
     setDbOperation(null);
+  };
+
+  const fetchVersionInfo = async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/version`);
+      if (response.ok) {
+        const data = await response.json();
+        setVersionInfo(data);
+      }
+    } catch (error) {
+      console.error('Failed to fetch version info:', error);
+    }
+  };
+
+  const checkForUpdates = async () => {
+    setCheckingUpdate(true);
+    try {
+      const response = await fetch(`${API_BASE_URL}/version/check`);
+      if (response.ok) {
+        const data = await response.json();
+        setVersionInfo(data);
+        if (data.update_available) {
+          setMessage('🎉 New update available!');
+        } else {
+          setMessage('✅ You are running the latest version');
+        }
+        setTimeout(() => setMessage(''), 5000);
+      }
+    } catch (error) {
+      setMessage(`❌ Failed to check for updates: ${error}`);
+      setTimeout(() => setMessage(''), 5000);
+    }
+    setCheckingUpdate(false);
   };
 
   const showConfirmDialog = (action: string, title: string, message: string) => {
@@ -483,6 +530,7 @@ export default function Settings() {
     { id: 'notifications' as TabType, label: 'Notifications', icon: Bell },
     { id: 'database' as TabType, label: 'Database', icon: Database },
     { id: 'advanced' as TabType, label: 'Advanced', icon: Code },
+    { id: 'about' as TabType, label: 'About', icon: Info },
   ];
 
   return (
@@ -2455,6 +2503,176 @@ export default function Settings() {
                       <div className="text-xs text-red-200">Reset everything to default</div>
                     </div>
                   </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* About Tab */}
+        {activeTab === 'about' && (
+          <div className="space-y-6">
+            <div className="bg-gray-800/50 border border-gray-700 rounded-lg p-6">
+              <div className="bg-blue-900/30 border border-blue-700 rounded-lg p-4 mb-6">
+                <h3 className="text-blue-400 font-medium mb-2">ℹ️ About StreamArr</h3>
+                <p className="text-sm text-blue-200">
+                  Self-hosted media server for Live TV, Movies & Series with Xtream Codes & M3U8 support.
+                </p>
+              </div>
+
+              {/* Version Info */}
+              <div className="bg-gray-900 rounded-lg p-4 mb-6">
+                <h4 className="text-gray-300 font-medium mb-4 flex items-center gap-2">
+                  <Info className="h-5 w-5" /> Version Information
+                </h4>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="bg-gray-800 rounded-lg p-4">
+                    <div className="text-sm text-gray-400 mb-1">Current Version</div>
+                    <div className="text-xl font-mono text-white">
+                      {versionInfo?.current_version || 'Loading...'}
+                    </div>
+                    {versionInfo?.current_commit && (
+                      <div className="text-xs text-gray-500 mt-1">
+                        Commit: {versionInfo.current_commit.substring(0, 7)}
+                      </div>
+                    )}
+                    {versionInfo?.build_date && (
+                      <div className="text-xs text-gray-500">
+                        Built: {new Date(versionInfo.build_date).toLocaleDateString()}
+                      </div>
+                    )}
+                  </div>
+                  <div className="bg-gray-800 rounded-lg p-4">
+                    <div className="text-sm text-gray-400 mb-1">Latest Version</div>
+                    <div className="text-xl font-mono text-white flex items-center gap-2">
+                      {versionInfo?.latest_version || 'Check for updates'}
+                      {versionInfo?.update_available && (
+                        <span className="text-xs bg-green-600 text-white px-2 py-0.5 rounded">NEW</span>
+                      )}
+                    </div>
+                    {versionInfo?.latest_commit && (
+                      <div className="text-xs text-gray-500 mt-1">
+                        Commit: {versionInfo.latest_commit.substring(0, 7)}
+                      </div>
+                    )}
+                    {versionInfo?.latest_date && (
+                      <div className="text-xs text-gray-500">
+                        Released: {new Date(versionInfo.latest_date).toLocaleDateString()}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Update Status */}
+              {versionInfo?.update_available && (
+                <div className="bg-green-900/30 border border-green-700 rounded-lg p-4 mb-6">
+                  <div className="flex items-center gap-3">
+                    <CheckCircle className="h-6 w-6 text-green-400" />
+                    <div>
+                      <div className="text-green-300 font-medium">Update Available!</div>
+                      <div className="text-sm text-green-200">
+                        A new version ({versionInfo.latest_version}) is available. 
+                      </div>
+                    </div>
+                  </div>
+                  {versionInfo.changelog && (
+                    <div className="mt-3 text-sm text-gray-300 bg-gray-900/50 p-3 rounded">
+                      <div className="font-medium mb-1">What's New:</div>
+                      <div className="whitespace-pre-wrap">{versionInfo.changelog}</div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Actions */}
+              <div className="bg-gray-900 rounded-lg p-4 mb-6">
+                <h4 className="text-gray-300 font-medium mb-4 flex items-center gap-2">
+                  <Download className="h-5 w-5" /> Updates
+                </h4>
+                <div className="flex flex-wrap gap-3">
+                  <button
+                    onClick={checkForUpdates}
+                    disabled={checkingUpdate}
+                    className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                  >
+                    {checkingUpdate ? (
+                      <>
+                        <RefreshCw className="h-4 w-4 animate-spin" /> Checking...
+                      </>
+                    ) : (
+                      <>
+                        <RefreshCw className="h-4 w-4" /> Check for Updates
+                      </>
+                    )}
+                  </button>
+                  {versionInfo?.update_available && (
+                    <a
+                      href="https://github.com/Zerr0-C00L/StreamArr/releases"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
+                    >
+                      <Download className="h-4 w-4" /> View Release
+                    </a>
+                  )}
+                </div>
+                <p className="text-xs text-gray-500 mt-3">
+                  To update, pull the latest changes and rebuild the application.
+                </p>
+              </div>
+
+              {/* Links */}
+              <div className="bg-gray-900 rounded-lg p-4 mb-6">
+                <h4 className="text-gray-300 font-medium mb-4 flex items-center gap-2">
+                  <ExternalLink className="h-5 w-5" /> Links
+                </h4>
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                  <a
+                    href="https://github.com/Zerr0-C00L/StreamArr"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-2 px-4 py-3 bg-gray-800 text-gray-300 rounded-lg hover:bg-gray-700 hover:text-white"
+                  >
+                    <Github className="h-5 w-5" /> GitHub Repository
+                  </a>
+                  <a
+                    href="https://github.com/Zerr0-C00L/StreamArr/issues"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-2 px-4 py-3 bg-gray-800 text-gray-300 rounded-lg hover:bg-gray-700 hover:text-white"
+                  >
+                    <AlertCircle className="h-5 w-5" /> Report Issue
+                  </a>
+                  <a
+                    href="https://github.com/Zerr0-C00L/StreamArr/discussions"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-2 px-4 py-3 bg-gray-800 text-gray-300 rounded-lg hover:bg-gray-700 hover:text-white"
+                  >
+                    <Info className="h-5 w-5" /> Discussions
+                  </a>
+                  <a
+                    href="https://ko-fi.com/zeroq"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-2 px-4 py-3 bg-pink-800/50 text-pink-300 rounded-lg hover:bg-pink-700/50 hover:text-white"
+                  >
+                    ☕ Support on Ko-fi
+                  </a>
+                </div>
+              </div>
+
+              {/* Credits */}
+              <div className="bg-gray-900 rounded-lg p-4">
+                <h4 className="text-gray-300 font-medium mb-3">Credits</h4>
+                <div className="text-sm text-gray-400 space-y-1">
+                  <div>• Movie & TV data provided by <a href="https://www.themoviedb.org" target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline">TMDB</a></div>
+                  <div>• Streaming via <a href="https://real-debrid.com" target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline">Real-Debrid</a>, Torrentio, Comet, MediaFusion</div>
+                  <div>• Live TV channels from various free sources</div>
+                </div>
+                <div className="text-xs text-gray-500 mt-4 pt-4 border-t border-gray-800">
+                  StreamArr is open source software licensed under MIT. Use responsibly.
                 </div>
               </div>
             </div>
