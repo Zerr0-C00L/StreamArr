@@ -324,15 +324,16 @@ func (s *MovieStore) Count(ctx context.Context) (int64, error) {
 // GetUpcoming returns movies with release dates in the specified date range
 // Since library_movies only stores year, we filter by metadata->>release_date
 func (s *MovieStore) GetUpcoming(ctx context.Context, start, end string) ([]*models.Movie, error) {
+	// Only include movies with actual release_date in metadata within the range
+	// Don't include movies based on year alone (which defaults to Jan 1)
 	query := `
 		SELECT id, tmdb_id, title, year, monitored, metadata, added_at, last_checked, available, preferred_quality
 		FROM library_movies
 		WHERE monitored = true
-		  AND (
-		    (metadata->>'release_date')::date BETWEEN $1::date AND $2::date
-		    OR (year::text || '-01-01')::date BETWEEN $1::date AND $2::date
-		  )
-		ORDER BY COALESCE((metadata->>'release_date')::date, (year::text || '-01-01')::date) ASC
+		  AND metadata->>'release_date' IS NOT NULL
+		  AND metadata->>'release_date' != ''
+		  AND (metadata->>'release_date')::date BETWEEN $1::date AND $2::date
+		ORDER BY (metadata->>'release_date')::date ASC
 		LIMIT 100
 	`
 
