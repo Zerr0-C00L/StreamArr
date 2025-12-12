@@ -1,6 +1,6 @@
 import type { Movie } from '../types';
 import { tmdbImageUrl } from '../services/api';
-import { Play, Check, Clock, Star } from 'lucide-react';
+import { Play, Check, Clock, Star, Layers } from 'lucide-react';
 
 interface MovieCardProps {
   movie: Movie;
@@ -79,6 +79,24 @@ export default function MovieCard({ movie, onClick }: MovieCardProps) {
             </div>
           )}
         </div>
+
+        {/* Collection Badge (Top Left) */}
+        {movie.collection && (
+          <div className="absolute top-2 left-2">
+            <div 
+              className="bg-purple-600/90 backdrop-blur-sm px-2 py-1 rounded text-xs text-white font-medium flex items-center gap-1"
+              title={movie.collection.name}
+            >
+              <Layers className="w-3 h-3" />
+              <span className="max-w-[80px] truncate">{movie.collection.name}</span>
+              {movie.collection.movies_in_library && movie.collection.total_movies && (
+                <span className="text-purple-200 text-[10px]">
+                  {movie.collection.movies_in_library}/{movie.collection.total_movies}
+                </span>
+              )}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

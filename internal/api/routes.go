@@ -48,11 +48,23 @@ func SetupRoutes(handler *Handler) http.Handler {
 	// Search
 	api.HandleFunc("/search/movies", handler.SearchMovies).Methods("GET")
 	api.HandleFunc("/search/series", handler.SearchSeries).Methods("GET")
+	api.HandleFunc("/search/collections", handler.SearchCollections).Methods("GET")
 
         // Discover / Trending
         api.HandleFunc("/discover/trending", handler.GetTrending).Methods("GET")
         api.HandleFunc("/discover/popular", handler.GetPopular).Methods("GET")
         api.HandleFunc("/discover/now-playing", handler.GetNowPlaying).Methods("GET")
+
+	// Collections
+	api.HandleFunc("/collections", handler.ListCollections).Methods("GET")
+	api.HandleFunc("/collections/{id}", handler.GetCollection).Methods("GET")
+	api.HandleFunc("/collections/{id}/sync", handler.SyncCollection).Methods("POST")
+	api.HandleFunc("/collections/{id}/movies", handler.GetCollectionMovies).Methods("GET")
+
+	// Services
+	api.HandleFunc("/services", handler.GetServices).Methods("GET")
+	api.HandleFunc("/services/{name}", handler.UpdateServiceEnabled).Methods("PUT")
+	api.HandleFunc("/services/{name}/trigger", handler.TriggerService).Methods("POST")
 
 	// Settings
 	api.HandleFunc("/settings", handler.GetSettings).Methods("GET")
@@ -142,11 +154,23 @@ func SetupRoutesWithXtream(handler *Handler, xtreamHandler interface{ RegisterRo
 	// Search
 	api.HandleFunc("/search/movies", handler.SearchMovies).Methods("GET")
 	api.HandleFunc("/search/series", handler.SearchSeries).Methods("GET")
+	api.HandleFunc("/search/collections", handler.SearchCollections).Methods("GET")
 
         // Discover / Trending
         api.HandleFunc("/discover/trending", handler.GetTrending).Methods("GET")
         api.HandleFunc("/discover/popular", handler.GetPopular).Methods("GET")
         api.HandleFunc("/discover/now-playing", handler.GetNowPlaying).Methods("GET")
+
+	// Collections
+	api.HandleFunc("/collections", handler.ListCollections).Methods("GET")
+	api.HandleFunc("/collections/{id}", handler.GetCollection).Methods("GET")
+	api.HandleFunc("/collections/{id}/sync", handler.SyncCollection).Methods("POST")
+	api.HandleFunc("/collections/{id}/movies", handler.GetCollectionMovies).Methods("GET")
+
+	// Services
+	api.HandleFunc("/services", handler.GetServices).Methods("GET")
+	api.HandleFunc("/services/{name}", handler.UpdateServiceEnabled).Methods("PUT")
+	api.HandleFunc("/services/{name}/trigger", handler.TriggerService).Methods("POST")
 
 	// Settings
 	api.HandleFunc("/settings", handler.GetSettings).Methods("GET")

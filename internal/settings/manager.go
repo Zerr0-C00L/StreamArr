@@ -27,6 +27,7 @@ type Settings struct {
 	MaxFileSize           int    `json:"max_file_size"`
 	EnableQualityVariants bool   `json:"enable_quality_variants"`
 	ShowFullStreamName    bool   `json:"show_full_stream_name"`
+	AutoAddCollections    bool   `json:"auto_add_collections"` // Automatically add entire collection when adding a movie
 	
 	// Playlist Settings
 	TotalPages             int    `json:"total_pages"`

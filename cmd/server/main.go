@@ -55,6 +55,7 @@ func main() {
 	episodeStore := database.NewEpisodeStore(db)
 	streamStore := database.NewStreamStore(db)
 	settingsStore := database.NewSettingsStore(db)
+	collectionStore := database.NewCollectionStore(db)
 	userStore, err := database.NewUserStore(db)
 	if err != nil {
 		log.Fatalf("Failed to initialize user store: %v", err)
@@ -67,6 +68,10 @@ func main() {
 		log.Printf("Warning: Could not load settings: %v, using defaults", err)
 	}
 	log.Println("Settings manager initialized")
+
+	// Initialize service scheduler
+	services.InitializeDefaultServices()
+	log.Println("Service scheduler initialized")
 
 	// Initialize service clients
 	tmdbClient := services.NewTMDBClient(cfg.TMDBAPIKey)
@@ -145,6 +150,7 @@ func main() {
 		streamStore,
 		settingsStore,
 		userStore,
+		collectionStore,
 		tmdbClient,
 		rdClient,
 		torrentioClient,

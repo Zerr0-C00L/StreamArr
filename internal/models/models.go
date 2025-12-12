@@ -6,25 +6,43 @@ import "time"
 type Metadata map[string]interface{}
 
 type Movie struct {
-	ID             int64      `json:"id"`
-	TMDBID         int        `json:"tmdb_id"`
-	Title          string     `json:"title"`
-	OriginalTitle  string     `json:"original_title"`
-	Overview       string     `json:"overview"`
-	PosterPath     string     `json:"poster_path"`
-	BackdropPath   string     `json:"backdrop_path"`
-	ReleaseDate    *time.Time `json:"release_date,omitempty"`
-	Runtime        int        `json:"runtime"`
-	Genres         []string   `json:"genres"`
-	Metadata       Metadata   `json:"metadata"`
-	Monitored      bool       `json:"monitored"`
-	Available      bool       `json:"available"`
-	QualityProfile string     `json:"quality_profile"`
-	SearchStatus   string     `json:"search_status"`
-	LastChecked    *time.Time `json:"last_checked,omitempty"`
-	CreatedAt      time.Time  `json:"created_at"`
-	UpdatedAt      time.Time  `json:"updated_at"`
-	AddedAt        time.Time  `json:"added_at"`
+	ID             int64       `json:"id"`
+	TMDBID         int         `json:"tmdb_id"`
+	Title          string      `json:"title"`
+	OriginalTitle  string      `json:"original_title"`
+	Overview       string      `json:"overview"`
+	PosterPath     string      `json:"poster_path"`
+	BackdropPath   string      `json:"backdrop_path"`
+	ReleaseDate    *time.Time  `json:"release_date,omitempty"`
+	Runtime        int         `json:"runtime"`
+	Genres         []string    `json:"genres"`
+	Metadata       Metadata    `json:"metadata"`
+	Monitored      bool        `json:"monitored"`
+	Available      bool        `json:"available"`
+	QualityProfile string      `json:"quality_profile"`
+	SearchStatus   string      `json:"search_status"`
+	LastChecked    *time.Time  `json:"last_checked,omitempty"`
+	CreatedAt      time.Time   `json:"created_at"`
+	UpdatedAt      time.Time   `json:"updated_at"`
+	AddedAt        time.Time   `json:"added_at"`
+	// Collection fields
+	CollectionID   *int64      `json:"collection_id,omitempty"`
+	Collection     *Collection `json:"collection,omitempty"`
+}
+
+// Collection represents a movie collection/franchise (e.g., "The Dark Knight Trilogy")
+type Collection struct {
+	ID           int64     `json:"id"`
+	TMDBID       int       `json:"tmdb_id"`
+	Name         string    `json:"name"`
+	Overview     string    `json:"overview"`
+	PosterPath   string    `json:"poster_path"`
+	BackdropPath string    `json:"backdrop_path"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
+	// Computed fields (not stored in DB)
+	TotalMovies    int `json:"total_movies,omitempty"`
+	MoviesInLibrary int `json:"movies_in_library,omitempty"`
 }
 
 type Series struct {

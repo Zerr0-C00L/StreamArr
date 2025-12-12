@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Save, Key, Layers, Settings as SettingsIcon, List, Bell, Code, Plus, X, Tv, Server } from 'lucide-react';
+import { Save, Key, Layers, Settings as SettingsIcon, List, Bell, Code, Plus, X, Tv, Server, Activity, Play, Clock, RefreshCw } from 'lucide-react';
 
 interface SettingsData {
   tmdb_api_key: string;
@@ -20,6 +20,7 @@ interface SettingsData {
   comet_indexers: string;
   enable_quality_variants: boolean;
   show_full_stream_name: boolean;
+  auto_add_collections: boolean;
   include_live_tv: boolean;
   include_adult_vod: boolean;
   min_year: number;
@@ -60,7 +61,19 @@ interface ChannelStats {
   sources: Array<{name: string; count: number}>;
 }
 
-type TabType = 'api' | 'providers' | 'quality' | 'playlist' | 'livetv' | 'xtream' | 'notifications' | 'advanced';
+interface ServiceStatus {
+  name: string;
+  description: string;
+  enabled: boolean;
+  running: boolean;
+  interval: string;
+  last_run: string;
+  next_run: string;
+  last_error?: string;
+  run_count: number;
+}
+
+type TabType = 'api' | 'providers' | 'quality' | 'playlist' | 'livetv' | 'services' | 'xtream' | 'notifications' | 'advanced';
 
 export default function Settings() {
   const [settings, setSettings] = useState<SettingsData | null>(null);
@@ -79,11 +92,80 @@ export default function Settings() {
   const [channelStats, setChannelStats] = useState<ChannelStats | null>(null);
   const [enabledCategories, setEnabledCategories] = useState<Set<string>>(new Set());
   const [enabledSources, setEnabledSources] = useState<Set<string>>(new Set());
+  const [services, setServices] = useState<ServiceStatus[]>([]);
+  const [triggeringService, setTriggeringService] = useState<string | null>(null);
 
   useEffect(() => {
     fetchSettings();
     fetchChannelStats();
+    fetchServices();
   }, []);
+
+  // Poll services status when on services tab
+  useEffect(() => {
+    if (activeTab === 'services') {
+      const interval = setInterval(fetchServices, 5000);
+      return () => clearInterval(interval);
+    }
+  }, [activeTab]);
+
+  const fetchServices = async () => {
+    try {
+      const response = await fetch('/api/v1/services');
+      const data = await response.json();
+      setServices(data.services || []);
+    } catch (error) {
+      console.error('Failed to fetch services:', error);
+    }
+  };
+
+  const triggerService = async (serviceName: string) => {
+    setTriggeringService(serviceName);
+    try {
+      const response = await fetch(`/api/v1/services/${serviceName}/trigger?name=${serviceName}`, {
+        method: 'POST',
+      });
+      if (response.ok) {
+        setMessage(`✅ Service "${serviceName}" triggered successfully`);
+        setTimeout(() => setMessage(''), 3000);
+        // Refresh services after a short delay
+        setTimeout(fetchServices, 500);
+      } else {
+        const data = await response.json();
+        setMessage(`❌ Failed to trigger service: ${data.error}`);
+        setTimeout(() => setMessage(''), 5000);
+      }
+    } catch (error) {
+      setMessage(`❌ Failed to trigger service: ${error}`);
+      setTimeout(() => setMessage(''), 5000);
+    }
+    setTriggeringService(null);
+  };
+
+  const toggleServiceEnabled = async (serviceName: string, enabled: boolean) => {
+    try {
+      const response = await fetch(`/api/v1/services/${serviceName}?name=${serviceName}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled }),
+      });
+      if (response.ok) {
+        fetchServices();
+      }
+    } catch (error) {
+      console.error('Failed to toggle service:', error);
+    }
+  };
+
+  const formatServiceName = (name: string) => {
+    return name.split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
+  };
+
+  const formatDateTime = (dateStr: string) => {
+    if (!dateStr || dateStr === '0001-01-01T00:00:00Z') return 'Never';
+    const date = new Date(dateStr);
+    return date.toLocaleString();
+  };
 
   const fetchChannelStats = async () => {
     try {
@@ -312,6 +394,7 @@ export default function Settings() {
     { id: 'quality' as TabType, label: 'Quality', icon: SettingsIcon },
     { id: 'playlist' as TabType, label: 'Playlist', icon: List },
     { id: 'livetv' as TabType, label: 'Live TV', icon: Tv },
+    { id: 'services' as TabType, label: 'Services', icon: Activity },
     { id: 'xtream' as TabType, label: 'Xtream', icon: Server },
     { id: 'notifications' as TabType, label: 'Notifications', icon: Bell },
     { id: 'advanced' as TabType, label: 'Advanced', icon: Code },
@@ -700,6 +783,22 @@ export default function Settings() {
                 <p className="text-xs text-gray-500 mt-1 ml-6">Display detailed stream info (codec, size, etc.) in player.</p>
               </div>
 
+              <div>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    id="auto_add_collections"
+                    checked={settings.auto_add_collections || false}
+                    onChange={(e) => updateSetting('auto_add_collections', e.target.checked)}
+                    className="w-4 h-4 bg-gray-800 border-gray-700 rounded"
+                  />
+                  <label htmlFor="auto_add_collections" className="text-sm text-gray-300">
+                    Add Entire Collection
+                  </label>
+                </div>
+                <p className="text-xs text-gray-500 mt-1 ml-6">When adding a movie that belongs to a collection (e.g., The Dark Knight Trilogy), automatically add all other movies from that collection.</p>
+              </div>
+
               <div className="pt-6 border-t border-gray-700">
                 <h3 className="text-md font-medium text-gray-300 mb-4">Content Filters</h3>
                 <div className="space-y-4">
@@ -1038,6 +1137,135 @@ export default function Settings() {
                   <li>After adding/removing sources, save and restart the server</li>
                   <li>Duplicate channels (same name) are automatically merged</li>
                 </ul>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Services Tab */}
+        {activeTab === 'services' && (
+          <div className="bg-gray-900 rounded-lg p-6 border border-gray-800">
+            <div className="space-y-6">
+              <div className="mb-4 p-4 bg-blue-900/30 border border-blue-800 rounded-lg">
+                <h3 className="text-blue-400 font-medium mb-2">⚙️ Background Services</h3>
+                <p className="text-sm text-gray-400">
+                  Monitor and control background tasks. Services run automatically at their configured intervals,
+                  or you can trigger them manually. Data refreshes every 5 seconds while on this tab.
+                </p>
+              </div>
+
+              <div className="space-y-4">
+                {services.length === 0 ? (
+                  <div className="text-gray-500 text-center py-8">
+                    <Activity className="w-12 h-12 mx-auto mb-2 opacity-50" />
+                    <p>No services registered. Start the worker process to enable background tasks.</p>
+                  </div>
+                ) : (
+                  services.map((service) => (
+                    <div
+                      key={service.name}
+                      className={`p-4 rounded-lg border ${
+                        service.running
+                          ? 'bg-blue-900/20 border-blue-700'
+                          : service.enabled
+                          ? 'bg-gray-800/50 border-gray-700'
+                          : 'bg-gray-800/30 border-gray-700 opacity-60'
+                      }`}
+                    >
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-3">
+                            <h4 className="text-white font-medium">{formatServiceName(service.name)}</h4>
+                            {service.running && (
+                              <span className="flex items-center gap-1 text-xs bg-blue-500/30 text-blue-400 px-2 py-0.5 rounded">
+                                <RefreshCw className="w-3 h-3 animate-spin" />
+                                Running
+                              </span>
+                            )}
+                            {!service.enabled && (
+                              <span className="text-xs bg-gray-600/50 text-gray-400 px-2 py-0.5 rounded">
+                                Disabled
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-sm text-gray-400 mt-1">{service.description}</p>
+                          
+                          <div className="flex flex-wrap gap-4 mt-3 text-xs text-gray-500">
+                            <div className="flex items-center gap-1">
+                              <Clock className="w-3 h-3" />
+                              <span>Interval: {service.interval}</span>
+                            </div>
+                            <div>
+                              Last run: {formatDateTime(service.last_run)}
+                            </div>
+                            <div>
+                              Next run: {formatDateTime(service.next_run)}
+                            </div>
+                            <div>
+                              Run count: {service.run_count}
+                            </div>
+                          </div>
+
+                          {service.last_error && (
+                            <div className="mt-2 text-xs text-red-400 bg-red-900/20 px-2 py-1 rounded">
+                              Last error: {service.last_error}
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="flex items-center gap-2 ml-4">
+                          <button
+                            onClick={() => toggleServiceEnabled(service.name, !service.enabled)}
+                            className={`px-3 py-1.5 text-xs rounded transition-colors ${
+                              service.enabled
+                                ? 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                                : 'bg-green-600/20 text-green-400 hover:bg-green-600/30'
+                            }`}
+                          >
+                            {service.enabled ? 'Disable' : 'Enable'}
+                          </button>
+                          <button
+                            onClick={() => triggerService(service.name)}
+                            disabled={service.running || triggeringService === service.name}
+                            className={`flex items-center gap-1 px-3 py-1.5 text-xs rounded transition-colors ${
+                              service.running || triggeringService === service.name
+                                ? 'bg-gray-700 text-gray-500 cursor-not-allowed'
+                                : 'bg-blue-600 text-white hover:bg-blue-700'
+                            }`}
+                          >
+                            <Play className="w-3 h-3" />
+                            {triggeringService === service.name ? 'Triggering...' : 'Run Now'}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+
+              {/* Service Legend */}
+              <div className="pt-4 border-t border-gray-700">
+                <h4 className="text-sm font-medium text-gray-400 mb-3">Service Information</h4>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs text-gray-500">
+                  <div>
+                    <strong className="text-gray-400">Playlist Generation:</strong> Creates M3U8 playlist file with all library content for IPTV players
+                  </div>
+                  <div>
+                    <strong className="text-gray-400">Cache Cleanup:</strong> Removes expired stream links and temporary data
+                  </div>
+                  <div>
+                    <strong className="text-gray-400">EPG Update:</strong> Fetches program guide data for Live TV channels
+                  </div>
+                  <div>
+                    <strong className="text-gray-400">Channel Refresh:</strong> Reloads Live TV channels from configured M3U sources
+                  </div>
+                  <div>
+                    <strong className="text-gray-400">MDBList Sync:</strong> Imports content from your MDBList watchlists
+                  </div>
+                  <div>
+                    <strong className="text-gray-400">Collection Sync:</strong> Adds missing movies from incomplete collections
+                  </div>
+                </div>
               </div>
             </div>
           </div>

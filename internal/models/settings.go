@@ -35,6 +35,9 @@ type SettingsResponse struct {
 	EnableQualityVariants  bool `json:"enable_quality_variants"`
 	ShowFullStreamName     bool `json:"show_full_stream_name"`
 
+	// Collection Settings
+	AutoAddCollections     bool `json:"auto_add_collections"`
+
 	// Providers
 	UseRealDebrid       bool   `json:"use_realdebrid"`
 	UsePremiumize       bool   `json:"use_premiumize"`

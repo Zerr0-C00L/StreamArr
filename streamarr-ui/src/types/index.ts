@@ -1,3 +1,16 @@
+export interface Collection {
+  id: number;
+  tmdb_id: number;
+  name: string;
+  overview: string;
+  poster_path: string;
+  backdrop_path: string;
+  created_at: string;
+  updated_at: string;
+  total_movies?: number;
+  movies_in_library?: number;
+}
+
 export interface Movie {
   id: number;
   tmdb_id: number;
@@ -18,6 +31,8 @@ export interface Movie {
   created_at: string;
   updated_at: string;
   added_at: string;
+  collection_id?: number;
+  collection?: Collection;
 }
 
 export interface Series {

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -13,21 +14,23 @@ import (
 	"github.com/Zerr0-C00L/StreamArr/internal/models"
 	"github.com/Zerr0-C00L/StreamArr/internal/services"
 	"github.com/Zerr0-C00L/StreamArr/internal/settings"
+	"github.com/gorilla/mux"
 )
 
 type Handler struct {
-	movieStore      *database.MovieStore
-	seriesStore     *database.SeriesStore
-	episodeStore    *database.EpisodeStore
-	streamStore     *database.StreamStore
-	settingsStore   *database.SettingsStore
-	userStore       *database.UserStore
-	tmdbClient      *services.TMDBClient
-	rdClient        *services.RealDebridClient
-	torrentio       *services.TorrentioClient
-	channelManager  *livetv.ChannelManager
-	settingsManager *settings.Manager
-	epgManager      *epg.Manager
+	movieStore       *database.MovieStore
+	seriesStore      *database.SeriesStore
+	episodeStore     *database.EpisodeStore
+	streamStore      *database.StreamStore
+	settingsStore    *database.SettingsStore
+	userStore        *database.UserStore
+	collectionStore  *database.CollectionStore
+	tmdbClient       *services.TMDBClient
+	rdClient         *services.RealDebridClient
+	torrentio        *services.TorrentioClient
+	channelManager   *livetv.ChannelManager
+	settingsManager  *settings.Manager
+	epgManager       *epg.Manager
 }
 
 func NewHandler(
@@ -37,19 +40,21 @@ func NewHandler(
 	streamStore *database.StreamStore,
 	settingsStore *database.SettingsStore,
 	userStore *database.UserStore,
+	collectionStore *database.CollectionStore,
 	tmdbClient *services.TMDBClient,
 	rdClient *services.RealDebridClient,
 	torrentio *services.TorrentioClient,
 ) *Handler {
 	return &Handler{
-		movieStore:    movieStore,
-		seriesStore:   seriesStore,
-		episodeStore:  episodeStore,
-		streamStore:   streamStore,
-		settingsStore: settingsStore,
-		tmdbClient:    tmdbClient,
-		rdClient:      rdClient,
-		torrentio:     torrentio,
+		movieStore:      movieStore,
+		seriesStore:     seriesStore,
+		episodeStore:    episodeStore,
+		streamStore:     streamStore,
+		settingsStore:   settingsStore,
+		collectionStore: collectionStore,
+		tmdbClient:      tmdbClient,
+		rdClient:        rdClient,
+		torrentio:       torrentio,
 	}
 }
 
@@ -60,6 +65,7 @@ func NewHandlerWithComponents(
 	streamStore *database.StreamStore,
 	settingsStore *database.SettingsStore,
 	userStore *database.UserStore,
+	collectionStore *database.CollectionStore,
 	tmdbClient *services.TMDBClient,
 	rdClient *services.RealDebridClient,
 	torrentio *services.TorrentioClient,
@@ -74,6 +80,7 @@ func NewHandlerWithComponents(
 		streamStore:     streamStore,
 		settingsStore:   settingsStore,
 		userStore:       userStore,
+		collectionStore: collectionStore,
 		tmdbClient:      tmdbClient,
 		rdClient:        rdClient,
 		torrentio:       torrentio,
@@ -147,6 +154,7 @@ func (h *Handler) AddMovie(w http.ResponseWriter, r *http.Request) {
 		TMDBID         int    `json:"tmdb_id"`
 		Monitored      bool   `json:"monitored"`
 		QualityProfile string `json:"quality_profile"`
+		AddCollection  *bool  `json:"add_collection,omitempty"` // Override for auto-add collections
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -162,8 +170,8 @@ func (h *Handler) AddMovie(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Fetch movie details from TMDB
-	movie, err := h.tmdbClient.GetMovie(ctx, req.TMDBID)
+	// Fetch movie details from TMDB with collection info
+	movie, collection, err := h.tmdbClient.GetMovieWithCollection(ctx, req.TMDBID)
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, fmt.Sprintf("failed to fetch movie from TMDB: %v", err))
 		return
@@ -172,13 +180,174 @@ func (h *Handler) AddMovie(w http.ResponseWriter, r *http.Request) {
 	movie.Monitored = req.Monitored
 	movie.QualityProfile = req.QualityProfile
 
+	// Handle collection if present
+	var collectionID *int64
+	if collection != nil && h.collectionStore != nil {
+		// Check if collection already exists in our database
+		existingCollection, _ := h.collectionStore.GetByTMDBID(ctx, collection.TMDBID)
+		if existingCollection != nil {
+			collectionID = &existingCollection.ID
+		} else {
+			// Fetch full collection details from TMDB
+			fullCollection, _, err := h.tmdbClient.GetCollection(ctx, collection.TMDBID)
+			if err == nil {
+				// Create collection in database
+				if err := h.collectionStore.Create(ctx, fullCollection); err == nil {
+					collectionID = &fullCollection.ID
+				}
+			}
+		}
+		movie.CollectionID = collectionID
+	}
+
 	// Add to database
 	if err := h.movieStore.Add(ctx, movie); err != nil {
 		respondError(w, http.StatusInternalServerError, "failed to add movie")
 		return
 	}
 
+	// Handle auto-add collection setting
+	shouldAddCollection := false
+	if req.AddCollection != nil {
+		shouldAddCollection = *req.AddCollection
+	} else if h.settingsManager != nil {
+		settings := h.settingsManager.Get()
+		shouldAddCollection = settings.AutoAddCollections
+	}
+
+	// If auto-add collection is enabled and movie belongs to a collection
+	if shouldAddCollection && collection != nil && h.collectionStore != nil {
+		go h.addCollectionMovies(ctx, collection.TMDBID, req.Monitored, req.QualityProfile)
+	}
+
+	// Load collection data for response
+	if collectionID != nil && h.collectionStore != nil {
+		movie.Collection, _ = h.collectionStore.GetByID(ctx, *collectionID)
+	}
+
 	respondJSON(w, http.StatusCreated, movie)
+}
+
+// addCollectionMovies adds all movies from a collection in the background
+func (h *Handler) addCollectionMovies(ctx context.Context, collectionTMDBID int, monitored bool, qualityProfile string) {
+	// Get collection details with all movie IDs
+	collection, movieIDs, err := h.tmdbClient.GetCollection(ctx, collectionTMDBID)
+	if err != nil {
+		fmt.Printf("[Collection Sync] Failed to get collection %d: %v\n", collectionTMDBID, err)
+		return
+	}
+
+	fmt.Printf("[Collection Sync] Adding missing movies from '%s' (%d movies total)\n", collection.Name, len(movieIDs))
+	added := 0
+
+	for _, tmdbID := range movieIDs {
+		// Check if movie already exists
+		existing, _ := h.movieStore.GetByTMDBID(ctx, tmdbID)
+		if existing != nil {
+			continue
+		}
+
+		// Fetch and add movie
+		movie, coll, err := h.tmdbClient.GetMovieWithCollection(ctx, tmdbID)
+		if err != nil {
+			continue
+		}
+
+		movie.Monitored = monitored
+		movie.QualityProfile = qualityProfile
+
+		// Link to collection
+		if coll != nil && h.collectionStore != nil {
+			existingColl, _ := h.collectionStore.GetByTMDBID(ctx, coll.TMDBID)
+			if existingColl != nil {
+				movie.CollectionID = &existingColl.ID
+			}
+		}
+
+		if err := h.movieStore.Add(ctx, movie); err != nil {
+			fmt.Printf("[Collection Sync] Failed to add movie '%s': %v\n", movie.Title, err)
+		} else {
+			added++
+			fmt.Printf("[Collection Sync] Added '%s' from '%s'\n", movie.Title, collection.Name)
+		}
+		
+		// Small delay to avoid hitting API rate limits
+		time.Sleep(250 * time.Millisecond)
+	}
+
+	fmt.Printf("[Collection Sync] Finished '%s': %d new movies added\n", collection.Name, added)
+}
+
+// scanAndLinkCollections scans all movies without a collection and checks if they belong to one
+func (h *Handler) scanAndLinkCollections(ctx context.Context) error {
+	// Get all movies
+	movies, err := h.movieStore.List(ctx, 0, 10000, nil)
+	if err != nil {
+		fmt.Printf("[Collection Sync] Failed to list movies: %v\n", err)
+		return err
+	}
+
+	fmt.Printf("[Collection Sync] Starting scan of %d movies...\n", len(movies))
+	linked := 0
+	skipped := 0
+	errors := 0
+
+	for i, movie := range movies {
+		// Skip if already linked to a collection
+		if movie.CollectionID != nil {
+			skipped++
+			continue
+		}
+
+		// Fetch movie with collection info from TMDB
+		_, collection, err := h.tmdbClient.GetMovieWithCollection(ctx, movie.TMDBID)
+		if err != nil {
+			errors++
+			continue
+		}
+
+		// If movie belongs to a collection, create/update collection and link
+		if collection != nil {
+			// Get full collection details
+			fullCollection, _, err := h.tmdbClient.GetCollection(ctx, collection.TMDBID)
+			if err != nil {
+				fmt.Printf("[Collection Sync] Failed to get collection %d for movie %s: %v\n", collection.TMDBID, movie.Title, err)
+				errors++
+				continue
+			}
+
+			// Create or update collection in database
+			if err := h.collectionStore.Create(ctx, fullCollection); err != nil {
+				fmt.Printf("[Collection Sync] Failed to create collection %s: %v\n", fullCollection.Name, err)
+				errors++
+				continue
+			}
+
+			// Link movie to collection - fullCollection.ID is populated by Create's RETURNING clause
+			if err := h.collectionStore.UpdateMovieCollection(ctx, movie.ID, fullCollection.ID); err != nil {
+				fmt.Printf("[Collection Sync] Failed to link movie %s (ID:%d) to collection %s (ID:%d): %v\n", 
+					movie.Title, movie.ID, fullCollection.Name, fullCollection.ID, err)
+				errors++
+				continue
+			}
+
+			linked++
+			fmt.Printf("[Collection Sync] Linked '%s' to '%s'\n", movie.Title, fullCollection.Name)
+		}
+
+		// Progress log every 100 movies
+		if (i+1)%100 == 0 {
+			fmt.Printf("[Collection Sync] Progress: %d/%d movies processed, %d linked, %d skipped, %d errors\n", 
+				i+1, len(movies), linked, skipped, errors)
+		}
+
+		// Rate limit
+		time.Sleep(200 * time.Millisecond)
+	}
+
+	fmt.Printf("[Collection Sync] Complete: %d movies linked to collections, %d skipped (already linked), %d errors\n", 
+		linked, skipped, errors)
+	return nil
 }
 
 // UpdateMovie handles PUT /api/movies/{id}
@@ -942,4 +1111,288 @@ func (h *Handler) GetNowPlaying(w http.ResponseWriter, r *http.Request) {
 	}
 	
 	respondJSON(w, http.StatusOK, items)
+}
+
+// ListCollections handles GET /api/collections
+func (h *Handler) ListCollections(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	if h.collectionStore == nil {
+		respondError(w, http.StatusInternalServerError, "collection store not initialized")
+		return
+	}
+
+	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	if limit == 0 {
+		limit = 50
+	}
+
+	collections, total, err := h.collectionStore.GetCollectionsWithProgress(ctx, limit, offset)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to list collections")
+		return
+	}
+
+	respondJSON(w, http.StatusOK, map[string]interface{}{
+		"collections": collections,
+		"total":       total,
+		"limit":       limit,
+		"offset":      offset,
+	})
+}
+
+// GetCollection handles GET /api/collections/{id}
+func (h *Handler) GetCollection(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	if h.collectionStore == nil {
+		respondError(w, http.StatusInternalServerError, "collection store not initialized")
+		return
+	}
+
+	id, err := strconv.ParseInt(r.URL.Query().Get("id"), 10, 64)
+	if err != nil {
+		respondError(w, http.StatusBadRequest, "invalid collection ID")
+		return
+	}
+
+	collection, err := h.collectionStore.GetByID(ctx, id)
+	if err != nil {
+		respondError(w, http.StatusNotFound, "collection not found")
+		return
+	}
+
+	// Also get movies in this collection
+	movies, _ := h.collectionStore.GetMoviesInCollection(ctx, id)
+
+	respondJSON(w, http.StatusOK, map[string]interface{}{
+		"collection": collection,
+		"movies":     movies,
+	})
+}
+
+// SyncCollection handles POST /api/collections/{id}/sync - adds all missing movies from a collection
+func (h *Handler) SyncCollection(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	if h.collectionStore == nil {
+		respondError(w, http.StatusInternalServerError, "collection store not initialized")
+		return
+	}
+
+	id, err := strconv.ParseInt(r.URL.Query().Get("id"), 10, 64)
+	if err != nil {
+		respondError(w, http.StatusBadRequest, "invalid collection ID")
+		return
+	}
+
+	collection, err := h.collectionStore.GetByID(ctx, id)
+	if err != nil {
+		respondError(w, http.StatusNotFound, "collection not found")
+		return
+	}
+
+	var req struct {
+		Monitored      bool   `json:"monitored"`
+		QualityProfile string `json:"quality_profile"`
+	}
+	
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		req.Monitored = true
+		req.QualityProfile = "default"
+	}
+
+	// Start background sync
+	go h.addCollectionMovies(ctx, collection.TMDBID, req.Monitored, req.QualityProfile)
+
+	respondJSON(w, http.StatusAccepted, map[string]string{
+		"message": "Collection sync started",
+		"status":  "syncing",
+	})
+}
+
+// GetCollectionMovies handles GET /api/collections/{id}/movies
+func (h *Handler) GetCollectionMovies(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	if h.collectionStore == nil {
+		respondError(w, http.StatusInternalServerError, "collection store not initialized")
+		return
+	}
+
+	id, err := strconv.ParseInt(r.URL.Query().Get("id"), 10, 64)
+	if err != nil {
+		respondError(w, http.StatusBadRequest, "invalid collection ID")
+		return
+	}
+
+	movies, err := h.collectionStore.GetMoviesInCollection(ctx, id)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to get collection movies")
+		return
+	}
+
+	respondJSON(w, http.StatusOK, movies)
+}
+
+// SearchCollections handles GET /api/search/collections - search TMDB for collections
+func (h *Handler) SearchCollections(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	query := r.URL.Query().Get("q")
+	if query == "" {
+		respondError(w, http.StatusBadRequest, "search query required")
+		return
+	}
+
+	collections, err := h.tmdbClient.SearchCollections(ctx, query)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to search collections")
+		return
+	}
+
+	respondJSON(w, http.StatusOK, collections)
+}
+
+// GetServices handles GET /api/services - returns status of all background services
+func (h *Handler) GetServices(w http.ResponseWriter, r *http.Request) {
+	statuses := services.GlobalScheduler.GetAllStatus()
+	respondJSON(w, http.StatusOK, map[string]interface{}{
+		"services": statuses,
+	})
+}
+
+// TriggerService handles POST /api/services/{name}/trigger - manually triggers a service
+func (h *Handler) TriggerService(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	serviceName := vars["name"]
+	if serviceName == "" {
+		respondError(w, http.StatusBadRequest, "service name required")
+		return
+	}
+
+	status := services.GlobalScheduler.GetStatus(serviceName)
+	if status == nil {
+		respondError(w, http.StatusNotFound, "service not found")
+		return
+	}
+
+	if status.Running {
+		respondError(w, http.StatusConflict, "service is already running")
+		return
+	}
+
+	// Trigger the service based on name
+	go h.runService(serviceName)
+
+	respondJSON(w, http.StatusAccepted, map[string]string{
+		"message": "Service triggered",
+		"service": serviceName,
+		"status":  "running",
+	})
+}
+
+// runService executes a specific service
+func (h *Handler) runService(serviceName string) {
+	ctx := context.Background()
+	services.GlobalScheduler.MarkRunning(serviceName)
+	
+	var err error
+	var interval time.Duration
+
+	switch serviceName {
+	case services.ServiceEPGUpdate:
+		interval = 6 * time.Hour
+		if h.channelManager != nil && h.epgManager != nil {
+			channels := h.channelManager.GetAllChannels()
+			channelList := make([]livetv.Channel, len(channels))
+			for i, ch := range channels {
+				channelList[i] = *ch
+			}
+			err = h.epgManager.UpdateEPG(channelList)
+		}
+	
+	case services.ServiceChannelRefresh:
+		interval = 1 * time.Hour
+		if h.channelManager != nil {
+			err = h.channelManager.LoadChannels()
+		}
+	
+	case services.ServiceCacheCleanup:
+		interval = 1 * time.Hour
+		// Cache cleanup would be handled by cache manager
+		// For now just mark as complete
+	
+	case services.ServicePlaylist:
+		interval = 12 * time.Hour
+		// Playlist generation requires the playlist generator
+		// For now just mark as complete
+	
+	case services.ServiceMDBListSync:
+		interval = 6 * time.Hour
+		// MDBList sync requires the sync service
+		// For now just mark as complete
+	
+	case services.ServiceCollectionSync:
+		interval = 24 * time.Hour
+		// First, scan existing movies for collections and link them
+		if h.collectionStore != nil && h.movieStore != nil {
+			err = h.scanAndLinkCollections(ctx)
+		}
+		// Then sync incomplete collections (add missing movies)
+		if h.collectionStore != nil && h.settingsManager != nil {
+			settings := h.settingsManager.Get()
+			if settings.AutoAddCollections {
+				fmt.Println("[Collection Sync] Phase 2: Adding missing movies from incomplete collections...")
+				collections, _, _ := h.collectionStore.GetCollectionsWithProgress(ctx, 100, 0)
+				fmt.Printf("[Collection Sync] Found %d collections to check\n", len(collections))
+				incomplete := 0
+				for _, coll := range collections {
+					if coll.MoviesInLibrary < coll.TotalMovies {
+						incomplete++
+						fmt.Printf("[Collection Sync] '%s' is incomplete (%d/%d), adding missing movies...\n", 
+							coll.Name, coll.MoviesInLibrary, coll.TotalMovies)
+						h.addCollectionMovies(ctx, coll.TMDBID, true, "default")
+						time.Sleep(500 * time.Millisecond) // Rate limit
+					}
+				}
+				fmt.Printf("[Collection Sync] Phase 2 complete: processed %d incomplete collections\n", incomplete)
+			} else {
+				fmt.Println("[Collection Sync] Phase 2 skipped: AutoAddCollections is disabled")
+			}
+		} else {
+			fmt.Println("[Collection Sync] Phase 2 skipped: collectionStore or settingsManager is nil")
+		}
+	
+	default:
+		interval = 1 * time.Hour
+	}
+
+	services.GlobalScheduler.MarkComplete(serviceName, err, interval)
+}
+
+// UpdateServiceEnabled handles PUT /api/services/{name} - enables/disables a service
+func (h *Handler) UpdateServiceEnabled(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	serviceName := vars["name"]
+	if serviceName == "" {
+		respondError(w, http.StatusBadRequest, "service name required")
+		return
+	}
+
+	var req struct {
+		Enabled bool `json:"enabled"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	services.GlobalScheduler.SetEnabled(serviceName, req.Enabled)
+
+	respondJSON(w, http.StatusOK, map[string]interface{}{
+		"service": serviceName,
+		"enabled": req.Enabled,
+	})
 }

@@ -1,8 +1,10 @@
 import { useState, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { streamarrApi, tmdbImageUrl } from '../services/api';
-import { Search, Film, Tv, Grid, List, Star, Clock, ChevronLeft, ChevronRight, Trash2, Loader2 } from 'lucide-react';
+import { Search, Film, Tv, Grid, List, Star, Clock, ChevronLeft, ChevronRight, Trash2, Loader2, ArrowUpDown, SortAsc, SortDesc, Calendar, TrendingUp } from 'lucide-react';
 import type { Movie, Series, CalendarEntry } from '../types';
+
+type SortOption = 'title-asc' | 'title-desc' | 'added-desc' | 'added-asc' | 'release-desc' | 'release-asc' | 'rating-desc' | 'rating-asc' | 'year-desc' | 'year-asc';
 
 type MediaItem = {
   id: number;
@@ -25,6 +27,8 @@ export default function Library() {
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [showWidgets, setShowWidgets] = useState(true);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [sortBy, setSortBy] = useState<SortOption>('title-asc');
+  const [showSortMenu, setShowSortMenu] = useState(false);
 
   const queryClient = useQueryClient();
 
@@ -118,9 +122,7 @@ export default function Library() {
       release_date: s.first_air_date,
     }));
 
-    return [...movieItems, ...seriesItems].sort((a, b) => 
-      a.title.localeCompare(b.title)
-    );
+    return [...movieItems, ...seriesItems];
   }, [movies, series]);
 
   // Widget data
@@ -141,16 +143,61 @@ export default function Library() {
   const upcomingMovies = upcomingEntries.filter(e => e.type === 'movie').slice(0, 10);
   const upcomingEpisodes = upcomingEntries.filter(e => e.type === 'episode').slice(0, 10);
 
-  // Filter media
+  // Filter and sort media
   const filteredMedia = useMemo(() => {
-    return allMedia.filter(item => {
+    let result = allMedia.filter(item => {
       const matchesSearch = item.title.toLowerCase().includes(searchTerm.toLowerCase());
       const matchesType = mediaFilter === 'all' || 
         (mediaFilter === 'movies' && item.type === 'movie') ||
         (mediaFilter === 'series' && item.type === 'series');
       return matchesSearch && matchesType;
     });
-  }, [allMedia, searchTerm, mediaFilter]);
+
+    // Apply sorting
+    result.sort((a, b) => {
+      switch (sortBy) {
+        case 'title-asc':
+          return a.title.localeCompare(b.title);
+        case 'title-desc':
+          return b.title.localeCompare(a.title);
+        case 'added-desc':
+          return new Date(b.added_at || 0).getTime() - new Date(a.added_at || 0).getTime();
+        case 'added-asc':
+          return new Date(a.added_at || 0).getTime() - new Date(b.added_at || 0).getTime();
+        case 'release-desc':
+          return new Date(b.release_date || 0).getTime() - new Date(a.release_date || 0).getTime();
+        case 'release-asc':
+          return new Date(a.release_date || 0).getTime() - new Date(b.release_date || 0).getTime();
+        case 'rating-desc':
+          return (b.vote_average || 0) - (a.vote_average || 0);
+        case 'rating-asc':
+          return (a.vote_average || 0) - (b.vote_average || 0);
+        case 'year-desc':
+          return (b.year || 0) - (a.year || 0);
+        case 'year-asc':
+          return (a.year || 0) - (b.year || 0);
+        default:
+          return 0;
+      }
+    });
+
+    return result;
+  }, [allMedia, searchTerm, mediaFilter, sortBy]);
+
+  const sortOptions: { value: SortOption; label: string; icon: typeof SortAsc }[] = [
+    { value: 'title-asc', label: 'Title (A-Z)', icon: SortAsc },
+    { value: 'title-desc', label: 'Title (Z-A)', icon: SortDesc },
+    { value: 'added-desc', label: 'Recently Added', icon: Clock },
+    { value: 'added-asc', label: 'Oldest Added', icon: Clock },
+    { value: 'release-desc', label: 'Release (Newest)', icon: Calendar },
+    { value: 'release-asc', label: 'Release (Oldest)', icon: Calendar },
+    { value: 'rating-desc', label: 'Rating (High)', icon: Star },
+    { value: 'rating-asc', label: 'Rating (Low)', icon: Star },
+    { value: 'year-desc', label: 'Year (Newest)', icon: TrendingUp },
+    { value: 'year-asc', label: 'Year (Oldest)', icon: TrendingUp },
+  ];
+
+  const currentSortLabel = sortOptions.find(o => o.value === sortBy)?.label || 'Sort';
 
   const movieCount = movies.length;
   const seriesCount = series.length;
@@ -248,6 +295,48 @@ export default function Library() {
           >
             <List className="w-5 h-5" />
           </button>
+        </div>
+
+        {/* Sort Dropdown */}
+        <div className="relative">
+          <button
+            onClick={() => setShowSortMenu(!showSortMenu)}
+            className="flex items-center gap-2 px-4 py-2.5 bg-slate-800 border border-slate-700 rounded-lg text-white hover:bg-slate-700 transition-colors"
+          >
+            <ArrowUpDown className="w-4 h-4" />
+            <span className="text-sm">{currentSortLabel}</span>
+          </button>
+          
+          {showSortMenu && (
+            <>
+              <div 
+                className="fixed inset-0 z-10" 
+                onClick={() => setShowSortMenu(false)}
+              />
+              <div className="absolute right-0 top-full mt-2 w-48 bg-slate-800 border border-slate-700 rounded-lg shadow-xl z-20 py-1 overflow-hidden">
+                {sortOptions.map((option) => {
+                  const Icon = option.icon;
+                  return (
+                    <button
+                      key={option.value}
+                      onClick={() => {
+                        setSortBy(option.value);
+                        setShowSortMenu(false);
+                      }}
+                      className={`w-full flex items-center gap-2 px-4 py-2 text-sm transition-colors ${
+                        sortBy === option.value
+                          ? 'bg-blue-600 text-white'
+                          : 'text-slate-300 hover:bg-slate-700'
+                      }`}
+                    >
+                      <Icon className="w-4 h-4" />
+                      {option.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </>
+          )}
         </div>
       </div>
 

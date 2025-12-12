@@ -49,6 +49,33 @@ type tmdbMovie struct {
 	VoteCount       int     `json:"vote_count"`
 	Status          string  `json:"status"`
 	IMDbID          string  `json:"imdb_id"`
+	BelongsToCollection *tmdbBelongsToCollection `json:"belongs_to_collection"`
+}
+
+// tmdbBelongsToCollection represents the collection a movie belongs to
+type tmdbBelongsToCollection struct {
+	ID           int    `json:"id"`
+	Name         string `json:"name"`
+	PosterPath   string `json:"poster_path"`
+	BackdropPath string `json:"backdrop_path"`
+}
+
+// tmdbCollection represents a full collection response
+type tmdbCollection struct {
+	ID           int    `json:"id"`
+	Name         string `json:"name"`
+	Overview     string `json:"overview"`
+	PosterPath   string `json:"poster_path"`
+	BackdropPath string `json:"backdrop_path"`
+	Parts        []struct {
+		ID           int     `json:"id"`
+		Title        string  `json:"title"`
+		Overview     string  `json:"overview"`
+		PosterPath   string  `json:"poster_path"`
+		BackdropPath string  `json:"backdrop_path"`
+		ReleaseDate  string  `json:"release_date"`
+		VoteAverage  float64 `json:"vote_average"`
+	} `json:"parts"`
 }
 
 type tmdbSeries struct {
@@ -117,6 +144,71 @@ func (c *TMDBClient) GetMovie(ctx context.Context, tmdbID int) (*models.Movie, e
 	}
 
 	return c.convertMovie(&tmdbMovie), nil
+}
+
+// GetMovieWithCollection retrieves movie details along with collection info
+func (c *TMDBClient) GetMovieWithCollection(ctx context.Context, tmdbID int) (*models.Movie, *models.Collection, error) {
+	endpoint := fmt.Sprintf("%s/movie/%d", tmdbBaseURL, tmdbID)
+	params := url.Values{}
+	params.Set("api_key", c.apiKey)
+
+	data, err := c.makeRequest(ctx, endpoint, params)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	var tmdbMovie tmdbMovie
+	if err := json.Unmarshal(data, &tmdbMovie); err != nil {
+		return nil, nil, fmt.Errorf("failed to unmarshal movie: %w", err)
+	}
+
+	movie := c.convertMovie(&tmdbMovie)
+
+	var collection *models.Collection
+	if tmdbMovie.BelongsToCollection != nil {
+		collection = &models.Collection{
+			TMDBID:       tmdbMovie.BelongsToCollection.ID,
+			Name:         tmdbMovie.BelongsToCollection.Name,
+			PosterPath:   tmdbMovie.BelongsToCollection.PosterPath,
+			BackdropPath: tmdbMovie.BelongsToCollection.BackdropPath,
+		}
+	}
+
+	return movie, collection, nil
+}
+
+// GetCollection retrieves full collection details from TMDB
+func (c *TMDBClient) GetCollection(ctx context.Context, collectionID int) (*models.Collection, []int, error) {
+	endpoint := fmt.Sprintf("%s/collection/%d", tmdbBaseURL, collectionID)
+	params := url.Values{}
+	params.Set("api_key", c.apiKey)
+
+	data, err := c.makeRequest(ctx, endpoint, params)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	var tc tmdbCollection
+	if err := json.Unmarshal(data, &tc); err != nil {
+		return nil, nil, fmt.Errorf("failed to unmarshal collection: %w", err)
+	}
+
+	collection := &models.Collection{
+		TMDBID:       tc.ID,
+		Name:         tc.Name,
+		Overview:     tc.Overview,
+		PosterPath:   tc.PosterPath,
+		BackdropPath: tc.BackdropPath,
+		TotalMovies:  len(tc.Parts),
+	}
+
+	// Extract movie TMDB IDs
+	movieIDs := make([]int, 0, len(tc.Parts))
+	for _, part := range tc.Parts {
+		movieIDs = append(movieIDs, part.ID)
+	}
+
+	return collection, movieIDs, nil
 }
 
 // GetSeries retrieves series details from TMDB
@@ -230,6 +322,45 @@ func (c *TMDBClient) SearchSeries(ctx context.Context, query string, page int) (
 	}
 
 	return series, nil
+}
+
+// SearchCollections searches for collections
+func (c *TMDBClient) SearchCollections(ctx context.Context, query string) ([]*models.Collection, error) {
+	endpoint := fmt.Sprintf("%s/search/collection", tmdbBaseURL)
+	params := url.Values{}
+	params.Set("api_key", c.apiKey)
+	params.Set("query", query)
+
+	data, err := c.makeRequest(ctx, endpoint, params)
+	if err != nil {
+		return nil, err
+	}
+
+	var result struct {
+		Results []struct {
+			ID           int    `json:"id"`
+			Name         string `json:"name"`
+			Overview     string `json:"overview"`
+			PosterPath   string `json:"poster_path"`
+			BackdropPath string `json:"backdrop_path"`
+		} `json:"results"`
+	}
+	if err := json.Unmarshal(data, &result); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal search results: %w", err)
+	}
+
+	collections := make([]*models.Collection, 0, len(result.Results))
+	for _, c := range result.Results {
+		collections = append(collections, &models.Collection{
+			TMDBID:       c.ID,
+			Name:         c.Name,
+			Overview:     c.Overview,
+			PosterPath:   c.PosterPath,
+			BackdropPath: c.BackdropPath,
+		})
+	}
+
+	return collections, nil
 }
 
 // DiscoverMovies discovers movies with filters
