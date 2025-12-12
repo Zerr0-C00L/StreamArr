@@ -1,27 +1,226 @@
-# StreamArr - Free Live TV, Movies & Series Playlist \[Xtream Codes & M3U8\]
+# StreamArr
 
-## Update 12/08/2025 - Multi-Provider & Cloud Deployment
+**Self-hosted media server for Live TV, Movies & Series with Xtream Codes & M3U8 support**
 
-### 🚀 Major New Features
+Generate dynamic playlists for Live TV, Movies and TV Series using Xtream Codes compatible API. Stream content via Real-Debrid, Torrentio, Comet, MediaFusion and direct sources. Perfect for apps like TiviMate, iMPlayer, IPTV Smarters Pro, XCIPTV and more.
 
-- **Multi-Provider Stream Support**: Added fallback system with Comet, MediaFusion, and Torrentio providers. If one provider is blocked or down, automatically tries the next.
-- **Cloud Deployment Ready**: Optimized for Hetzner Cloud and other datacenter hosting. Comet and MediaFusion work perfectly on datacenter IPs where Torrentio may be blocked.
-- **Background Sync Daemon**: New worker daemon automatically syncs with GitHub's large playlist (~51K movies, ~17K series) while running your own smaller playlist initially.
-- **SQLite Episode Cache**: Migrated episode lookups to SQLite database for faster performance and reliability.
-- **Systemd Service**: Auto-start daemon on server boot with `streamarr.service`.
+[![Download ZIP](https://img.shields.io/badge/Download%20ZIP-latest-blue?style=for-the-badge&logo=github)](https://github.com/Zerr0-C00L/StreamArr/archive/refs/heads/main.zip)
+[![Ko-fi](https://www.ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/zeroq)
 
-### 🔧 Technical Improvements
+---
 
-- **Provider Configuration**: Configure providers via web UI or environment variables
-- **Comet Integration**: Works with Real-Debrid on datacenter IPs (Hetzner, DigitalOcean, etc.)
-- **MediaFusion Integration**: ElfHosted instance as backup provider
-- **Improved Error Handling**: Better fallback logic when providers fail
-- **Cleaned Codebase**: Fully rewritten in Go for better performance
+## 🎬 Features
 
-### 📦 Quick Cloud Setup (Hetzner)
+### Content Management
+- **Movies & Series Library** - Add content from TMDB with full metadata
+- **Movie Collections** - Auto-detect and complete movie collections (e.g., add one MCU movie, get them all)
+- **Live TV** - 500+ channels with EPG support (DrewLive, DaddyLive, PlutoTV, etc.)
+- **MDBList Integration** - Sync watchlists and custom lists automatically
+- **Quality Profiles** - Set preferred resolution (4K, 1080p, 720p) per item
 
-```bash
-# 1. Create Ubuntu 24.04 server on Hetzner (~$4/month)
+### Streaming Providers
+- **Multi-Provider Fallback** - Automatically tries next provider if one fails
+- **Real-Debrid** - Premium cached torrents
+- **Torrentio** - Direct torrent streaming
+- **Comet** - Works on datacenter IPs (Hetzner, DigitalOcean)
+- **MediaFusion** - ElfHosted backup provider
+
+### Background Services
+- **Collection Sync** - Scans library and adds missing collection movies
+- **MDBList Sync** - Keeps library in sync with your watchlists
+- **EPG Update** - Refreshes TV guide data automatically
+- **Stream Search** - Finds streams for monitored content
+- **Playlist Generation** - Regenerates M3U8 playlists
+- **Cache Cleanup** - Removes expired cache entries
+
+### Modern Web UI
+- **Dashboard** - Overview of library stats and recent additions
+- **Library Browser** - Browse movies/series with sorting options
+- **Search** - Find and add content from TMDB
+- **Settings** - Configure providers, quality, services, and more
+- **Services Monitor** - View background task status with manual triggers
+
+### API Compatibility
+- **Xtream Codes API** - Full compatibility with IPTV apps
+- **M3U8 Playlists** - Standard playlist format support
+- **REST API** - Modern JSON API for all operations
+
+---
+
+## 📦 Quick Start
+
+### Prerequisites
+- Go 1.21+
+- PostgreSQL 14+
+- Node.js 18+ (for UI development)
+
+### Installation
+
+\`\`\`bash
+# Clone repository
+git clone https://github.com/Zerr0-C00L/StreamArr.git
+cd StreamArr
+
+# Copy and configure environment
+cp .env.example .env
+# Edit .env with your API keys:
+# - TMDB_API_KEY (required): https://developer.themoviedb.org/docs/getting-started
+# - RD_API_KEY (optional): https://real-debrid.com/apitoken
+# - DATABASE_URL: PostgreSQL connection string
+
+# Run database migrations
+psql \$DATABASE_URL < migrations/001_initial_schema.up.sql
+psql \$DATABASE_URL < migrations/002_add_settings.up.sql
+psql \$DATABASE_URL < migrations/003_add_users.up.sql
+psql \$DATABASE_URL < migrations/004_add_collections.up.sql
+
+# Build and start
+./start-all.sh
+\`\`\`
+
+### Access Points
+- **Web UI**: http://localhost:3000
+- **API**: http://localhost:8080
+- **Xtream Codes**: http://localhost:8080/player_api.php
+
+---
+
+## 🔧 Configuration
+
+### Environment Variables
+
+\`\`\`bash
+# Required
+TMDB_API_KEY=your_tmdb_api_key
+DATABASE_URL=postgres://user:pass@localhost:5432/streamarr
+
+# Optional - Streaming Providers
+RD_API_KEY=your_realdebrid_key
+TORRENTIO_URL=https://torrentio.strem.fun
+COMET_URL=https://comet.elfhosted.com
+MEDIAFUSION_URL=https://mediafusion.elfhosted.com
+
+# Server
+PORT=8080
+HOST=0.0.0.0
+\`\`\`
+
+### Web UI Settings
+
+Access Settings from the web UI to configure:
+
+| Tab | Options |
+|-----|---------|
+| **General** | Server URL, authentication |
+| **Providers** | Enable/disable and configure streaming providers |
+| **Quality** | Default quality profiles, auto-add collections |
+| **Live TV** | M3U sources, EPG URLs |
+| **MDBList** | API key, watchlist sync |
+| **Services** | View/trigger background tasks |
+
+---
+
+## 📱 IPTV App Setup
+
+### Xtream Codes (Recommended)
+Most IPTV apps support Xtream Codes login:
+
+| Field | Value |
+|-------|-------|
+| Server | \`http://your-ip:8080\` |
+| Username | \`any\` |
+| Password | \`any\` |
+
+### M3U Playlist
+For apps without Xtream support:
+\`\`\`
+http://your-ip:8080/playlist.m3u8
+\`\`\`
+
+### Supported Apps
+- TiviMate
+- iMPlayer
+- IPTV Smarters Pro
+- XCIPTV Player
+- OTT Navigator
+- Kodi (with IPTV Simple Client)
+
+---
+
+## 🎯 Usage Guide
+
+### Adding Content
+
+1. **Search** - Use the search bar to find movies/series on TMDB
+2. **Add to Library** - Click + to add with your preferred quality profile
+3. **Collections** - Enable "Auto-add Collections" in Settings > Quality to automatically complete movie collections
+
+### Library Management
+
+- **Sorting** - Sort by title, date added, release date, rating, or year
+- **Filtering** - Filter by monitored status, availability, type
+- **Bulk Actions** - Select multiple items for batch operations
+
+### Background Services
+
+View and manage background tasks in Settings > Services:
+
+| Service | Interval | Description |
+|---------|----------|-------------|
+| Collection Sync | 24 hours | Links movies to collections, adds missing titles |
+| MDBList Sync | 6 hours | Syncs with configured watchlists |
+| EPG Update | 6 hours | Refreshes TV guide data |
+| Stream Search | 30 mins | Finds streams for monitored content |
+| Playlist Generation | 12 hours | Regenerates M3U8 playlists |
+| Cache Cleanup | 1 hour | Removes expired entries |
+| Channel Refresh | 1 hour | Updates Live TV channel list |
+
+Click "Run Now" to manually trigger any service.
+
+---
+
+## 🏗️ Architecture
+
+\`\`\`
+StreamArr/
+├── cmd/
+│   ├── server/          # Main API server
+│   ├── worker/          # Background task worker
+│   └── migrate/         # Database migration tool
+├── internal/
+│   ├── api/             # HTTP handlers and routes
+│   ├── database/        # PostgreSQL stores
+│   ├── models/          # Data models
+│   ├── services/        # External service clients (TMDB, RD, etc.)
+│   ├── livetv/          # Live TV channel management
+│   ├── epg/             # Electronic Program Guide
+│   └── settings/        # Configuration management
+├── migrations/          # SQL migrations
+├── streamarr-ui/        # React frontend
+└── cache/               # Local cache files
+\`\`\`
+
+### Tech Stack
+- **Backend**: Go 1.24
+- **Frontend**: React 19 + TypeScript + Vite + TailwindCSS
+- **Database**: PostgreSQL
+- **API**: REST + Xtream Codes compatible
+
+---
+
+## 🚀 Deployment
+
+### Docker (Coming Soon)
+
+\`\`\`bash
+docker-compose up -d
+\`\`\`
+
+### Cloud (Hetzner/DigitalOcean)
+
+\`\`\`bash
+# 1. Create Ubuntu 24.04 server (~\$4/month)
+
 # 2. Install dependencies
 apt update && apt install -y golang postgresql nginx
 
@@ -29,156 +228,98 @@ apt update && apt install -y golang postgresql nginx
 git clone https://github.com/Zerr0-C00L/StreamArr.git /var/www/streamarr
 cd /var/www/streamarr
 cp .env.example .env
-# Edit .env with your TMDB and Real-Debrid API keys
+nano .env  # Add your API keys
 
-# 4. Build and run
-./start.sh
-```
+# 4. Setup database
+sudo -u postgres createdb streamarr
+# Run migrations...
+
+# 5. Build and run
+./start-all.sh
+
+# 6. (Optional) Setup systemd service for auto-start
+\`\`\`
+
+### Reverse Proxy (nginx)
+
+\`\`\`nginx
+server {
+    listen 80;
+    server_name streamarr.example.com;
+
+    location / {
+        proxy_pass http://127.0.0.1:8080;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+    }
+}
+\`\`\`
 
 ---
 
-## Update 09/28/2025
+## 📝 API Reference
 
-- <strong>Live TV:</strong> Fixed the Live TV section and added DrewLive, a massive all in one source of 7,000+ channels.
-- <strong>Read Debrid:</strong> Fixed Read Debrid cache checks and added Streamio Sites as a debrid source (support for more debrid services coming soon).
-- <strong>Stream sources:</strong> Cleaned up and removed several direct stream sources in both the main script and HeadlessVidX to improve reliability.
-- <strong>Adult VOD:</strong> Fixed the Adult VOD source, the 10,000 title adult movie library now refreshes automatically every Sunday.
-- <strong>HeadlessVidX:</strong> Major overhaul and bug fixes. The software had numerous issues and I spent several weeks stabilizing it and bringing it up to the standard I wanted.
-- <strong>Overall:</strong> Much of the project had broken after more than a year without updates. Things are working much better now, and I’ve got plans to add more features in upcoming releases.
+### REST API
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| \`/api/v1/movies\` | GET | List library movies |
+| \`/api/v1/movies\` | POST | Add movie to library |
+| \`/api/v1/series\` | GET | List library series |
+| \`/api/v1/series\` | POST | Add series to library |
+| \`/api/v1/search/movies\` | GET | Search TMDB for movies |
+| \`/api/v1/search/series\` | GET | Search TMDB for series |
+| \`/api/v1/collections\` | GET | List collections |
+| \`/api/v1/services\` | GET | Get background service status |
+| \`/api/v1/services/{name}/trigger\` | POST | Trigger a service |
+| \`/api/v1/settings\` | GET/PUT | Get/update settings |
+| \`/api/v1/livetv/channels\` | GET | List Live TV channels |
+
+### Xtream Codes API
+
+| Endpoint | Description |
+|----------|-------------|
+| \`/player_api.php?action=get_live_categories\` | Live TV categories |
+| \`/player_api.php?action=get_live_streams\` | Live TV channels |
+| \`/player_api.php?action=get_vod_categories\` | Movie categories |
+| \`/player_api.php?action=get_vod_streams\` | Movie list |
+| \`/player_api.php?action=get_series_categories\` | Series categories |
+| \`/player_api.php?action=get_series\` | Series list |
 
 ---
 
-# Summary
+## 🔄 Changelog
 
-<p>Create Live TV, Movies and TV Series Video on Demand (VOD) Playlist's using Xtream Codes or M3U8 Format.
+### December 12, 2025
+- **Movie Collections** - Auto-detect collections, add missing movies
+- **Services Monitor** - View/trigger background tasks from UI
+- **Library Sorting** - 10 sort options (title, added, release, rating, year)
+- **Collection Badges** - Visual indicator on movie cards
 
-Generate dynamic playlists for Live TV, Movies and TV Series using a mock version of Xtream Codes. Create IPTV, Movies and Series playlists with comprehensive metadata. Streaming links located using TMDB, Real-Debrid, Premiumize and Direct Sources. Ideal for use with apps like iMplayer, Tivimate, IPTV Streamers Pro, XCIPTV Player and more.</p>
+### December 8, 2025
+- **Multi-Provider Support** - Comet, MediaFusion, Torrentio fallback
+- **Cloud Deployment** - Optimized for datacenter hosting
+- **Background Sync** - Worker daemon for automatic updates
+- **Full Go Rewrite** - Improved performance and reliability
 
-<table style="border-collapse: collapse; border: none;">
-  <tr>
-    <td style="border: none;">
-      <a href="https://github.com/Zerr0-C00L/StreamArr/archive/refs/heads/main.zip">
-        <img src="https://img.shields.io/badge/Download%20ZIP-latest-blue?style=for-the-badge&logo=github" alt="Download ZIP">
-      </a>
-    </td>
-    <td style="border: none; padding-left: 10px;"> <!-- Adjust padding as needed -->
-      <a href="https://ko-fi.com/zeroq">
-        <img src="https://www.ko-fi.com/img/githubbutton_sm.svg" alt="Ko-fi">
-      </a>
-    </td>
-  </tr>
-</table>
+### September 28, 2025
+- Fixed Live TV and added DrewLive (7,000+ channels)
+- Fixed Real-Debrid cache checks
+- Fixed Adult VOD (10K movies)
+- Major HeadlessVidX overhaul
 
-# Demo Video
+---
 
-<img src="https://github.com/user-attachments/assets/7925cf0a-63b7-43ab-8a1e-d099306985fe" alt="Demo GIF" width="70%">
-<br><br>
+## ⚠️ Legal Disclaimer
 
-# Screenshots
+This software retrieves movie information from TMDB and searches for content on third-party sources. The legality of streaming content through these sources varies by jurisdiction. Users are responsible for ensuring compliance with local laws. Always respect copyright and terms of service.
 
-<table>
-  <tr>
-    <td align="center">
-      <img src="https://github.com/gogetta69/TMDB-To-VOD-Playlist/raw/main/images/101623110311.png" width="400">
-    </td>
-    <td align="center">
-      <img src="https://github.com/gogetta69/TMDB-To-VOD-Playlist/raw/main/images/101623110433.png" width="400">
-    </td>
-    <td align="center">
-      <img src="https://github.com/gogetta69/TMDB-To-VOD-Playlist/raw/main/images/101623110501.png" width="400">
-    </td>
-  </tr>
-  <tr>
-    <td align="center">
-      <img src="https://github.com/gogetta69/TMDB-To-VOD-Playlist/raw/main/images/101623110535.png" width="400">
-    </td>
-    <td align="center">
-      <img src="https://github.com/gogetta69/TMDB-To-VOD-Playlist/raw/main/images/101623110653.png" width="400">
-    </td>
-    <td align="center">
-      <img src="https://github.com/gogetta69/TMDB-To-VOD-Playlist/raw/main/images/101623110819.png" width="400">
-    </td>
-  </tr>
-  <tr>
-    <td align="center">
-      <img src="https://github.com/gogetta69/TMDB-To-VOD-Playlist/raw/main/images/101623110832.png" width="400">
-    </td>
-    <td align="center">
-      <img src="https://github.com/gogetta69/TMDB-To-VOD-Playlist/raw/main/images/101623110847.png" width="400">
-    </td>
-    <td align="center">
-      <img src="https://github.com/gogetta69/TMDB-To-VOD-Playlist/raw/main/images/101623111001.png" width="400">
-    </td>
-  </tr>
-  <tr>
-    <td align="center">
-      <img src="https://github.com/gogetta69/TMDB-To-VOD-Playlist/raw/main/images/101623111026.png" width="400">
-    </td>
-    <!-- Add more images and rows as needed -->
-  </tr>
-</table>
+---
 
-# Features
+## 🤝 Contributing
 
-- Dynamic playlist generation for live tv, movies and TV series
-- Integration with TMDB, Real Debrid, Premiumize and direct sources for enhanced content retrieval
-- Emulation of Xtream Codes software for full metadata details
-- Inclusion of  Live TV sources such as [Daddylive](https://href.li/?https://dlhd.so/24-7-channels.php), [TheTVApp](https://href.li/?https://thetvapp.to/), [MoveOnJoy](https://i.imgur.com/dFazdys.png), [Streamed Su Sports](https://href.li/?https://streamed.pk/), [Pluto TV](https://href.li/?https://downloads.pluto.tv/docs/pluto_tv_channels_listing.pdf) and more.
-- Most of the live TV channels include detailed TV Guide (EPG) information.
-- Automatic caching of found streaming links for efficient playback
-- 10K Full length adult movies added to the VOD (disabled by default)
+Contributions welcome! Please open an issue or PR.
 
-# Getting Started
+## 📄 License
 
-[![Video Thumbnail](https://raw.githubusercontent.com/gogetta69/TMDB-To-VOD-Playlist/main/images/thumb.PNG)](https://rumble.com/embed/v54v3nx/?pub=4)
-
-1. **Configuration**: Start by setting up the script with the required free [TMDB API Key](https://developer.themoviedb.org/docs/getting-started) and an optional private key for [Real Debrid](https://real-debrid.com/apitoken) or [Premiumize](https://www.premiumize.me/account), which are not mandatory.
-
-2. **Xtream Codes Integration**: Enter the IP address or domain as an Xtream Codes server. Any username and password will work since the script doesn't require authentication. This will automatically load the Live TV, Movies and TV Series playlists into the app.
-
-3. **Non-Xtream Codes Apps**: If your app does not support Xtream Codes, load http://IP_ADDRESS/player_api.php?action=get_vod_streams (replace IP_ADDRESS with your computers ip address) in your browser, then locate the `playlist.m3u8` in the same folder as the script and load it as an M3U playlist. Note that the M3U8 playlists are available for movies and live TV only; TV series cannot be loaded as an M3U playlist.
-
-5. **Playback**: Once everything is set up and the playlists are loaded, you should be able to play a video. Clicking the play button will trigger the script to search multiple websites in the background for a playable link. Please be patient and allow some time for a link to be found and streaming to commence. The script caches and stores the found link for approximately 3 hours, aligning with the typical access token expiration of most direct sources, which occurs at around 4 hours.
-
-5. **Local Hosting**: If you lack a hosting company to run this extremely lightweight script, you can install and run software on your desktop computer like Xampp.
-
-# Changes and Additions
-
-- Added the Premiumize service as an alternative to Real-Debrid. (used only with torrent sites)
-- Added threads when searching torrent sites for magnet links. (speeds up the time it takes to find a link)
-- Added and fixed direct movie and TV show sources as well as more link extractors.
-- Added TheTvApp sports section in the Live TV Playlist (set your app to load EPG and playlist every 12 hours or less.)
-- Added PlutoTV to the live TV playlist (Multi Languages Here: https://github.com/matthuisman/i.mjh.nz)
-- Redesigned the Live TV and DaddyLive functions and playlist. (all of the images in the playlist are working)
-- Fixed a lot of bugs in the torrent search and filtering functions. (it finds links much more often now)
-- Fixed the sorting by resolution and more likely to get higher quality links (torrent sites)
-- Added adult movies to vod (disabled by default)<br>
-
-# What is HeadlessVidX?​
-
-HeadlessVidX is a tool designed to simplify the development of video extractors for streaming websites. It provides an easy-to-use solution for users, regardless of their programming skills, to quickly add video streaming sites to tools such as 'StreamArr'.
-<table>
-  <tr>
-<td align="center">
-        <img src="https://raw.githubusercontent.com/gogetta69/TMDB-To-VOD-Playlist/main/images/Screenshot%202024-06-14%20at%2016-41-13%20HeadlessVidX%20-%20Home.png" width="400">
-    </td>
-    <td align="center">
-     <img src="https://raw.githubusercontent.com/gogetta69/TMDB-To-VOD-Playlist/main/images/Screenshot%202024-06-14%20at%2016-40-15%20HeadlessVidX%20-%20Trainer.png" width="400">   
-    </td>
-  </tr>
-</table>
-
-# Creating Playlist
-
-You no longer need to manually run create_playlist.php and create_tv_playlist.php. With the workflow set up on GitHub, these playlists are automatically generated twice a day. To create your own movies and series playlist, simply set $userCreatePlaylist to true in the config.php file.
-
-https://github.com/user-attachments/assets/c6af6149-c170-45fc-a6ac-32edd1b3405b
-
-
-
-
-
-# Legal Disclaimer
-
-This script retrieves movie information from TMDB and searches for related content on third-party websites. The legality of streaming or downloading content through these websites is uncertain. Please exercise caution and consider the legal and ethical implications of using this script to access and consume copyrighted content. Always respect copyright laws and the terms of service of the websites you visit.
-
+MIT License - see [LICENSE.md](LICENSE.md)
