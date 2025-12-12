@@ -488,13 +488,14 @@ func (h *XtreamHandler) getVODStreams(w http.ResponseWriter, r *http.Request) {
 	}
 	
 	// Query movies - using TMDB ID as stream_id for proper playback routing
-	// If hideUnavailable is true, only show movies where available = true
+	// If hideUnavailable is true, show movies where available = true OR not yet checked (last_checked IS NULL)
+	// This ensures newly added movies still show in IPTV until they've been scanned
 	var query string
 	if hideUnavailable {
 		query = `
 			SELECT id, tmdb_id, title, year, metadata, COALESCE(EXTRACT(EPOCH FROM added_at), 0) as added_ts
 			FROM library_movies
-			WHERE monitored = true AND available = true
+			WHERE monitored = true AND (available = true OR last_checked IS NULL)
 			ORDER BY id DESC
 		`
 	} else {

@@ -78,7 +78,7 @@ func NewUserStore(db *sql.DB) (*UserStore, error) {
 func (s *UserStore) initTables() error {
 	queries := []string{
 		`CREATE TABLE IF NOT EXISTS users (
-			id SERIAL PRIMARY KEY,
+			user_id SERIAL PRIMARY KEY,
 			username VARCHAR(255) UNIQUE NOT NULL,
 			email VARCHAR(255) UNIQUE NOT NULL,
 			password VARCHAR(255) NOT NULL,
@@ -87,18 +87,18 @@ func (s *UserStore) initTables() error {
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 			last_active TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 		)`,
-		`CREATE TABLE IF NOT EXISTS watchlist (
+		`CREATE TABLE IF NOT EXISTS user_watchlist (
 			id SERIAL PRIMARY KEY,
-			user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			user_id INTEGER NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
 			stream_id INTEGER NOT NULL,
 			title VARCHAR(500) NOT NULL,
 			type VARCHAR(50) NOT NULL,
 			added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 			UNIQUE(user_id, stream_id)
 		)`,
-		`CREATE TABLE IF NOT EXISTS watch_history (
+		`CREATE TABLE IF NOT EXISTS user_history (
 			id SERIAL PRIMARY KEY,
-			user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			user_id INTEGER NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
 			stream_id INTEGER NOT NULL,
 			title VARCHAR(500) NOT NULL,
 			type VARCHAR(50) NOT NULL,
@@ -107,22 +107,22 @@ func (s *UserStore) initTables() error {
 			watched_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 		)`,
 		`CREATE TABLE IF NOT EXISTS user_playlists (
-			id SERIAL PRIMARY KEY,
-			user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			playlist_id SERIAL PRIMARY KEY,
+			user_id INTEGER NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
 			name VARCHAR(255) NOT NULL,
 			description TEXT,
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 		)`,
 		`CREATE TABLE IF NOT EXISTS playlist_items (
 			id SERIAL PRIMARY KEY,
-			playlist_id INTEGER NOT NULL REFERENCES user_playlists(id) ON DELETE CASCADE,
+			playlist_id INTEGER NOT NULL REFERENCES user_playlists(playlist_id) ON DELETE CASCADE,
 			stream_id INTEGER NOT NULL,
 			position INTEGER DEFAULT 0
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_users_username ON users(username)`,
 		`CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)`,
-		`CREATE INDEX IF NOT EXISTS idx_watchlist_user ON watchlist(user_id)`,
-		`CREATE INDEX IF NOT EXISTS idx_history_user ON watch_history(user_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_user_watchlist_user ON user_watchlist(user_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_user_history_user ON user_history(user_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_playlists_user ON user_playlists(user_id)`,
 	}
 
@@ -146,7 +146,7 @@ func (s *UserStore) CreateUser(username, email, password, role string) (int, err
 	err = s.db.QueryRow(`
 		INSERT INTO users (username, email, password, role, status)
 		VALUES ($1, $2, $3, $4, 'active')
-		RETURNING id
+		RETURNING user_id
 	`, username, email, string(hashedPassword), role).Scan(&userID)
 
 	return userID, err
@@ -156,8 +156,8 @@ func (s *UserStore) CreateUser(username, email, password, role string) (int, err
 func (s *UserStore) GetUserByID(userID int) (*User, error) {
 	var user User
 	err := s.db.QueryRow(`
-		SELECT id, username, email, password, role, status, created_at, last_active
-		FROM users WHERE id = $1
+		SELECT user_id, username, email, password, role, status, created_at, last_active
+		FROM users WHERE user_id = $1
 	`, userID).Scan(&user.ID, &user.Username, &user.Email, &user.Password,
 		&user.Role, &user.Status, &user.CreatedAt, &user.LastActive)
 
@@ -171,7 +171,7 @@ func (s *UserStore) GetUserByID(userID int) (*User, error) {
 func (s *UserStore) GetUserByUsername(username string) (*User, error) {
 	var user User
 	err := s.db.QueryRow(`
-		SELECT id, username, email, password, role, status, created_at, last_active
+		SELECT user_id, username, email, password, role, status, created_at, last_active
 		FROM users WHERE username = $1
 	`, username).Scan(&user.ID, &user.Username, &user.Email, &user.Password,
 		&user.Role, &user.Status, &user.CreatedAt, &user.LastActive)
@@ -201,15 +201,15 @@ func (s *UserStore) GetUserByEmail(email string) (*User, error) {
 func (s *UserStore) GetAllUsers() ([]map[string]interface{}, error) {
 	rows, err := s.db.Query(`
 		SELECT 
-			u.id, u.username, u.email, u.role, u.status, u.created_at, u.last_active,
+			u.user_id, u.username, u.email, u.role, u.status, u.created_at, u.last_active,
 			COUNT(DISTINCT w.id) as watchlist_count,
-			COUNT(DISTINCT p.id) as playlist_count,
+			COUNT(DISTINCT p.playlist_id) as playlist_count,
 			MAX(wh.watched_at) as last_watch
 		FROM users u
-		LEFT JOIN watchlist w ON u.id = w.user_id
-		LEFT JOIN user_playlists p ON u.id = p.user_id
-		LEFT JOIN watch_history wh ON u.id = wh.user_id
-		GROUP BY u.id
+		LEFT JOIN user_watchlist w ON u.user_id = w.user_id
+		LEFT JOIN user_playlists p ON u.user_id = p.user_id
+		LEFT JOIN user_history wh ON u.user_id = wh.user_id
+		GROUP BY u.user_id
 		ORDER BY u.last_active DESC
 	`)
 	if err != nil {
@@ -274,7 +274,7 @@ func (s *UserStore) UpdateUser(userID int, updates map[string]interface{}) error
 		return fmt.Errorf("no valid fields to update")
 	}
 
-	query += fmt.Sprintf(" WHERE id = $%d", argPos)
+	query += fmt.Sprintf(" WHERE user_id = $%d", argPos)
 	args = append(args, userID)
 
 	_, err := s.db.Exec(query, args...)
@@ -283,13 +283,13 @@ func (s *UserStore) UpdateUser(userID int, updates map[string]interface{}) error
 
 // DeleteUser deletes a user
 func (s *UserStore) DeleteUser(userID int) error {
-	_, err := s.db.Exec("DELETE FROM users WHERE id = $1", userID)
+	_, err := s.db.Exec("DELETE FROM users WHERE user_id = $1", userID)
 	return err
 }
 
 // UpdateLastActive updates user's last active timestamp
 func (s *UserStore) UpdateLastActive(userID int) error {
-	_, err := s.db.Exec("UPDATE users SET last_active = CURRENT_TIMESTAMP WHERE id = $1", userID)
+	_, err := s.db.Exec("UPDATE users SET last_active = CURRENT_TIMESTAMP WHERE user_id = $1", userID)
 	return err
 }
 
@@ -310,7 +310,7 @@ func (s *UserStore) VerifyPassword(username, password string) (*User, error) {
 // Watchlist Management
 func (s *UserStore) AddToWatchlist(userID, streamID int, title, mediaType string) error {
 	_, err := s.db.Exec(`
-		INSERT INTO watchlist (user_id, stream_id, title, type)
+		INSERT INTO user_watchlist (user_id, stream_id, title, type)
 		VALUES ($1, $2, $3, $4)
 		ON CONFLICT (user_id, stream_id) DO NOTHING
 	`, userID, streamID, title, mediaType)
@@ -318,14 +318,14 @@ func (s *UserStore) AddToWatchlist(userID, streamID int, title, mediaType string
 }
 
 func (s *UserStore) RemoveFromWatchlist(userID, streamID int) error {
-	_, err := s.db.Exec("DELETE FROM watchlist WHERE user_id = $1 AND stream_id = $2", userID, streamID)
+	_, err := s.db.Exec("DELETE FROM user_watchlist WHERE user_id = $1 AND stream_id = $2", userID, streamID)
 	return err
 }
 
 func (s *UserStore) GetWatchlist(userID int) ([]WatchlistItem, error) {
 	rows, err := s.db.Query(`
 		SELECT id, user_id, stream_id, title, type, added_at
-		FROM watchlist
+		FROM user_watchlist
 		WHERE user_id = $1
 		ORDER BY added_at DESC
 	`, userID)
@@ -349,7 +349,7 @@ func (s *UserStore) GetWatchlist(userID int) ([]WatchlistItem, error) {
 // Watch History Management
 func (s *UserStore) AddWatchHistory(userID, streamID int, title, mediaType string, progress, duration int) error {
 	_, err := s.db.Exec(`
-		INSERT INTO watch_history (user_id, stream_id, title, type, progress, duration)
+		INSERT INTO user_history (user_id, stream_id, title, type, progress, duration)
 		VALUES ($1, $2, $3, $4, $5, $6)
 	`, userID, streamID, title, mediaType, progress, duration)
 	return err
@@ -358,7 +358,7 @@ func (s *UserStore) AddWatchHistory(userID, streamID int, title, mediaType strin
 func (s *UserStore) GetWatchHistory(userID, limit int) ([]WatchHistory, error) {
 	rows, err := s.db.Query(`
 		SELECT id, user_id, stream_id, title, type, progress, duration, watched_at
-		FROM watch_history
+		FROM user_history
 		WHERE user_id = $1
 		ORDER BY watched_at DESC
 		LIMIT $2
@@ -386,7 +386,7 @@ func (s *UserStore) CreatePlaylist(userID int, name, description string) (int, e
 	err := s.db.QueryRow(`
 		INSERT INTO user_playlists (user_id, name, description)
 		VALUES ($1, $2, $3)
-		RETURNING id
+		RETURNING playlist_id
 	`, userID, name, description).Scan(&playlistID)
 
 	return playlistID, err
@@ -395,12 +395,12 @@ func (s *UserStore) CreatePlaylist(userID int, name, description string) (int, e
 func (s *UserStore) GetUserPlaylists(userID int) ([]UserPlaylist, error) {
 	rows, err := s.db.Query(`
 		SELECT 
-			p.id, p.user_id, p.name, p.description, p.created_at,
+			p.playlist_id, p.user_id, p.name, p.description, p.created_at,
 			COUNT(pi.id) as item_count
 		FROM user_playlists p
-		LEFT JOIN playlist_items pi ON p.id = pi.playlist_id
+		LEFT JOIN playlist_items pi ON p.playlist_id = pi.playlist_id
 		WHERE p.user_id = $1
-		GROUP BY p.id
+		GROUP BY p.playlist_id
 		ORDER BY p.created_at DESC
 	`, userID)
 	if err != nil {

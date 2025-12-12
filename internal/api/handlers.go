@@ -2116,7 +2116,7 @@ func (h *Handler) ExecuteDatabaseAction(w http.ResponseWriter, r *http.Request) 
 
 // Version info - set at build time via ldflags
 var (
-	Version   = "dev"
+	Version   = "main"
 	Commit    = "unknown"
 	BuildDate = "unknown"
 )

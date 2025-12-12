@@ -3,8 +3,8 @@
 # StreamArr Build Script
 # Automatically embeds version info from git tags
 
-# Get version from latest git tag, or default to "dev"
-VERSION=$(git describe --tags --abbrev=0 2>/dev/null || echo "dev")
+# Get version from latest git tag, or default to "main"
+VERSION=$(git describe --tags --abbrev=0 2>/dev/null || echo "main")
 COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 

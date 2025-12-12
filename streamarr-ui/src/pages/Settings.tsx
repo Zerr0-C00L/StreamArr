@@ -155,7 +155,11 @@ export default function Settings() {
     try {
       const response = await fetch(`${API_BASE_URL}/services`);
       const data = await response.json();
-      setServices(data.services || []);
+      // Sort services by name to maintain consistent order
+      const sortedServices = (data.services || []).sort((a: ServiceStatus, b: ServiceStatus) => 
+        a.name.localeCompare(b.name)
+      );
+      setServices(sortedServices);
     } catch (error) {
       console.error('Failed to fetch services:', error);
     }
@@ -2714,22 +2718,11 @@ export default function Settings() {
                 <div className="mb-4">
                   <label className="block text-sm text-gray-400 mb-2">Update Branch</label>
                   <div className="flex items-center gap-3">
-                    <select
-                      value={settings?.update_branch || 'main'}
-                      onChange={(e) => {
-                        if (settings) {
-                          setSettings({ ...settings, update_branch: e.target.value });
-                        }
-                      }}
-                      className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white w-40"
-                    >
-                      <option value="main">main (Stable)</option>
-                      <option value="dev">dev (Development)</option>
-                    </select>
+                    <div className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white w-40">
+                      main (Stable)
+                    </div>
                     <span className="text-xs text-gray-500">
-                      {settings?.update_branch === 'dev' 
-                        ? '⚠️ Development branch may have unstable features'
-                        : 'Recommended for most users'}
+                      Using stable release branch
                     </span>
                   </div>
                 </div>
@@ -2781,7 +2774,7 @@ export default function Settings() {
                 <p className="text-xs text-gray-500 mt-3">
                   {installingUpdate 
                     ? 'Update in progress. The server will restart automatically...'
-                    : `Checking updates from "${settings?.update_branch || 'main'}" branch. Save settings to apply branch changes.`}
+                    : 'Checking updates from "main" branch (stable releases).'}
                 </p>
               </div>
 

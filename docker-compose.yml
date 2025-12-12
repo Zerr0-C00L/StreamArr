@@ -4,7 +4,7 @@ services:
     container_name: streamarr
     restart: unless-stopped
     ports:
-      - "8080:8080"
+      - "8081:8080"
     environment:
       - DATABASE_URL=postgres://streamarr:streamarr@postgres:5432/streamarr?sslmode=disable
       - PORT=8080
