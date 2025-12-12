@@ -61,13 +61,6 @@ Generate dynamic playlists for Live TV, Movies and TV Series using Xtream Codes 
 git clone https://github.com/Zerr0-C00L/StreamArr.git
 cd StreamArr
 
-# Copy and configure environment
-cp .env.example .env
-# Edit .env with your API keys:
-# - TMDB_API_KEY (required): https://developer.themoviedb.org/docs/getting-started
-# - RD_API_KEY (optional): https://real-debrid.com/apitoken
-# - DATABASE_URL: PostgreSQL connection string
-
 # Run database migrations
 psql \$DATABASE_URL < migrations/001_initial_schema.up.sql
 psql \$DATABASE_URL < migrations/002_add_settings.up.sql
@@ -79,31 +72,18 @@ psql \$DATABASE_URL < migrations/004_add_collections.up.sql
 \`\`\`
 
 ### Access Points
-- **Web UI**: http://localhost:3000
-- **API**: http://localhost:8080
+- **Web UI**: http://localhost:8080
 - **Xtream Codes**: http://localhost:8080/player_api.php
 
 ---
 
 ## 🔧 Configuration
 
-### Environment Variables
-
-\`\`\`bash
-# Required
-TMDB_API_KEY=your_tmdb_api_key
-DATABASE_URL=postgres://user:pass@localhost:5432/streamarr
-
 # Optional - Streaming Providers
 RD_API_KEY=your_realdebrid_key
 TORRENTIO_URL=https://torrentio.strem.fun
 COMET_URL=https://comet.elfhosted.com
 MEDIAFUSION_URL=https://mediafusion.elfhosted.com
-
-# Server
-PORT=8080
-HOST=0.0.0.0
-\`\`\`
 
 ### Web UI Settings
 
