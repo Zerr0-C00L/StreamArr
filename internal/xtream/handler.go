@@ -319,7 +319,10 @@ func (h *XtreamHandler) getServerInfo(w http.ResponseWriter, r *http.Request) {
 	if username == "" {
 		username = "user"
 	}
-	
+
+	// Current timestamp for update tracking
+	now := time.Now().Unix()
+
 	info := map[string]interface{}{
 		"user_info": map[string]interface{}{
 			"username":             username,
@@ -335,17 +338,18 @@ func (h *XtreamHandler) getServerInfo(w http.ResponseWriter, r *http.Request) {
 			"allowed_output_formats": []string{"m3u8", ""},
 		},
 		"server_info": map[string]interface{}{
-			"url":             hostOnly,
-			"port":            port,
-			"https_port":      "",
-			"server_protocol": "http",
-			"rtmp_port":       "",
-			"timezone":        "America/New_York",
-			"timestamp_now":   time.Now().Unix(),
-			"time_now":        time.Now().Format("2006-01-02 15:04:05"),
+			"url":                    hostOnly,
+			"port":                   port,
+			"https_port":             "",
+			"server_protocol":        "http",
+			"rtmp_port":              "",
+			"timezone":               "America/New_York",
+			"timestamp_now":          now,
+			"time_now":               time.Now().Format("2006-01-02 15:04:05"),
+			"process":                true,
 		},
 	}
-	
+
 	json.NewEncoder(w).Encode(info)
 }
 
@@ -459,7 +463,7 @@ func (h *XtreamHandler) getVODStreams(w http.ResponseWriter, r *http.Request) {
 	
 	// Query movies - using TMDB ID as stream_id for proper playback routing
 	query := `
-		SELECT id, tmdb_id, title, year, metadata
+		SELECT id, tmdb_id, title, year, metadata, COALESCE(EXTRACT(EPOCH FROM added_at), 0) as added_ts
 		FROM library_movies
 		WHERE monitored = true
 		ORDER BY id DESC
@@ -481,8 +485,9 @@ func (h *XtreamHandler) getVODStreams(w http.ResponseWriter, r *http.Request) {
 		var title string
 		var year sql.NullInt64
 		var metadataJSON []byte
+		var addedTs float64
 		
-		if err := rows.Scan(&id, &tmdbID, &title, &year, &metadataJSON); err != nil {
+		if err := rows.Scan(&id, &tmdbID, &title, &year, &metadataJSON, &addedTs); err != nil {
 			continue
 		}
 		
@@ -550,6 +555,12 @@ func (h *XtreamHandler) getVODStreams(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		
+		// Convert timestamp to int
+		addedInt := int64(addedTs)
+		if addedInt == 0 {
+			addedInt = time.Now().Unix()
+		}
+		
 		// IMPORTANT: Use TMDB ID as stream_id for playback
 		stream := map[string]interface{}{
 			"num":                 num,
@@ -569,7 +580,8 @@ func (h *XtreamHandler) getVODStreams(w http.ResponseWriter, r *http.Request) {
 			"custom_sid":          "",
 			"direct_source":       "",
 			"plot":                plot,
-			"added":               time.Now().Unix(),
+			"added":               addedInt,
+			"last_modified":       addedInt,
 			"group":               "StreamArr",
 		}
 		
@@ -789,7 +801,7 @@ func (h *XtreamHandler) getSeries(w http.ResponseWriter, r *http.Request) {
 	
 	// Query all series - using TMDB ID as series_id for proper playback routing
 	query := `
-		SELECT id, tmdb_id, title, year, metadata
+		SELECT id, tmdb_id, title, year, metadata, COALESCE(EXTRACT(EPOCH FROM added_at), 0) as added_ts
 		FROM library_series
 		WHERE monitored = true
 		ORDER BY id DESC
@@ -811,8 +823,9 @@ func (h *XtreamHandler) getSeries(w http.ResponseWriter, r *http.Request) {
 		var title string
 		var year sql.NullInt64
 		var metadataJSON []byte
+		var addedTs float64
 		
-		if err := rows.Scan(&id, &tmdbID, &title, &year, &metadataJSON); err != nil {
+		if err := rows.Scan(&id, &tmdbID, &title, &year, &metadataJSON, &addedTs); err != nil {
 			continue
 		}
 		
@@ -887,6 +900,12 @@ func (h *XtreamHandler) getSeries(w http.ResponseWriter, r *http.Request) {
 		}
 		
 		// IMPORTANT: Use TMDB ID as series_id for playback
+		// Include added and last_modified for app caching
+		addedInt := int64(addedTs)
+		if addedInt == 0 {
+			addedInt = time.Now().Unix() - 86400 // Default to 24h ago if not set
+		}
+		
 		s := map[string]interface{}{
 			"num":           num,
 			"series_id":     tmdbID,
@@ -904,6 +923,8 @@ func (h *XtreamHandler) getSeries(w http.ResponseWriter, r *http.Request) {
 			"releaseDate":   year.Int64,
 			"category_id":   categoryID,
 			"category_ids":  categoryIDs,
+			"added":         addedInt,
+			"last_modified": addedInt,
 		}
 		
 		// Filter by category if specified

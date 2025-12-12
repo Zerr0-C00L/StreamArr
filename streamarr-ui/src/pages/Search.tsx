@@ -149,14 +149,15 @@ export default function Search() {
   };
 
   const handleAdd = (item: SearchResult | TrendingItem, mediaType?: string) => {
-    const id = item.id;
+    // For search results, use tmdb_id; for trending items, use id (which is the tmdb_id)
+    const tmdbId = ('tmdb_id' in item && item.tmdb_id) ? item.tmdb_id : item.id;
     const type = mediaType || ('media_type' in item ? item.media_type : 'movie');
-    console.log('handleAdd called:', { id, type, item });
-    setAddingId(id);
+    console.log('handleAdd called:', { tmdbId, type, item });
+    setAddingId(tmdbId as number);
     if (type === 'movie') {
-      addMovieMutation.mutate(id);
+      addMovieMutation.mutate(tmdbId as number);
     } else {
-      addSeriesMutation.mutate(id);
+      addSeriesMutation.mutate(tmdbId as number);
     }
   };
 
@@ -240,11 +241,11 @@ export default function Search() {
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
                 {movieResults.map((result) => (
                   <SearchResultCard
-                    key={`movie-${result.id}`}
+                    key={`movie-${result.tmdb_id || result.id}`}
                     result={{ ...result, media_type: 'movie' }}
                     onAdd={handleAdd}
-                    isAdding={addingId === result.id}
-                    isAdded={isInLibrary(result.id)}
+                    isAdding={addingId === (result.tmdb_id || result.id)}
+                    isAdded={isInLibrary(result.tmdb_id || result.id)}
                   />
                 ))}
               </div>
@@ -261,11 +262,11 @@ export default function Search() {
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
                 {seriesResults.map((result) => (
                   <SearchResultCard
-                    key={`series-${result.id}`}
+                    key={`series-${result.tmdb_id || result.id}`}
                     result={{ ...result, media_type: 'tv' }}
                     onAdd={handleAdd}
-                    isAdding={addingId === result.id}
-                    isAdded={isInLibrary(result.id)}
+                    isAdding={addingId === (result.tmdb_id || result.id)}
+                    isAdded={isInLibrary(result.tmdb_id || result.id)}
                   />
                 ))}
               </div>

@@ -81,6 +81,7 @@ export interface AddMovieRequest {
 
 export interface SearchResult {
   id: number;
+  tmdb_id?: number;
   media_type: 'movie' | 'tv';
   title: string;
   release_date: string;
