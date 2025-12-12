@@ -24,11 +24,8 @@ echo ""
 TARGET_OS=${1:-$(go env GOOS)}
 TARGET_ARCH=${2:-$(go env GOARCH)}
 
-if [ "$TARGET_OS" = "linux" ]; then
-    OUTPUT="bin/server-linux"
-else
-    OUTPUT="bin/server"
-fi
+# Always output to bin/server for simplicity
+OUTPUT="bin/server"
 
 echo "Building for ${TARGET_OS}/${TARGET_ARCH}..."
 GOOS=$TARGET_OS GOARCH=$TARGET_ARCH go build -ldflags "$LDFLAGS" -o "$OUTPUT" cmd/server/main.go
