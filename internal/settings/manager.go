@@ -91,6 +91,9 @@ type Settings struct {
 	StreamSortOrder  string `json:"stream_sort_order"`  // e.g., "quality,size,seeders"
 	StreamSortPrefer string `json:"stream_sort_prefer"` // "best", "smallest", or "balanced"
 	
+	// Update Settings
+	UpdateBranch string `json:"update_branch"` // GitHub branch for updates: main, dev, etc.
+	
 	// System Settings
 	Debug      bool   `json:"debug"`
 	ServerPort int    `json:"server_port"`
@@ -142,6 +145,7 @@ func getDefaultSettings() *Settings {
 		CometIndexers:          []string{"bktorrent", "thepiratebay", "yts", "eztv"},
 		UseHTTPProxy:           false,
 		HeadlessVidXAddress:    "localhost:3202",
+		UpdateBranch:           "main",
 		HeadlessVidXMaxThreads: 5,
 		EnableNotifications:    false,
 		Debug:                  false,

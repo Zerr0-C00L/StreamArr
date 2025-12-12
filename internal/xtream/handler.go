@@ -1412,6 +1412,29 @@ func (h *XtreamHandler) handleSeriesPlay(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	
+	// If found in cache but IMDB ID is empty, try to fetch it from TMDB
+	if found && lookup.SeriesID != "" {
+		log.Printf("Episode found in cache but missing IMDB ID, fetching from TMDB for series %s", lookup.SeriesID)
+		seriesID, err := strconv.Atoi(lookup.SeriesID)
+		if err == nil {
+			externalIDs, err := h.tmdb.GetSeriesExternalIDs(r.Context(), seriesID)
+			if err == nil && externalIDs.IMDBID != "" {
+				log.Printf("Got IMDB ID from TMDB: %s", externalIDs.IMDBID)
+				// Update the cache with the IMDB ID
+				h.episodeMu.Lock()
+				lookup.IMDBID = externalIDs.IMDBID
+				h.episodeCache[episodeID] = lookup
+				h.episodeMu.Unlock()
+				go h.saveEpisodeCache()
+				
+				h.playEpisodeByIMDB(w, r, externalIDs.IMDBID, lookup.Season, lookup.Episode)
+				return
+			} else if err != nil {
+				log.Printf("Error fetching IMDB ID from TMDB: %v", err)
+			}
+		}
+	}
+	
 	// Try to decode as base64 custom_sid (fallback)
 	decoded, err := base64.StdEncoding.DecodeString(episodeID)
 	if err != nil {

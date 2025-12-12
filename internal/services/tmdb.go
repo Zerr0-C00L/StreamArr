@@ -249,6 +249,33 @@ func (c *TMDBClient) GetSeason(ctx context.Context, seriesID, seasonNumber int) 
 	return &season, nil
 }
 
+// ExternalIDs represents external IDs for a TV series
+type ExternalIDs struct {
+	ID       int    `json:"id"`
+	IMDBID   string `json:"imdb_id"`
+	FreebaseID string `json:"freebase_id"`
+	TVDBID   int    `json:"tvdb_id"`
+}
+
+// GetSeriesExternalIDs retrieves external IDs (IMDB, TVDB, etc.) for a series
+func (c *TMDBClient) GetSeriesExternalIDs(ctx context.Context, seriesID int) (*ExternalIDs, error) {
+	endpoint := fmt.Sprintf("%s/tv/%d/external_ids", tmdbBaseURL, seriesID)
+	params := url.Values{}
+	params.Set("api_key", c.apiKey)
+
+	data, err := c.makeRequest(ctx, endpoint, params)
+	if err != nil {
+		return nil, err
+	}
+
+	var ids ExternalIDs
+	if err := json.Unmarshal(data, &ids); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal external IDs: %w", err)
+	}
+
+	return &ids, nil
+}
+
 // GetEpisodes retrieves all episodes for a series
 func (c *TMDBClient) GetEpisodes(ctx context.Context, seriesID int64, tmdbID int, seasons int) ([]*models.Episode, error) {
 	var allEpisodes []*models.Episode

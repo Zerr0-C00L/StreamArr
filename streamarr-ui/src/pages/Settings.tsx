@@ -56,6 +56,8 @@ interface SettingsData {
   livetv_enable_plutotv: boolean;
   // Content filter settings
   only_released_content: boolean;
+  // Update settings
+  update_branch: string;
 }
 
 interface MDBListEntry {
@@ -103,6 +105,7 @@ interface VersionInfo {
   latest_date: string;
   update_available: boolean;
   changelog: string;
+  update_branch?: string;
 }
 
 export default function Settings() {
@@ -2569,7 +2572,14 @@ export default function Settings() {
                     )}
                   </div>
                   <div className="bg-gray-800 rounded-lg p-4">
-                    <div className="text-sm text-gray-400 mb-1">Latest Version</div>
+                    <div className="text-sm text-gray-400 mb-1">
+                      Latest Version 
+                      {versionInfo?.update_branch && (
+                        <span className="ml-2 text-xs bg-gray-700 px-2 py-0.5 rounded">
+                          {versionInfo.update_branch}
+                        </span>
+                      )}
+                    </div>
                     <div className="text-xl font-mono text-white flex items-center gap-2">
                       {versionInfo?.latest_version || 'Check for updates'}
                       {versionInfo?.update_available && (
@@ -2616,6 +2626,31 @@ export default function Settings() {
                 <h4 className="text-gray-300 font-medium mb-4 flex items-center gap-2">
                   <Download className="h-5 w-5" /> Updates
                 </h4>
+                
+                {/* Update Branch Selector */}
+                <div className="mb-4">
+                  <label className="block text-sm text-gray-400 mb-2">Update Branch</label>
+                  <div className="flex items-center gap-3">
+                    <select
+                      value={settings?.update_branch || 'main'}
+                      onChange={(e) => {
+                        if (settings) {
+                          setSettings({ ...settings, update_branch: e.target.value });
+                        }
+                      }}
+                      className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white w-40"
+                    >
+                      <option value="main">main (Stable)</option>
+                      <option value="dev">dev (Development)</option>
+                    </select>
+                    <span className="text-xs text-gray-500">
+                      {settings?.update_branch === 'dev' 
+                        ? '⚠️ Development branch may have unstable features'
+                        : 'Recommended for most users'}
+                    </span>
+                  </div>
+                </div>
+
                 <div className="flex flex-wrap gap-3">
                   <button
                     onClick={checkForUpdates}
@@ -2663,7 +2698,7 @@ export default function Settings() {
                 <p className="text-xs text-gray-500 mt-3">
                   {installingUpdate 
                     ? 'Update in progress. The server will restart automatically...'
-                    : 'Install Update will pull latest code, rebuild, and restart the server.'}
+                    : `Checking updates from "${settings?.update_branch || 'main'}" branch. Save settings to apply branch changes.`}
                 </p>
               </div>
 
