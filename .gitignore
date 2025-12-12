@@ -3,7 +3,7 @@ config.php
 .env
 
 # Cache and generated files
-cache/
+/cache/
 logs/
 sessions/
 *.log
