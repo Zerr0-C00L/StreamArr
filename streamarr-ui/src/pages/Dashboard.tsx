@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { streamarrApi } from '../services/api';
-import { Film, Tv, Check, TrendingUp, Radio } from 'lucide-react';
+import { Film, Tv, Check, Radio } from 'lucide-react';
 
 export default function Dashboard() {
   const { data: movies } = useQuery({
@@ -88,48 +88,8 @@ export default function Dashboard() {
         ))}
       </div>
 
-      {/* Recent Activity */}
+      {/* Quick Stats */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="card p-6">
-          <div className="flex items-center gap-2 mb-4">
-            <TrendingUp className="w-5 h-5 text-primary-500" />
-            <h2 className="text-xl font-semibold text-white">Recently Added</h2>
-          </div>
-          
-          <div className="space-y-3">
-            {stats.recentlyAdded.length === 0 ? (
-              <div className="text-center py-8 text-slate-400">
-                <Film className="w-12 h-12 mx-auto mb-2 opacity-50" />
-                <p>No movies added yet</p>
-                <p className="text-sm">Start building your library!</p>
-              </div>
-            ) : (
-              stats.recentlyAdded.map((movie) => (
-                <div key={movie.id} className="flex items-center gap-3 p-3 bg-slate-700/50 rounded-lg hover:bg-slate-700 transition-colors">
-                  <div className="w-12 h-16 bg-slate-600 rounded overflow-hidden flex-shrink-0">
-                    {movie.poster_path && (
-                      <img
-                        src={`https://image.tmdb.org/t/p/w200${movie.poster_path}`}
-                        alt={movie.title}
-                        className="w-full h-full object-cover"
-                      />
-                    )}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-white font-medium truncate">{movie.title}</div>
-                    <div className="text-slate-400 text-sm">
-                      {movie.release_date ? new Date(movie.release_date).getFullYear() : 'N/A'}
-                    </div>
-                  </div>
-                  {movie.monitored && (
-                    <Check className="w-5 h-5 text-green-400 flex-shrink-0" />
-                  )}
-                </div>
-              ))
-            )}
-          </div>
-        </div>
-
         <div className="card p-6">
           <h2 className="text-xl font-semibold text-white mb-4">Quick Stats</h2>
           

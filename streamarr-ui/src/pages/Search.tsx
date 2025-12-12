@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { streamarrApi, tmdbImageUrl } from '../services/api';
 import type { TrendingItem } from '../services/api';
-import { Search as SearchIcon, Film, Tv, Plus, Check, Loader2, Calendar, Star, TrendingUp, Play, Flame } from 'lucide-react';
+import { Search as SearchIcon, Film, Tv, Plus, Check, Loader2, Star, TrendingUp, Play, Flame, ChevronLeft, ChevronRight } from 'lucide-react';
 import type { SearchResult, CalendarEntry } from '../types';
 
 export default function Search() {
@@ -24,21 +24,23 @@ export default function Search() {
   // Fetch user's library to check what's already added
   const { data: libraryMovies = [] } = useQuery({
     queryKey: ['movies', 'all'],
-    queryFn: () => streamarrApi.getMovies({ limit: 10000 }).then(res => res.data || []),
+    queryFn: () => streamarrApi.getMovies({ limit: 10000 }).then(res => Array.isArray(res.data) ? res.data : []),
   });
 
   const { data: librarySeries = [] } = useQuery({
     queryKey: ['series', 'all'],
-    queryFn: () => streamarrApi.getSeries({ limit: 10000 }).then(res => res.data || []),
+    queryFn: () => streamarrApi.getSeries({ limit: 10000 }).then(res => Array.isArray(res.data) ? res.data : []),
   });
 
   // Create a set of TMDB IDs that are already in the library
   const libraryTmdbIds = useMemo(() => {
     const ids = new Set<number>();
-    libraryMovies.forEach(m => {
+    const movies = Array.isArray(libraryMovies) ? libraryMovies : [];
+    const series = Array.isArray(librarySeries) ? librarySeries : [];
+    movies.forEach(m => {
       if (m.tmdb_id) ids.add(m.tmdb_id);
     });
-    librarySeries.forEach(s => {
+    series.forEach(s => {
       if (s.tmdb_id) ids.add(s.tmdb_id);
     });
     return ids;
@@ -52,21 +54,21 @@ export default function Search() {
   // Get trending data
   const { data: trendingData = [] } = useQuery({
     queryKey: ['trending', trendingWindow],
-    queryFn: () => streamarrApi.getTrending('all', trendingWindow).then(res => res.data || []),
+    queryFn: () => streamarrApi.getTrending('all', trendingWindow).then(res => Array.isArray(res.data) ? res.data : []),
     staleTime: 5 * 60 * 1000, // 5 minutes
   });
 
   // Get popular data
   const { data: popularData = [] } = useQuery({
     queryKey: ['popular', popularType],
-    queryFn: () => streamarrApi.getPopular(popularType).then(res => res.data || []),
+    queryFn: () => streamarrApi.getPopular(popularType).then(res => Array.isArray(res.data) ? res.data : []),
     staleTime: 5 * 60 * 1000,
   });
 
   // Get now playing data
   const { data: nowPlayingData = [] } = useQuery({
     queryKey: ['nowPlaying', nowPlayingType],
-    queryFn: () => streamarrApi.getNowPlaying(nowPlayingType).then(res => res.data || []),
+    queryFn: () => streamarrApi.getNowPlaying(nowPlayingType).then(res => Array.isArray(res.data) ? res.data : []),
     staleTime: 5 * 60 * 1000,
   });
 
@@ -80,7 +82,7 @@ export default function Search() {
     queryFn: () => streamarrApi.getCalendar(
       today.toISOString().split('T')[0],
       nextMonth.toISOString().split('T')[0]
-    ).then(res => res.data || []),
+    ).then(res => Array.isArray(res.data) ? res.data : []),
   });
 
   // Split upcoming into movies and series/episodes
@@ -204,43 +206,25 @@ export default function Search() {
         </div>
       </div>
 
-      {/* Upcoming Widgets */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      {/* Upcoming Widgets - styled same as Library page */}
+      <div className="space-y-6">
         {/* Upcoming Movies Widget */}
-        <div className="bg-gray-800 rounded-xl p-5">
-          <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
-            <Calendar className="w-5 h-5 text-purple-400" />
-            Upcoming Movies (In Your Library)
-          </h2>
-          
-          {upcomingMovies.length === 0 ? (
-            <p className="text-gray-400 text-sm">No upcoming movies in the next month</p>
-          ) : (
-            <div className="space-y-3">
-              {upcomingMovies.map((entry) => (
-                <UpcomingCard key={`movie-${entry.id}`} entry={entry} />
-              ))}
-            </div>
-          )}
-        </div>
+        {upcomingMovies.length > 0 && (
+          <UpcomingWidget
+            title="Upcoming Movies (In Your Library)"
+            icon={<Film className="w-5 h-5 text-purple-400" />}
+            entries={upcomingMovies}
+          />
+        )}
 
         {/* Upcoming Episodes Widget */}
-        <div className="bg-gray-800 rounded-xl p-5">
-          <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
-            <Calendar className="w-5 h-5 text-green-400" />
-            Upcoming Episodes (In Your Library)
-          </h2>
-          
-          {upcomingEpisodes.length === 0 ? (
-            <p className="text-gray-400 text-sm">No upcoming episodes in the next month</p>
-          ) : (
-            <div className="space-y-3">
-              {upcomingEpisodes.map((entry, idx) => (
-                <UpcomingCard key={`episode-${entry.id}-${idx}`} entry={entry} />
-              ))}
-            </div>
-          )}
-        </div>
+        {upcomingEpisodes.length > 0 && (
+          <UpcomingWidget
+            title="Upcoming Episodes (In Your Library)"
+            icon={<Tv className="w-5 h-5 text-green-400" />}
+            entries={upcomingEpisodes}
+          />
+        )}
       </div>
 
       {/* Search Results */}
@@ -585,43 +569,92 @@ function SearchResultCard({
   );
 }
 
-// Upcoming Card Component
-function UpcomingCard({ entry }: { entry: CalendarEntry }) {
-  const date = entry.date ? new Date(entry.date) : null;
-  const formattedDate = date?.toLocaleDateString('en-US', { 
-    month: 'short', 
-    day: 'numeric' 
-  });
-  
+// Upcoming Widget - horizontal scrollable poster cards (same style as Library)
+function UpcomingWidget({ title, icon, entries }: { title: string; icon: React.ReactNode; entries: CalendarEntry[] }) {
+  const scrollContainer = (id: string, direction: 'left' | 'right') => {
+    const container = document.getElementById(id);
+    if (container) {
+      const scrollAmount = direction === 'left' ? -300 : 300;
+      container.scrollBy({ left: scrollAmount, behavior: 'smooth' });
+    }
+  };
+
+  const widgetId = `upcoming-${title.replace(/\s+/g, '-').toLowerCase()}`;
+
+  const formatDate = (dateStr: string) => {
+    const date = new Date(dateStr);
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  };
+
   return (
-    <div className="flex gap-3 p-2 bg-gray-700/50 rounded-lg hover:bg-gray-700 transition-colors">
-      <img
-        src={tmdbImageUrl(entry.poster_path, 'w200')}
-        alt={entry.title}
-        className="w-12 h-18 rounded object-cover flex-shrink-0"
-      />
-      <div className="flex-1 min-w-0">
+    <div className="bg-slate-800/50 rounded-xl p-4">
+      <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
-          {entry.type === 'movie' ? (
-            <Film className="w-3.5 h-3.5 text-purple-400 flex-shrink-0" />
-          ) : (
-            <Tv className="w-3.5 h-3.5 text-green-400 flex-shrink-0" />
-          )}
-          <span className="text-white text-sm font-medium truncate">
-            {entry.type === 'episode' ? entry.series_title : entry.title}
-          </span>
+          {icon}
+          <h3 className="text-lg font-semibold text-white">{title}</h3>
+          <span className="text-slate-400 text-sm">({entries.length})</span>
         </div>
-        
-        {entry.type === 'episode' && (
-          <p className="text-gray-400 text-xs truncate">
-            S{String(entry.season_number).padStart(2, '0')}E{String(entry.episode_number).padStart(2, '0')} - {entry.title}
-          </p>
-        )}
-        
-        <div className="flex items-center gap-1 text-gray-400 text-xs mt-1">
-          <Calendar className="w-3 h-3" />
-          {formattedDate}
+        <div className="flex gap-1">
+          <button
+            onClick={() => scrollContainer(widgetId, 'left')}
+            className="p-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-300 transition-colors"
+          >
+            <ChevronLeft className="w-4 h-4" />
+          </button>
+          <button
+            onClick={() => scrollContainer(widgetId, 'right')}
+            className="p-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-300 transition-colors"
+          >
+            <ChevronRight className="w-4 h-4" />
+          </button>
         </div>
+      </div>
+      
+      <div
+        id={widgetId}
+        className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide"
+        style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+      >
+        {entries.map((entry, idx) => (
+          <div
+            key={`${entry.type}-${entry.id}-${idx}`}
+            className="flex-shrink-0 w-32 group"
+          >
+            <div className="relative aspect-[2/3] rounded-lg overflow-hidden mb-2">
+              <img
+                src={tmdbImageUrl(entry.poster_path || '', 'w200')}
+                alt={entry.title}
+                className="w-full h-full object-cover group-hover:scale-105 transition-transform"
+              />
+              {/* Type badge */}
+              <div className={`absolute top-1 left-1 px-1 py-0.5 rounded text-[10px] font-medium ${
+                entry.type === 'movie' ? 'bg-purple-600' : 'bg-green-600'
+              } text-white`}>
+                {entry.type === 'movie' ? 'Movie' : 'Series'}
+              </div>
+              {/* Release date badge */}
+              <div className="absolute top-1 right-1 px-1 py-0.5 rounded bg-blue-600/90 text-white text-[10px] font-medium">
+                {formatDate(entry.date)}
+              </div>
+              {/* Rating badge */}
+              {entry.vote_average && entry.vote_average > 0 && (
+                <div className="absolute bottom-1 right-1 px-1 py-0.5 rounded bg-black/70 text-yellow-400 text-[10px] font-medium">
+                  ★ {entry.vote_average.toFixed(1)}
+                </div>
+              )}
+            </div>
+            <p className="text-white text-xs font-medium truncate" title={entry.title}>
+              {entry.title}
+            </p>
+            {entry.type === 'episode' ? (
+              <p className="text-slate-400 text-[10px] truncate">
+                S{entry.season_number}E{entry.episode_number}
+              </p>
+            ) : entry.year ? (
+              <p className="text-slate-400 text-[10px]">{entry.year}</p>
+            ) : null}
+          </div>
+        ))}
       </div>
     </div>
   );

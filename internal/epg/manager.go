@@ -75,17 +75,17 @@ func (e *Manager) UpdateEPG(channels []livetv.Channel) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
-	for _, channel := range channels {
-		for _, source := range e.sources {
-			programs, err := source.GetEPG(channel.ID)
-			if err != nil {
-				continue
-			}
-			e.programs[channel.ID] = programs
-			break // Use first source that returns data
+	// Clear existing programs
+	e.programs = make(map[string][]livetv.EPGProgram)
+
+	// Get the XMLTV source and bulk load all EPG data
+	for _, source := range e.sources {
+		if xmltvSource, ok := source.(*XMLTVSource); ok {
+			xmltvSource.BulkLoadEPG(e.programs)
 		}
 	}
 
+	fmt.Printf("EPG: Loaded programs for %d channels\n", len(e.programs))
 	e.lastUpdate = time.Now()
 	return nil
 }
@@ -186,14 +186,79 @@ type XMLTVSource struct {
 func NewXMLTVSource() *XMLTVSource {
 	return &XMLTVSource{
 		urls: []string{
-			"https://raw.githubusercontent.com/iptv-org/epg/master/guides/us/tvguide.com.epg.xml",
+			// Primary EPG from user's GitHub repo
+			"https://raw.githubusercontent.com/Zerr0-C00L/public-files/main/epg.xml",
+			// Pluto TV EPG
+			"https://raw.githubusercontent.com/Zerr0-C00L/public-files/main/Pluto-TV/us.xml",
 		},
-		client: &http.Client{Timeout: 30 * time.Second},
+		client: &http.Client{Timeout: 60 * time.Second},
 	}
 }
 
 func (x *XMLTVSource) Name() string {
 	return "XMLTV"
+}
+
+// BulkLoadEPG loads all EPG data from all URLs into the programs map
+func (x *XMLTVSource) BulkLoadEPG(programs map[string][]livetv.EPGProgram) {
+	for _, url := range x.urls {
+		fmt.Printf("EPG: Loading from %s\n", url)
+		resp, err := x.client.Get(url)
+		if err != nil {
+			fmt.Printf("EPG: Error fetching %s: %v\n", url, err)
+			continue
+		}
+
+		body, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if err != nil {
+			fmt.Printf("EPG: Error reading %s: %v\n", url, err)
+			continue
+		}
+
+		var tv XMLTV
+		if err := xml.Unmarshal(body, &tv); err != nil {
+			fmt.Printf("EPG: Error parsing %s: %v\n", url, err)
+			continue
+		}
+
+		channelCount := 0
+		programCount := 0
+		for _, prog := range tv.Programs {
+			start, _ := time.Parse("20060102150405 -0700", prog.Start)
+			end, _ := time.Parse("20060102150405 -0700", prog.Stop)
+
+			title := ""
+			if len(prog.Title) > 0 {
+				title = prog.Title[0].Value
+			}
+
+			desc := ""
+			if len(prog.Desc) > 0 {
+				desc = prog.Desc[0].Value
+			}
+
+			category := ""
+			if len(prog.Category) > 0 {
+				category = prog.Category[0].Value
+			}
+
+			program := livetv.EPGProgram{
+				Title:       title,
+				Description: desc,
+				StartTime:   start,
+				EndTime:     end,
+				Category:    category,
+			}
+
+			if programs[prog.Channel] == nil {
+				channelCount++
+			}
+			programs[prog.Channel] = append(programs[prog.Channel], program)
+			programCount++
+		}
+		fmt.Printf("EPG: Loaded %d programs for %d channels from %s\n", programCount, channelCount, url)
+	}
 }
 
 func (x *XMLTVSource) GetEPG(channelID string) ([]livetv.EPGProgram, error) {

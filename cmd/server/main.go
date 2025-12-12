@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
-	"github.com/joho/godotenv"
 	_ "github.com/lib/pq"
 
 	"github.com/Zerr0-C00L/StreamArr/internal/api"
@@ -26,14 +25,9 @@ import (
 )
 
 func main() {
-	// Load .env file
-	if err := godotenv.Load(); err != nil {
-		log.Println("Warning: .env file not found, using environment variables")
-	}
-
 	log.Println("Starting StreamArr API Server...")
 
-	// Load configuration
+	// Load initial configuration (uses DATABASE_URL from environment if set)
 	cfg := config.Load()
 
 	// Connect to database
@@ -62,12 +56,123 @@ func main() {
 	}
 	log.Println("Database stores initialized")
 
-	// Initialize settings manager
+	// Initialize settings manager and load from database
 	settingsManager := settings.NewManager(db)
 	if err := settingsManager.Load(); err != nil {
 		log.Printf("Warning: Could not load settings: %v, using defaults", err)
 	}
 	log.Println("Settings manager initialized")
+
+	// Override config with ALL settings from database
+	appSettings := settingsManager.Get()
+	
+	// API Keys
+	if appSettings.TMDBAPIKey != "" {
+		cfg.TMDBAPIKey = appSettings.TMDBAPIKey
+		log.Println("✓ TMDB API key loaded from settings")
+	}
+	if appSettings.RealDebridAPIKey != "" {
+		cfg.RealDebridAPIKey = appSettings.RealDebridAPIKey
+		cfg.UseRealDebrid = true
+		log.Println("✓ Real-Debrid API key loaded from settings")
+	}
+	if appSettings.PremiumizeAPIKey != "" {
+		cfg.PremiumizeAPIKey = appSettings.PremiumizeAPIKey
+		cfg.UsePremiumize = true
+		log.Println("✓ Premiumize API key loaded from settings")
+	}
+	if appSettings.MDBListAPIKey != "" {
+		cfg.MDBListAPIKey = appSettings.MDBListAPIKey
+		log.Println("✓ MDBList API key loaded from settings")
+	}
+	
+	// Service URLs
+	if appSettings.TorrentioURL != "" {
+		cfg.TorrentioURL = appSettings.TorrentioURL
+	}
+	if appSettings.CometURL != "" {
+		cfg.CometURL = appSettings.CometURL
+	}
+	if appSettings.MediaFusionURL != "" {
+		cfg.MediaFusionURL = appSettings.MediaFusionURL
+	}
+	
+	// Provider settings
+	cfg.UseRealDebrid = appSettings.UseRealDebrid
+	cfg.UsePremiumize = appSettings.UsePremiumize
+	if len(appSettings.StreamProviders) > 0 {
+		cfg.StreamProviders = appSettings.StreamProviders
+	}
+	if appSettings.TorrentioProviders != "" {
+		cfg.TorrentioProviders = appSettings.TorrentioProviders
+	}
+	if len(appSettings.CometIndexers) > 0 {
+		cfg.CometIndexers = appSettings.CometIndexers
+	}
+	
+	// Quality settings
+	if appSettings.MaxResolution > 0 {
+		cfg.MaxResolution = appSettings.MaxResolution
+	}
+	if appSettings.MaxFileSize > 0 {
+		cfg.MaxFileSize = appSettings.MaxFileSize
+	}
+	cfg.EnableQualityVariants = appSettings.EnableQualityVariants
+	cfg.ShowFullStreamName = appSettings.ShowFullStreamName
+	
+	// Playlist settings
+	if appSettings.TotalPages > 0 {
+		cfg.TotalPages = appSettings.TotalPages
+	}
+	if appSettings.MinYear > 0 {
+		cfg.MinYear = appSettings.MinYear
+	}
+	if appSettings.MinRuntime > 0 {
+		cfg.MinRuntime = appSettings.MinRuntime
+	}
+	if appSettings.Language != "" {
+		cfg.Language = appSettings.Language
+	}
+	if appSettings.SeriesOriginCountry != "" {
+		cfg.SeriesOriginCountry = appSettings.SeriesOriginCountry
+	}
+	if appSettings.MoviesOriginCountry != "" {
+		cfg.MoviesOriginCountry = appSettings.MoviesOriginCountry
+	}
+	cfg.UserCreatePlaylist = appSettings.UserCreatePlaylist
+	cfg.IncludeAdultVOD = appSettings.IncludeAdultVOD
+	if appSettings.AutoCacheIntervalHours > 0 {
+		cfg.AutoCacheIntervalHours = appSettings.AutoCacheIntervalHours
+	}
+	
+	// Notification settings
+	cfg.EnableNotifications = appSettings.EnableNotifications
+	if appSettings.DiscordWebhookURL != "" {
+		cfg.DiscordWebhookURL = appSettings.DiscordWebhookURL
+	}
+	if appSettings.TelegramBotToken != "" {
+		cfg.TelegramBotToken = appSettings.TelegramBotToken
+	}
+	if appSettings.TelegramChatID != "" {
+		cfg.TelegramChatID = appSettings.TelegramChatID
+	}
+	
+	// Proxy settings
+	cfg.UseHTTPProxy = appSettings.UseHTTPProxy
+	if appSettings.HTTPProxy != "" {
+		cfg.HTTPProxy = appSettings.HTTPProxy
+	}
+	
+	// Server settings
+	if appSettings.ServerPort > 0 {
+		cfg.ServerPort = appSettings.ServerPort
+	}
+	if appSettings.Host != "" {
+		cfg.Host = appSettings.Host
+	}
+	cfg.Debug = appSettings.Debug
+	
+	log.Println("✓ All settings loaded from database")
 
 	// Initialize service scheduler
 	services.InitializeDefaultServices()
@@ -96,6 +201,9 @@ func main() {
 		log.Printf("Live TV: Configured %d custom M3U sources", len(m3uSources))
 	}
 	
+	// Set Pluto TV enabled/disabled from settings (default true if not set)
+	channelManager.SetPlutoTVEnabled(currentSettings.LiveTVEnablePlutoTV)
+	
 	if err := channelManager.LoadChannels(); err != nil {
 		log.Printf("Warning: Could not load channels: %v", err)
 	} else {
@@ -112,16 +220,16 @@ func main() {
 		}
 	}
 
+	// Initialize EPG manager
+	epgManager := epg.NewEPGManager()
+	
 	// Initialize Xtream Codes API handler
-	xtreamHandler := xtream.NewXtreamHandler(cfg, db, tmdbClient, rdClient)
+	xtreamHandler := xtream.NewXtreamHandler(cfg, db, tmdbClient, rdClient, channelManager, epgManager)
 	
 	// Initialize playlist generator
 	playlistGen := playlist.NewPlaylistGenerator(cfg, db, tmdbClient)
 	_ = playlistGen // Use in background worker or on-demand
 
-	// Initialize EPG manager
-	epgManager := epg.NewEPGManager()
-	
 	// Update EPG data in background
 	go func() {
 		ticker := time.NewTicker(6 * time.Hour)

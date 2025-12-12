@@ -985,21 +985,35 @@ func (h *Handler) GetCalendar(w http.ResponseWriter, r *http.Request) {
 	var entries []models.CalendarEntry
 	
 	for _, movie := range movies {
+		year := 0
+		if movie.ReleaseDate != nil {
+			year = movie.ReleaseDate.Year()
+		}
+		voteAverage := 0.0
+		if v, ok := movie.Metadata["vote_average"].(float64); ok {
+			voteAverage = v
+		}
 		entries = append(entries, models.CalendarEntry{
-			ID:         movie.ID,
-			Type:       "movie",
-			Title:      movie.Title,
-			Date:       movie.ReleaseDate,
-			PosterPath: movie.PosterPath,
-			Overview:   movie.Overview,
+			ID:          movie.ID,
+			Type:        "movie",
+			Title:       movie.Title,
+			Date:        movie.ReleaseDate,
+			PosterPath:  movie.PosterPath,
+			Overview:    movie.Overview,
+			VoteAverage: voteAverage,
+			Year:        year,
 		})
 	}
 	
 	for _, episode := range episodes {
 		series, _ := h.seriesStore.Get(ctx, episode.SeriesID)
 		seriesTitle := ""
+		voteAverage := 0.0
 		if series != nil {
 			seriesTitle = series.Title
+			if v, ok := series.Metadata["vote_average"].(float64); ok {
+				voteAverage = v
+			}
 		}
 		
 		entries = append(entries, models.CalendarEntry{
@@ -1009,6 +1023,7 @@ func (h *Handler) GetCalendar(w http.ResponseWriter, r *http.Request) {
 			Date:          episode.AirDate,
 			PosterPath:    episode.StillPath,
 			Overview:      episode.Overview,
+			VoteAverage:   voteAverage,
 			SeriesID:      &episode.SeriesID,
 			SeriesTitle:   seriesTitle,
 			SeasonNumber:  &episode.SeasonNumber,

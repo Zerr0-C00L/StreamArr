@@ -15,12 +15,21 @@ type M3USource struct {
 }
 
 type Settings struct {
+	// Database Configuration (required, set via DATABASE_URL env var as fallback)
+	DatabaseURL string `json:"database_url"`
+	RedisURL    string `json:"redis_url"`
+	
 	// API Keys
 	TMDBAPIKey       string `json:"tmdb_api_key"`
 	RealDebridAPIKey string `json:"realdebrid_api_key"`
 	PremiumizeAPIKey string `json:"premiumize_api_key"`
 	MDBListAPIKey    string `json:"mdblist_api_key"`
 	MDBListLists     string `json:"mdblist_lists"`
+	
+	// Service URLs
+	TorrentioURL   string `json:"torrentio_url"`
+	CometURL       string `json:"comet_url"`
+	MediaFusionURL string `json:"mediafusion_url"`
 	
 	// Quality Settings
 	MaxResolution         int    `json:"max_resolution"`
@@ -47,6 +56,7 @@ type Settings struct {
 	LiveTVEnabledCategories []string  `json:"livetv_enabled_categories"` // Which categories are enabled
 	LiveTVShowAllSources  bool        `json:"livetv_show_all_sources"`   // Show all sources by default
 	LiveTVShowAllCategories bool      `json:"livetv_show_all_categories"` // Show all categories by default
+	LiveTVEnablePlutoTV   bool        `json:"livetv_enable_plutotv"`     // Enable built-in Pluto TV channels
 	
 	// Provider Settings
 	UseRealDebrid      bool     `json:"use_realdebrid"`
@@ -69,6 +79,17 @@ type Settings struct {
 	TelegramBotToken    string `json:"telegram_bot_token"`
 	TelegramChatID      string `json:"telegram_chat_id"`
 	
+	// Release Filter Settings
+	EnableReleaseFilters  bool   `json:"enable_release_filters"`   // Enable/disable release filtering
+	ExcludedReleaseGroups string `json:"excluded_release_groups"` // Pipe-separated patterns
+	ExcludedLanguageTags  string `json:"excluded_language_tags"`  // Pipe-separated patterns
+	ExcludedQualities     string `json:"excluded_qualities"`      // Pipe-separated patterns
+	CustomExcludePatterns string `json:"custom_exclude_patterns"` // Pipe-separated regex patterns
+	
+	// Stream Sorting Settings
+	StreamSortOrder  string `json:"stream_sort_order"`  // e.g., "quality,size,seeders"
+	StreamSortPrefer string `json:"stream_sort_prefer"` // "best", "smallest", or "balanced"
+	
 	// System Settings
 	Debug      bool   `json:"debug"`
 	ServerPort int    `json:"server_port"`
@@ -90,6 +111,16 @@ func NewManager(db *sql.DB) *Manager {
 
 func getDefaultSettings() *Settings {
 	return &Settings{
+		// Database defaults (can be overridden by environment variables for initial setup)
+		DatabaseURL:            "postgres://streamarr:streamarr_password@localhost:5432/streamarr?sslmode=disable",
+		RedisURL:               "redis://localhost:6379/0",
+		
+		// Service URLs
+		TorrentioURL:           "https://torrentio.strem.fun",
+		CometURL:               "https://comet.elfhosted.com",
+		MediaFusionURL:         "https://mediafusion.elfhosted.com",
+		
+		// Quality defaults
 		MaxResolution:          2160,
 		MaxFileSize:            50000,
 		EnableQualityVariants:  false,
@@ -232,6 +263,125 @@ func (m *Manager) GetRealDebridAPIKey() string {
 	return m.settings.RealDebridAPIKey
 }
 
+func (m *Manager) GetMDBListAPIKey() string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.settings.MDBListAPIKey
+}
+
+func (m *Manager) GetPremiumizeAPIKey() string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.settings.PremiumizeAPIKey
+}
+
+func (m *Manager) GetTorrentioURL() string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.settings.TorrentioURL == "" {
+		return "https://torrentio.strem.fun"
+	}
+	return m.settings.TorrentioURL
+}
+
+func (m *Manager) GetCometURL() string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.settings.CometURL == "" {
+		return "https://comet.elfhosted.com"
+	}
+	return m.settings.CometURL
+}
+
+func (m *Manager) GetMediaFusionURL() string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.settings.MediaFusionURL == "" {
+		return "https://mediafusion.elfhosted.com"
+	}
+	return m.settings.MediaFusionURL
+}
+
+func (m *Manager) GetServerPort() int {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.settings.ServerPort == 0 {
+		return 8080
+	}
+	return m.settings.ServerPort
+}
+
+func (m *Manager) GetHost() string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.settings.Host == "" {
+		return "0.0.0.0"
+	}
+	return m.settings.Host
+}
+
+func (m *Manager) GetTorrentioProviders() string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.settings.TorrentioProviders == "" {
+		return "yts,eztv,rarbg,1337x,thepiratebay,kickasstorrents,torrentgalaxy,magnetdl"
+	}
+	return m.settings.TorrentioProviders
+}
+
+func (m *Manager) GetCometIndexers() []string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if len(m.settings.CometIndexers) == 0 {
+		return []string{"bktorrent", "thepiratebay", "yts", "eztv"}
+	}
+	indexers := make([]string, len(m.settings.CometIndexers))
+	copy(indexers, m.settings.CometIndexers)
+	return indexers
+}
+
+func (m *Manager) UseRealDebrid() bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.settings.UseRealDebrid
+}
+
+func (m *Manager) UsePremiumize() bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.settings.UsePremiumize
+}
+
+func (m *Manager) GetDiscordWebhookURL() string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.settings.DiscordWebhookURL
+}
+
+func (m *Manager) GetTelegramBotToken() string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.settings.TelegramBotToken
+}
+
+func (m *Manager) GetTelegramChatID() string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.settings.TelegramChatID
+}
+
+func (m *Manager) IsNotificationsEnabled() bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.settings.EnableNotifications
+}
+
+func (m *Manager) IsDebugEnabled() bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.settings.Debug
+}
+
 // GetAll returns all settings as a map
 func (m *Manager) GetAll() (map[string]interface{}, error) {
 	m.mu.RLock()
@@ -241,6 +391,7 @@ func (m *Manager) GetAll() (map[string]interface{}, error) {
 		"tmdb_api_key":                 m.settings.TMDBAPIKey,
 		"realdebrid_token":             m.settings.RealDebridAPIKey,
 		"premiumize_api_key":           m.settings.PremiumizeAPIKey,
+		"mdblist_api_key":              m.settings.MDBListAPIKey,
 		"use_realdebrid":               m.settings.UseRealDebrid,
 		"use_premiumize":               m.settings.UsePremiumize,
 		"total_pages":                  m.settings.TotalPages,
@@ -253,7 +404,15 @@ func (m *Manager) GetAll() (map[string]interface{}, error) {
 		"series_origin_country":        m.settings.SeriesOriginCountry,
 		"movies_origin_country":        m.settings.MoviesOriginCountry,
 		"torrentio_providers":          m.settings.TorrentioProviders,
+		"torrentio_url":                m.settings.TorrentioURL,
+		"comet_url":                    m.settings.CometURL,
+		"mediafusion_url":              m.settings.MediaFusionURL,
+		"server_port":                  m.settings.ServerPort,
 		"host":                         m.settings.Host,
+		"enable_notifications":         m.settings.EnableNotifications,
+		"discord_webhook_url":          m.settings.DiscordWebhookURL,
+		"telegram_bot_token":           m.settings.TelegramBotToken,
+		"telegram_chat_id":             m.settings.TelegramChatID,
 	}, nil
 }
 
@@ -271,6 +430,9 @@ func (m *Manager) SetAll(updates map[string]interface{}) error {
 	}
 	if v, ok := updates["premiumize_api_key"].(string); ok {
 		m.settings.PremiumizeAPIKey = v
+	}
+	if v, ok := updates["mdblist_api_key"].(string); ok {
+		m.settings.MDBListAPIKey = v
 	}
 	if v, ok := updates["use_realdebrid"].(bool); ok {
 		m.settings.UseRealDebrid = v
@@ -310,6 +472,30 @@ func (m *Manager) SetAll(updates map[string]interface{}) error {
 	}
 	if v, ok := updates["torrentio_providers"].(string); ok {
 		m.settings.TorrentioProviders = v
+	}
+	if v, ok := updates["torrentio_url"].(string); ok {
+		m.settings.TorrentioURL = v
+	}
+	if v, ok := updates["comet_url"].(string); ok {
+		m.settings.CometURL = v
+	}
+	if v, ok := updates["mediafusion_url"].(string); ok {
+		m.settings.MediaFusionURL = v
+	}
+	if v, ok := updates["server_port"].(float64); ok {
+		m.settings.ServerPort = int(v)
+	}
+	if v, ok := updates["enable_notifications"].(bool); ok {
+		m.settings.EnableNotifications = v
+	}
+	if v, ok := updates["discord_webhook_url"].(string); ok {
+		m.settings.DiscordWebhookURL = v
+	}
+	if v, ok := updates["telegram_bot_token"].(string); ok {
+		m.settings.TelegramBotToken = v
+	}
+	if v, ok := updates["telegram_chat_id"].(string); ok {
+		m.settings.TelegramChatID = v
 	}
 	
 	return m.saveToDBLocked()

@@ -151,6 +151,8 @@ export interface CalendarEntry {
   date: string;
   poster_path: string;
   overview: string;
+  vote_average?: number;
+  year?: number;
   series_id?: number;
   series_title?: string;
   season_number?: number;

@@ -41,11 +41,12 @@ type M3USource struct {
 }
 
 type ChannelManager struct {
-	channels    map[string]*Channel
-	mu          sync.RWMutex
-	sources     []ChannelSource
-	m3uSources  []M3USource
-	httpClient  *http.Client
+	channels       map[string]*Channel
+	mu             sync.RWMutex
+	sources        []ChannelSource
+	m3uSources     []M3USource
+	httpClient     *http.Client
+	enablePlutoTV  bool
 }
 
 type ChannelSource interface {
@@ -55,9 +56,10 @@ type ChannelSource interface {
 
 func NewChannelManager() *ChannelManager {
 	cm := &ChannelManager{
-		channels:   make(map[string]*Channel),
-		sources:    make([]ChannelSource, 0),
-		m3uSources: make([]M3USource, 0),
+		channels:      make(map[string]*Channel),
+		sources:       make([]ChannelSource, 0),
+		m3uSources:    make([]M3USource, 0),
+		enablePlutoTV: true, // Enabled by default
 		httpClient: &http.Client{
 			Timeout: 30 * time.Second,
 		},
@@ -76,13 +78,20 @@ func (cm *ChannelManager) SetM3USources(sources []M3USource) {
 	cm.m3uSources = sources
 }
 
+// SetPlutoTVEnabled enables/disables built-in Pluto TV
+func (cm *ChannelManager) SetPlutoTVEnabled(enabled bool) {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+	cm.enablePlutoTV = enabled
+}
+
 func (cm *ChannelManager) LoadChannels() error {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
 	
 	allChannels := make([]*Channel, 0)
 	
-	// First, try to load from local M3U file
+	// First, try to load from local M3U file (contains DADDY LIVE, MoveOnJoy, TheTVApp)
 	localChannels, err := cm.loadFromLocalM3U("./channels/m3u_formatted.dat")
 	if err != nil {
 		fmt.Printf("Warning: Could not load local M3U file: %v\n", err)
@@ -91,7 +100,21 @@ func (cm *ChannelManager) LoadChannels() error {
 		fmt.Printf("Loaded %d channels from local M3U file\n", len(localChannels))
 	}
 	
-	// Load from custom M3U sources
+	// Load Pluto TV from GitHub (built-in source) - if enabled
+	if cm.enablePlutoTV {
+		plutoChannels, err := cm.loadFromM3UURL(
+			"https://raw.githubusercontent.com/Zerr0-C00L/public-files/main/Pluto-TV/us.m3u8",
+			"Pluto TV",
+		)
+		if err != nil {
+			fmt.Printf("Warning: Could not load Pluto TV: %v\n", err)
+		} else {
+			allChannels = append(allChannels, plutoChannels...)
+			fmt.Printf("Loaded %d channels from Pluto TV\n", len(plutoChannels))
+		}
+	}
+	
+	// Load from custom M3U sources (user-configured)
 	for _, source := range cm.m3uSources {
 		if !source.Enabled {
 			continue
@@ -105,19 +128,60 @@ func (cm *ChannelManager) LoadChannels() error {
 		fmt.Printf("Loaded %d channels from %s\n", len(channels), source.Name)
 	}
 	
-	// Deduplicate by channel name (keep first occurrence)
-	seenNames := make(map[string]bool)
+	// Smart duplicate merging - normalize channel names and keep best quality
+	cm.channels = make(map[string]*Channel)
+	channelsByNormalizedName := make(map[string]*Channel)
+	
 	for _, ch := range allChannels {
-		normalizedName := strings.ToLower(strings.TrimSpace(ch.Name))
-		if seenNames[normalizedName] {
-			continue // Skip duplicate
+		normalizedName := normalizeChannelName(ch.Name)
+		
+		existing, exists := channelsByNormalizedName[normalizedName]
+		if !exists {
+			// First occurrence - add it
+			channelsByNormalizedName[normalizedName] = ch
+			cm.channels[ch.ID] = ch
+		} else {
+			// Duplicate found - keep the one with better data (logo, stream URL)
+			if shouldReplaceChannel(existing, ch) {
+				// Remove old channel
+				delete(cm.channels, existing.ID)
+				// Add new channel
+				channelsByNormalizedName[normalizedName] = ch
+				cm.channels[ch.ID] = ch
+			}
 		}
-		seenNames[normalizedName] = true
-		cm.channels[ch.ID] = ch
 	}
 	
-	fmt.Printf("Live TV: Loaded %d unique channels (deduplicated from %d)\n", len(cm.channels), len(allChannels))
+	fmt.Printf("Live TV: Loaded %d unique channels (merged from %d total)\n", len(cm.channels), len(allChannels))
 	return nil
+}
+
+// normalizeChannelName normalizes a channel name for duplicate detection
+func normalizeChannelName(name string) string {
+	n := strings.ToLower(strings.TrimSpace(name))
+	// Remove common suffixes/prefixes
+	n = strings.TrimSuffix(n, " hd")
+	n = strings.TrimSuffix(n, " sd")
+	n = strings.TrimSuffix(n, " east")
+	n = strings.TrimSuffix(n, " west")
+	n = strings.TrimPrefix(n, "us: ")
+	n = strings.TrimPrefix(n, "uk: ")
+	// Remove extra spaces
+	n = strings.Join(strings.Fields(n), " ")
+	return n
+}
+
+// shouldReplaceChannel determines if new channel should replace existing
+func shouldReplaceChannel(existing, new *Channel) bool {
+	// Prefer channels with logos
+	if existing.Logo == "" && new.Logo != "" {
+		return true
+	}
+	// Prefer non-Pluto TV sources (they have EPG from provider group-title)
+	if strings.Contains(existing.Source, "Pluto") && !strings.Contains(new.Source, "Pluto") {
+		return true
+	}
+	return false
 }
 
 // loadFromLocalM3U loads channels from a local M3U file
@@ -186,13 +250,8 @@ func (cm *ChannelManager) parseM3U(content string, sourceName string) ([]*Channe
 				}
 			}
 			
-			// Extract group-title (category)
-			if idx := strings.Index(line, "group-title=\""); idx != -1 {
-				end := strings.Index(line[idx+13:], "\"")
-				if end != -1 {
-					currentChannel.Category = line[idx+13 : idx+13+end]
-				}
-			}
+			// We ignore the provider's group-title and use smart category mapping instead
+			// The category will be set based on channel name after parsing
 			
 			// Extract tvg-id
 			if idx := strings.Index(line, "tvg-id=\""); idx != -1 {
@@ -219,6 +278,8 @@ func (cm *ChannelManager) parseM3U(content string, sourceName string) ([]*Channe
 			// This is the stream URL
 			currentChannel.StreamURL = line
 			if currentChannel.Name != "" {
+				// Set category based on channel name (smart mapping)
+				currentChannel.Category = mapChannelToCategory(currentChannel.Name)
 				channels = append(channels, currentChannel)
 			}
 			currentChannel = nil
@@ -226,6 +287,92 @@ func (cm *ChannelManager) parseM3U(content string, sourceName string) ([]*Channe
 	}
 	
 	return channels, nil
+}
+
+// mapChannelToCategory determines the category based on channel name
+// Categories: Sports, News, Movies, Entertainment, Kids, Music, Documentary, Lifestyle, General
+func mapChannelToCategory(channelName string) string {
+	name := strings.ToLower(channelName)
+	
+	// Sports channels
+	sportsKeywords := []string{"sport", "espn", "fox sports", "nfl", "nba", "mlb", "nhl", "golf", "tennis",
+		"bein", "sky sports", "bt sport", "dazn", "acc network", "big ten", "sec network", "pac-12",
+		"nbcsn", "cbs sports", "soccer", "football", "baseball", "basketball", "hockey", "cricket",
+		"wwe", "ufc", "boxing", "racing", "f1", "formula", "nascar", "motogp", "olympic", "athletic"}
+	for _, kw := range sportsKeywords {
+		if strings.Contains(name, kw) {
+			return "Sports"
+		}
+	}
+	
+	// News channels
+	newsKeywords := []string{"news", "cnn", "fox news", "msnbc", "bbc news", "cnbc", "bloomberg",
+		"c-span", "cspan", "sky news", "al jazeera", "abc news", "cbs news", "nbc news",
+		"newsmax", "oan", "weather", "headline"}
+	for _, kw := range newsKeywords {
+		if strings.Contains(name, kw) {
+			return "News"
+		}
+	}
+	
+	// Movie channels
+	movieKeywords := []string{"movie", "hbo", "cinemax", "showtime", "starz", "epix", "mgm",
+		"tcm", "amc", "ifc", "sundance", "fx movie", "sony movie", "lifetime movie", "hallmark movie"}
+	for _, kw := range movieKeywords {
+		if strings.Contains(name, kw) {
+			return "Movies"
+		}
+	}
+	
+	// Kids channels
+	kidsKeywords := []string{"disney", "nick", "cartoon", "boomerang", "pbs kids", "baby",
+		"junior", "kids", "teen", "sprout", "universal kids", "discovery family"}
+	for _, kw := range kidsKeywords {
+		if strings.Contains(name, kw) {
+			return "Kids"
+		}
+	}
+	
+	// Music channels
+	musicKeywords := []string{"mtv", "vh1", "bet", "cmt", "music", "vevo", "fuse", "revolt",
+		"bet jams", "bet soul", "bet gospel", "axs tv"}
+	for _, kw := range musicKeywords {
+		if strings.Contains(name, kw) {
+			return "Music"
+		}
+	}
+	
+	// Documentary channels
+	docKeywords := []string{"discovery", "national geographic", "nat geo", "history", "science",
+		"animal planet", "smithsonian", "pbs", "a&e", "ae", "investigation", "crime",
+		"american heroes", "military", "nature", "planet earth", "vice"}
+	for _, kw := range docKeywords {
+		if strings.Contains(name, kw) {
+			return "Documentary"
+		}
+	}
+	
+	// Lifestyle channels
+	lifestyleKeywords := []string{"food", "cooking", "hgtv", "tlc", "bravo", "e!", "oxygen",
+		"lifetime", "we tv", "own", "hallmark", "travel", "diy", "magnolia", "bet her",
+		"style", "fashion", "home", "garden"}
+	for _, kw := range lifestyleKeywords {
+		if strings.Contains(name, kw) {
+			return "Lifestyle"
+		}
+	}
+	
+	// Entertainment (catch-all for broadcast and entertainment)
+	entertainmentKeywords := []string{"abc", "nbc", "cbs", "fox", "cw", "tbs", "tnt", "usa",
+		"fx", "freeform", "syfy", "comedy", "paramount", "pop", "tv land", "comet",
+		"ion", "bounce", "court", "reelz", "grit"}
+	for _, kw := range entertainmentKeywords {
+		if strings.Contains(name, kw) {
+			return "Entertainment"
+		}
+	}
+	
+	return "General"
 }
 
 func (cm *ChannelManager) GetAllChannels() []*Channel {

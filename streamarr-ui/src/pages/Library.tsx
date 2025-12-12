@@ -66,13 +66,13 @@ export default function Library() {
   // Fetch movies
   const { data: movies = [], isLoading: moviesLoading } = useQuery({
     queryKey: ['movies', 'library'],
-    queryFn: () => streamarrApi.getMovies({ limit: 10000 }).then(res => res.data || []),
+    queryFn: () => streamarrApi.getMovies({ limit: 10000 }).then(res => Array.isArray(res.data) ? res.data : []),
   });
 
   // Fetch series
   const { data: series = [], isLoading: seriesLoading } = useQuery({
     queryKey: ['series', 'library'],
-    queryFn: () => streamarrApi.getSeries({ limit: 10000 }).then(res => res.data || []),
+    queryFn: () => streamarrApi.getSeries({ limit: 10000 }).then(res => Array.isArray(res.data) ? res.data : []),
   });
 
   // Fetch upcoming calendar entries
@@ -85,7 +85,7 @@ export default function Library() {
     queryFn: () => streamarrApi.getCalendar(
       today.toISOString().split('T')[0],
       nextMonth.toISOString().split('T')[0]
-    ).then(res => res.data || []),
+    ).then(res => Array.isArray(res.data) ? res.data : []),
   });
 
   const isLoading = moviesLoading || seriesLoading;
@@ -649,7 +649,7 @@ function MediaWidget({ title, icon, items, onRemove, deletingId }: {
   );
 }
 
-// Calendar widget for upcoming releases
+// Calendar widget for upcoming releases - styled same as MediaWidget
 function CalendarWidget({ title, icon, entries }: { title: string; icon: React.ReactNode; entries: CalendarEntry[] }) {
   const scrollContainer = (id: string, direction: 'left' | 'right') => {
     const container = document.getElementById(id);
@@ -706,18 +706,33 @@ function CalendarWidget({ title, icon, entries }: { title: string; icon: React.R
                 alt={entry.title}
                 className="w-full h-full object-cover group-hover:scale-105 transition-transform"
               />
-              <div className="absolute top-1 left-1 px-1 py-0.5 rounded bg-blue-600 text-white text-[10px] font-medium">
+              {/* Type badge - same style as MediaWidget */}
+              <div className={`absolute top-1 left-1 px-1 py-0.5 rounded text-[10px] font-medium ${
+                entry.type === 'movie' ? 'bg-purple-600' : 'bg-green-600'
+              } text-white`}>
+                {entry.type === 'movie' ? 'Movie' : 'Series'}
+              </div>
+              {/* Release date badge */}
+              <div className="absolute top-1 right-1 px-1 py-0.5 rounded bg-blue-600/90 text-white text-[10px] font-medium">
                 {formatDate(entry.date)}
               </div>
+              {/* Rating badge - same style as MediaWidget */}
+              {entry.vote_average && entry.vote_average > 0 && (
+                <div className="absolute bottom-1 right-1 px-1 py-0.5 rounded bg-black/70 text-yellow-400 text-[10px] font-medium">
+                  ★ {entry.vote_average.toFixed(1)}
+                </div>
+              )}
             </div>
             <p className="text-white text-xs font-medium truncate" title={entry.title}>
               {entry.title}
             </p>
-            {entry.type === 'episode' && (
+            {entry.type === 'episode' ? (
               <p className="text-slate-400 text-[10px] truncate">
                 S{entry.season_number}E{entry.episode_number}
               </p>
-            )}
+            ) : entry.year ? (
+              <p className="text-slate-400 text-[10px]">{entry.year}</p>
+            ) : null}
           </div>
         ))}
       </div>

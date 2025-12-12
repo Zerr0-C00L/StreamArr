@@ -80,6 +80,8 @@ type CalendarEntry struct {
 	Date        *time.Time `json:"date"`
 	PosterPath  string     `json:"poster_path,omitempty"`
 	Overview    string     `json:"overview,omitempty"`
+	VoteAverage float64    `json:"vote_average,omitempty"`
+	Year        int        `json:"year,omitempty"`
 	
 	// For episodes
 	SeriesID      *int64 `json:"series_id,omitempty"`

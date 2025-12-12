@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react';
-import { Save, Key, Layers, Settings as SettingsIcon, List, Bell, Code, Plus, X, Tv, Server, Activity, Play, Clock, RefreshCw } from 'lucide-react';
+import { Save, Key, Layers, Settings as SettingsIcon, List, Bell, Code, Plus, X, Tv, Server, Activity, Play, Clock, RefreshCw, Filter } from 'lucide-react';
+
+const API_BASE_URL = import.meta.env.VITE_API_URL || '/api/v1';
 
 interface SettingsData {
   tmdb_api_key: string;
@@ -41,6 +43,17 @@ interface SettingsData {
   headless_vidx_max_threads: number;
   // Cache settings
   auto_cache_interval_hours: number;
+  // Release filter settings
+  excluded_release_groups: string;
+  excluded_language_tags: string;
+  excluded_qualities: string;
+  custom_exclude_patterns: string;
+  enable_release_filters: boolean;
+  // Stream sorting settings
+  stream_sort_order: string;
+  stream_sort_prefer: string;
+  // Live TV settings
+  livetv_enable_plutotv: boolean;
 }
 
 interface MDBListEntry {
@@ -73,7 +86,7 @@ interface ServiceStatus {
   run_count: number;
 }
 
-type TabType = 'api' | 'providers' | 'quality' | 'playlist' | 'livetv' | 'services' | 'xtream' | 'notifications' | 'advanced';
+type TabType = 'api' | 'providers' | 'quality' | 'playlist' | 'livetv' | 'filters' | 'services' | 'xtream' | 'notifications' | 'advanced';
 
 export default function Settings() {
   const [settings, setSettings] = useState<SettingsData | null>(null);
@@ -111,7 +124,7 @@ export default function Settings() {
 
   const fetchServices = async () => {
     try {
-      const response = await fetch('/api/v1/services');
+      const response = await fetch(`${API_BASE_URL}/services`);
       const data = await response.json();
       setServices(data.services || []);
     } catch (error) {
@@ -122,7 +135,7 @@ export default function Settings() {
   const triggerService = async (serviceName: string) => {
     setTriggeringService(serviceName);
     try {
-      const response = await fetch(`/api/v1/services/${serviceName}/trigger?name=${serviceName}`, {
+      const response = await fetch(`${API_BASE_URL}/services/${serviceName}/trigger?name=${serviceName}`, {
         method: 'POST',
       });
       if (response.ok) {
@@ -144,7 +157,7 @@ export default function Settings() {
 
   const toggleServiceEnabled = async (serviceName: string, enabled: boolean) => {
     try {
-      const response = await fetch(`/api/v1/services/${serviceName}?name=${serviceName}`, {
+      const response = await fetch(`${API_BASE_URL}/services/${serviceName}?name=${serviceName}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ enabled }),
@@ -169,7 +182,7 @@ export default function Settings() {
 
   const fetchChannelStats = async () => {
     try {
-      const response = await fetch('/api/v1/channels/stats');
+      const response = await fetch(`${API_BASE_URL}/channels/stats`);
       const data = await response.json();
       setChannelStats(data);
       
@@ -187,7 +200,7 @@ export default function Settings() {
 
   const fetchSettings = async () => {
     try {
-      const response = await fetch('/api/v1/settings');
+      const response = await fetch(`${API_BASE_URL}/settings`);
       const data = await response.json();
       setSettings(data);
       
@@ -225,7 +238,7 @@ export default function Settings() {
         m3u_sources: m3uSources,
       };
       
-      const response = await fetch('/api/v1/settings', {
+      const response = await fetch(`${API_BASE_URL}/settings`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(settingsToSave),
@@ -284,7 +297,7 @@ export default function Settings() {
 
     setFetchingUserLists(true);
     try {
-      const response = await fetch(`/api/v1/mdblist/user-lists?apiKey=${encodeURIComponent(settings.mdblist_api_key)}`);
+      const response = await fetch(`${API_BASE_URL}/mdblist/user-lists?apiKey=${encodeURIComponent(settings.mdblist_api_key)}`);
       const data = await response.json();
       
       if (data.success && data.lists) {
@@ -394,6 +407,7 @@ export default function Settings() {
     { id: 'quality' as TabType, label: 'Quality', icon: SettingsIcon },
     { id: 'playlist' as TabType, label: 'Playlist', icon: List },
     { id: 'livetv' as TabType, label: 'Live TV', icon: Tv },
+    { id: 'filters' as TabType, label: 'Filters', icon: Filter },
     { id: 'services' as TabType, label: 'Services', icon: Activity },
     { id: 'xtream' as TabType, label: 'Xtream', icon: Server },
     { id: 'notifications' as TabType, label: 'Notifications', icon: Bell },
@@ -975,6 +989,29 @@ export default function Settings() {
                 </p>
               </div>
 
+              {/* Pluto TV Toggle */}
+              <div className="p-4 bg-purple-900/20 border border-purple-800 rounded-lg">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h4 className="text-white font-medium flex items-center gap-2">
+                      <span>📺</span> Pluto TV (Built-in)
+                    </h4>
+                    <p className="text-sm text-gray-400 mt-1">
+                      Enable free Pluto TV channels with full EPG support. Channels are automatically merged with other sources.
+                    </p>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={settings.livetv_enable_plutotv !== false}
+                      onChange={(e) => updateSetting('livetv_enable_plutotv', e.target.checked)}
+                      className="sr-only peer"
+                    />
+                    <div className="w-11 h-6 bg-gray-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-purple-600"></div>
+                  </label>
+                </div>
+              </div>
+
               {/* Channel Sources */}
               {channelStats && channelStats.sources && channelStats.sources.length > 0 && (
                 <div>
@@ -1137,6 +1174,238 @@ export default function Settings() {
                   <li>After adding/removing sources, save and restart the server</li>
                   <li>Duplicate channels (same name) are automatically merged</li>
                 </ul>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Filters Tab */}
+        {activeTab === 'filters' && (
+          <div className="bg-gray-900 rounded-lg p-6 border border-gray-800">
+            <div className="space-y-6">
+              <div className="mb-4 p-4 bg-blue-900/30 border border-blue-800 rounded-lg">
+                <h3 className="text-blue-400 font-medium mb-2">🔍 Filter Settings</h3>
+                <p className="text-sm text-gray-400">
+                  Filter out unwanted releases by release group, language, or quality. 
+                  Separate multiple patterns with <code className="text-xs bg-gray-800 px-1 rounded">|</code> (pipe character).
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">
+                  Excluded Release Groups
+                </label>
+                <input
+                  type="text"
+                  value={settings.excluded_release_groups || ''}
+                  onChange={(e) => updateSetting('excluded_release_groups', e.target.value)}
+                  className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-blue-500 font-mono text-sm"
+                  placeholder="TVHUB|FILM"
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Block releases from specific groups. Example: <code className="bg-gray-800 px-1 rounded">TVHUB|FILM</code> blocks Russian releases like "Movie.TVHUB.FILM.mkv"
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">
+                  Excluded Language Tags
+                </label>
+                <input
+                  type="text"
+                  value={settings.excluded_language_tags || ''}
+                  onChange={(e) => updateSetting('excluded_language_tags', e.target.value)}
+                  className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-blue-500 font-mono text-sm"
+                  placeholder="RUSSIAN|RUS|HINDI|HIN|GERMAN|GER|FRENCH|FRE|ITALIAN|ITA|SPANISH|SPA|LATINO"
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Block releases with language indicators in filename. Example: <code className="bg-gray-800 px-1 rounded">RUSSIAN|RUS|HINDI|GERMAN</code>
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">
+                  Excluded Qualities
+                </label>
+                <input
+                  type="text"
+                  value={settings.excluded_qualities || ''}
+                  onChange={(e) => updateSetting('excluded_qualities', e.target.value)}
+                  className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-blue-500 font-mono text-sm"
+                  placeholder="REMUX|HDR|DV|Dolby.?Vision|3D|CAM|TS|SCR|HDTS|HDCAM|TELESYNC|TELECINE|TC"
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Block certain quality types. Example: <code className="bg-gray-800 px-1 rounded">REMUX|HDR|CAM|TS</code> blocks REMUX (too large), HDR (compatibility), CAM/TS (low quality)
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">
+                  Custom Exclude Patterns (Advanced)
+                </label>
+                <input
+                  type="text"
+                  value={settings.custom_exclude_patterns || ''}
+                  onChange={(e) => updateSetting('custom_exclude_patterns', e.target.value)}
+                  className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-blue-500 font-mono text-sm"
+                  placeholder="Sample|Trailer|\\[Dual\\]"
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Custom regex patterns. Example: <code className="bg-gray-800 px-1 rounded">Sample|Trailer</code> blocks sample files and trailers
+                </p>
+              </div>
+
+              {/* Filter Preview */}
+              <div className="pt-6 border-t border-gray-700">
+                <h3 className="text-md font-medium text-gray-300 mb-4">Filter Preview</h3>
+                <p className="text-xs text-gray-500 mb-3">These release names would be blocked:</p>
+                <div className="bg-gray-800 rounded-lg p-4 font-mono text-sm space-y-1">
+                  {(settings.excluded_release_groups || '').split('|').filter(Boolean).length > 0 && (
+                    <>
+                      <div className="text-red-400">❌ Frontier.Crucible.2025.TVHUB.FILM.WEB.720p.mkv</div>
+                    </>
+                  )}
+                  {(settings.excluded_language_tags || '').toLowerCase().includes('russian') && (
+                    <>
+                      <div className="text-red-400">❌ Movie.2025.RUSSIAN.1080p.BluRay.mkv</div>
+                      <div className="text-red-400">❌ Film.2025.RUS.DUB.WEB-DL.720p.mkv</div>
+                    </>
+                  )}
+                  {(settings.excluded_qualities || '').toLowerCase().includes('remux') && (
+                    <div className="text-red-400">❌ Movie.2025.REMUX.2160p.BluRay.mkv</div>
+                  )}
+                  {(settings.excluded_qualities || '').toLowerCase().includes('hdr') && (
+                    <div className="text-red-400">❌ Film.2025.HDR.DV.2160p.mkv</div>
+                  )}
+                  {(settings.excluded_qualities || '').toLowerCase().includes('cam') && (
+                    <>
+                      <div className="text-red-400">❌ Movie.2025.CAM.720p.mkv</div>
+                    </>
+                  )}
+                  {(settings.excluded_qualities || '').toLowerCase().includes('telesync') && (
+                    <div className="text-red-400">❌ Film.2025.TELESYNC.720p.mkv</div>
+                  )}
+                  {(settings.excluded_language_tags || '').toLowerCase().includes('hindi') && (
+                    <div className="text-red-400">❌ Movie.2025.HINDI.1080p.WEB-DL.mkv</div>
+                  )}
+                  {(settings.excluded_language_tags || '').toLowerCase().includes('german') && (
+                    <div className="text-red-400">❌ Film.2025.GERMAN.DL.1080p.mkv</div>
+                  )}
+                  {!(settings.excluded_release_groups || settings.excluded_language_tags || settings.excluded_qualities || settings.custom_exclude_patterns) && (
+                    <div className="text-gray-500">No filters configured. Add patterns above to see preview.</div>
+                  )}
+                </div>
+              </div>
+
+              {/* Common Presets */}
+              <div className="pt-6 border-t border-gray-700">
+                <h3 className="text-md font-medium text-gray-300 mb-4">Common Presets</h3>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    onClick={() => {
+                      updateSetting('excluded_language_tags', 'RUSSIAN|RUS|HINDI|HIN|GERMAN|GER|FRENCH|FRE|ITALIAN|ITA|SPANISH|SPA|LATINO|PORTUGUESE|POR|KOREAN|KOR|JAPANESE|JAP|CHINESE|CHI|ARABIC|ARA|TURKISH|TUR|POLISH|POL|DUTCH|DUT|THAI|VIETNAMESE|INDONESIAN');
+                    }}
+                    className="px-3 py-2 bg-blue-600/20 text-blue-400 rounded-lg hover:bg-blue-600/30 transition-colors border border-blue-600/30 text-sm"
+                  >
+                    🇺🇸 English Only
+                  </button>
+                  <button
+                    onClick={() => {
+                      updateSetting('excluded_qualities', 'CAM|TS|SCR|HDTS|HDCAM|TELESYNC|TELECINE|TC|DVDSCR|R5|R6');
+                    }}
+                    className="px-3 py-2 bg-orange-600/20 text-orange-400 rounded-lg hover:bg-orange-600/30 transition-colors border border-orange-600/30 text-sm"
+                  >
+                    🎬 No CAM/TS
+                  </button>
+                  <button
+                    onClick={() => {
+                      updateSetting('excluded_qualities', 'REMUX|HDR|DV|Dolby.?Vision|3D|ATMOS|TrueHD|DTS-HD');
+                    }}
+                    className="px-3 py-2 bg-green-600/20 text-green-400 rounded-lg hover:bg-green-600/30 transition-colors border border-green-600/30 text-sm"
+                  >
+                    📺 Player Friendly
+                  </button>
+                  <button
+                    onClick={() => {
+                      updateSetting('excluded_release_groups', '');
+                      updateSetting('excluded_language_tags', '');
+                      updateSetting('excluded_qualities', '');
+                      updateSetting('custom_exclude_patterns', '');
+                    }}
+                    className="px-3 py-2 bg-red-600/20 text-red-400 rounded-lg hover:bg-red-600/30 transition-colors border border-red-600/30 text-sm"
+                  >
+                    ❌ Clear All
+                  </button>
+                </div>
+                <p className="text-xs text-gray-500 mt-3">
+                  Presets will replace the corresponding filter field. Click "Save Changes" to apply.
+                </p>
+              </div>
+
+              {/* Stream Sorting Section */}
+              <div className="pt-6 border-t border-gray-700">
+                <h3 className="text-md font-medium text-gray-300 mb-4">🔢 Stream Sorting & Selection</h3>
+                <p className="text-xs text-gray-500 mb-4">
+                  Configure how streams are sorted and which one is selected for playback.
+                </p>
+
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-300">Enable Release Filters</label>
+                      <p className="text-xs text-gray-500">Apply the filter patterns above when selecting streams</p>
+                    </div>
+                    <button
+                      onClick={() => updateSetting('enable_release_filters', !settings.enable_release_filters)}
+                      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                        settings.enable_release_filters ? 'bg-green-600' : 'bg-gray-600'
+                      }`}
+                    >
+                      <span
+                        className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                          settings.enable_release_filters ? 'translate-x-6' : 'translate-x-1'
+                        }`}
+                      />
+                    </button>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-300 mb-2">
+                      Sort Priority Order
+                    </label>
+                    <select
+                      value={settings.stream_sort_order || 'quality,size,seeders'}
+                      onChange={(e) => updateSetting('stream_sort_order', e.target.value)}
+                      className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-blue-500"
+                    >
+                      <option value="quality,size,seeders">Quality → Size → Seeders (Default)</option>
+                      <option value="quality,seeders,size">Quality → Seeders → Size</option>
+                      <option value="size,quality,seeders">Size → Quality → Seeders</option>
+                      <option value="seeders,quality,size">Seeders → Quality → Size</option>
+                    </select>
+                    <p className="text-xs text-gray-500 mt-1">
+                      Order of priority when comparing streams. First field has highest priority.
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-300 mb-2">
+                      Selection Preference
+                    </label>
+                    <select
+                      value={settings.stream_sort_prefer || 'best'}
+                      onChange={(e) => updateSetting('stream_sort_prefer', e.target.value)}
+                      className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-blue-500"
+                    >
+                      <option value="best">Best Quality (Highest quality, largest size)</option>
+                      <option value="smallest">Smallest File (Lowest size, data saver)</option>
+                      <option value="balanced">Balanced (Good quality, reasonable size)</option>
+                    </select>
+                    <p className="text-xs text-gray-500 mt-1">
+                      "Best" selects highest values, "Smallest" selects lowest values for each sort field.
+                    </p>
+                  </div>
+                </div>
               </div>
             </div>
           </div>

@@ -32,13 +32,14 @@ export default function Calendar() {
 
   const { data: entries = [], isLoading } = useQuery({
     queryKey: ['calendar', start, end],
-    queryFn: () => streamarrApi.getCalendar(start, end).then(res => res.data),
+    queryFn: () => streamarrApi.getCalendar(start, end).then(res => Array.isArray(res.data) ? res.data : []),
   });
 
   // Group entries by date
   const entriesByDate = useMemo(() => {
     const grouped: Record<string, CalendarEntry[]> = {};
-    entries.forEach(entry => {
+    const safeEntries = Array.isArray(entries) ? entries : [];
+    safeEntries.forEach(entry => {
       if (entry.date) {
         const date = entry.date.split('T')[0];
         if (!grouped[date]) grouped[date] = [];

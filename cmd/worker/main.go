@@ -9,7 +9,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/joho/godotenv"
 	_ "github.com/lib/pq"
 
 	"github.com/Zerr0-C00L/StreamArr/internal/cache"
@@ -20,15 +19,11 @@ import (
 	"github.com/Zerr0-C00L/StreamArr/internal/playlist"
 	"github.com/Zerr0-C00L/StreamArr/internal/providers"
 	"github.com/Zerr0-C00L/StreamArr/internal/services"
+	"github.com/Zerr0-C00L/StreamArr/internal/settings"
 )
 
 func main() {
-	// Load environment
-	if err := godotenv.Load(); err != nil {
-		log.Println("Warning: .env file not found")
-	}
-
-	// Load config
+	// Load initial config (uses DATABASE_URL from environment if set)
 	cfg := config.Load()
 
 	// Connect to database
@@ -40,6 +35,61 @@ func main() {
 
 	log.Println("🤖 StreamArr Background Workers Starting...")
 	log.Println("========================================")
+
+	// Initialize settings manager and load from database
+	settingsManager := settings.NewManager(db)
+	if err := settingsManager.Load(); err != nil {
+		log.Printf("Warning: Could not load settings: %v, using defaults", err)
+	}
+	
+	// Override config with ALL settings from database
+	appSettings := settingsManager.Get()
+	
+	// API Keys
+	if appSettings.TMDBAPIKey != "" {
+		cfg.TMDBAPIKey = appSettings.TMDBAPIKey
+		log.Println("✓ TMDB API key loaded from settings")
+	}
+	if appSettings.RealDebridAPIKey != "" {
+		cfg.RealDebridAPIKey = appSettings.RealDebridAPIKey
+		cfg.UseRealDebrid = true
+		log.Println("✓ Real-Debrid API key loaded from settings")
+	}
+	if appSettings.PremiumizeAPIKey != "" {
+		cfg.PremiumizeAPIKey = appSettings.PremiumizeAPIKey
+		cfg.UsePremiumize = true
+		log.Println("✓ Premiumize API key loaded from settings")
+	}
+	if appSettings.MDBListAPIKey != "" {
+		cfg.MDBListAPIKey = appSettings.MDBListAPIKey
+		log.Println("✓ MDBList API key loaded from settings")
+	}
+	
+	// Service URLs
+	if appSettings.TorrentioURL != "" {
+		cfg.TorrentioURL = appSettings.TorrentioURL
+	}
+	if appSettings.CometURL != "" {
+		cfg.CometURL = appSettings.CometURL
+	}
+	if appSettings.MediaFusionURL != "" {
+		cfg.MediaFusionURL = appSettings.MediaFusionURL
+	}
+	
+	// Provider settings
+	cfg.UseRealDebrid = appSettings.UseRealDebrid
+	cfg.UsePremiumize = appSettings.UsePremiumize
+	if len(appSettings.StreamProviders) > 0 {
+		cfg.StreamProviders = appSettings.StreamProviders
+	}
+	if appSettings.TorrentioProviders != "" {
+		cfg.TorrentioProviders = appSettings.TorrentioProviders
+	}
+	if len(appSettings.CometIndexers) > 0 {
+		cfg.CometIndexers = appSettings.CometIndexers
+	}
+	
+	log.Println("✓ All settings loaded from database")
 
 	// Initialize components
 	tmdbClient := services.NewTMDBClient(cfg.TMDBAPIKey)

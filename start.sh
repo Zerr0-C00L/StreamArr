@@ -10,21 +10,9 @@ echo "║       StreamArr Quick Start            ║"
 echo "╚════════════════════════════════════════╝"
 echo ""
 
-# Check if .env exists
-if [ ! -f .env ]; then
-    echo "📋 Creating .env file from template..."
-    cp .env.example .env
-    echo "⚠️  Please edit .env and add your API keys:"
-    echo "   - TMDB_API_KEY"
-    echo "   - REALDEBRID_API_KEY"
-    echo "   - DATABASE_URL"
-    echo ""
-    echo "Then run this script again."
-    exit 1
-fi
-
-# Load environment
-source .env
+# Default database URL (can be overridden via environment)
+DATABASE_URL="${DATABASE_URL:-postgres://streamarr:streamarr_password@localhost:5432/streamarr?sslmode=disable}"
+SERVER_PORT="${SERVER_PORT:-8080}"
 
 # Check if binaries exist
 if [ ! -f bin/server ] || [ ! -f bin/worker ] || [ ! -f bin/migrate ]; then
@@ -45,7 +33,8 @@ else
     echo ""
     echo "Options:"
     echo "  1. Run: ./setup_database.sh"
-    echo "  2. Or ensure PostgreSQL is running and DATABASE_URL is correct"
+    echo "  2. Or ensure PostgreSQL is running"
+    echo "  3. Set DATABASE_URL environment variable if using custom database"
     exit 1
 fi
 
@@ -56,22 +45,18 @@ TABLE_COUNT=$(psql "$DATABASE_URL" -t -c "SELECT COUNT(*) FROM information_schem
 
 if [ "$TABLE_COUNT" -lt 6 ]; then
     echo "📦 Running migrations..."
-    ./bin/migrate up
+    DATABASE_URL="$DATABASE_URL" ./bin/migrate up
     echo "✅ Migrations applied"
 else
     echo "✅ Database schema is up to date"
 fi
 
-# Check if API keys are set
+# Display configuration info
 echo ""
-echo "🔑 Validating configuration..."
-if [ -z "$TMDB_API_KEY" ] || [ "$TMDB_API_KEY" = "your_tmdb_api_key_here" ]; then
-    echo "⚠️  Warning: TMDB_API_KEY not set in .env"
-fi
-
-if [ -z "$REALDEBRID_API_KEY" ] || [ "$REALDEBRID_API_KEY" = "your_real_debrid_api_key_here" ]; then
-    echo "⚠️  Warning: REALDEBRID_API_KEY not set in .env"
-fi
+echo "🔑 Configuration:"
+echo "   All settings are managed via the Web UI (Settings page)"
+echo "   API Keys, Service URLs, and other options can be set there."
+echo ""
 
 echo ""
 echo "╔════════════════════════════════════════╗"
@@ -83,9 +68,9 @@ echo ""
 pkill -f "bin/server" 2>/dev/null || true
 pkill -f "bin/worker" 2>/dev/null || true
 
-# Start server in background
-echo "🚀 Starting API Server on port ${SERVER_PORT:-8080}..."
-nohup ./bin/server > logs/server.log 2>&1 &
+# Start server in background with DATABASE_URL
+echo "🚀 Starting API Server on port ${SERVER_PORT}..."
+DATABASE_URL="$DATABASE_URL" nohup ./bin/server > logs/server.log 2>&1 &
 SERVER_PID=$!
 echo "   PID: $SERVER_PID"
 
@@ -93,7 +78,7 @@ echo "   PID: $SERVER_PID"
 sleep 2
 
 # Test health endpoint
-if curl -s http://localhost:${SERVER_PORT:-8080}/api/v1/health | grep -q "ok"; then
+if curl -s http://localhost:${SERVER_PORT}/api/v1/health | grep -q "ok"; then
     echo "✅ API Server is running"
 else
     echo "⚠️  API Server may not be responding"
@@ -102,7 +87,7 @@ fi
 # Start worker in background
 echo ""
 echo "⚙️  Starting Background Worker..."
-nohup ./bin/worker > logs/worker.log 2>&1 &
+DATABASE_URL="$DATABASE_URL" nohup ./bin/worker > logs/worker.log 2>&1 &
 WORKER_PID=$!
 echo "   PID: $WORKER_PID"
 
@@ -116,9 +101,13 @@ echo "║          StreamArr is Ready!           ║"
 echo "╚════════════════════════════════════════╝"
 echo ""
 echo "📍 API Endpoints:"
-echo "   Health Check:  http://localhost:${SERVER_PORT:-8080}/api/v1/health"
-echo "   Movies:        http://localhost:${SERVER_PORT:-8080}/api/v1/movies"
-echo "   Search:        http://localhost:${SERVER_PORT:-8080}/api/v1/search/movies?q=query"
+echo "   Health Check:  http://localhost:${SERVER_PORT}/api/v1/health"
+echo "   Movies:        http://localhost:${SERVER_PORT}/api/v1/movies"
+echo "   Search:        http://localhost:${SERVER_PORT}/api/v1/search/movies?q=query"
+echo ""
+echo "⚙️  Configuration:"
+echo "   Settings:      http://localhost:${SERVER_PORT} (Web UI)"
+echo "   All API keys and options are configured via the Settings page"
 echo ""
 echo "📊 Monitoring:"
 echo "   Server logs:   tail -f logs/server.log"
@@ -127,13 +116,9 @@ echo ""
 echo "🛑 To stop services:"
 echo "   ./stop.sh"
 echo ""
-echo "📚 Documentation:"
-echo "   API Guide:     README_STREAMARR.md"
-echo "   Deployment:    DEPLOYMENT.md"
-echo ""
 
 # Test API
 echo "🧪 Quick API Test:"
 echo ""
-curl -s http://localhost:${SERVER_PORT:-8080}/api/v1/health | jq '.' 2>/dev/null || curl -s http://localhost:${SERVER_PORT:-8080}/api/v1/health
+curl -s http://localhost:${SERVER_PORT}/api/v1/health | jq '.' 2>/dev/null || curl -s http://localhost:${SERVER_PORT}/api/v1/health
 echo ""
