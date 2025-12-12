@@ -378,6 +378,99 @@ func (h *Handler) scanAndLinkCollections(ctx context.Context) error {
 	return nil
 }
 
+// scanEpisodesForAllSeries fetches episode metadata from TMDB for all series in the library
+func (h *Handler) scanEpisodesForAllSeries(ctx context.Context) error {
+	fmt.Println("[Episode Scan] Starting episode scan for all series...")
+	services.GlobalScheduler.UpdateProgress(services.ServiceEpisodeScan, 0, 0, "Loading series list...")
+	
+	// Get all series from the library
+	allSeries, err := h.seriesStore.List(ctx, 0, 10000, nil)
+	if err != nil {
+		fmt.Printf("[Episode Scan] Failed to list series: %v\n", err)
+		return err
+	}
+	
+	totalSeries := len(allSeries)
+	if totalSeries == 0 {
+		fmt.Println("[Episode Scan] No series in library")
+		services.GlobalScheduler.UpdateProgress(services.ServiceEpisodeScan, 0, 0, "No series in library")
+		return nil
+	}
+	
+	fmt.Printf("[Episode Scan] Found %d series to scan\n", totalSeries)
+	services.GlobalScheduler.UpdateProgress(services.ServiceEpisodeScan, 0, totalSeries, 
+		fmt.Sprintf("Scanning %d series...", totalSeries))
+	
+	totalEpisodes := 0
+	seriesProcessed := 0
+	errors := 0
+	
+	for i, series := range allSeries {
+		// Update progress
+		services.GlobalScheduler.UpdateProgress(services.ServiceEpisodeScan, i+1, totalSeries, 
+			fmt.Sprintf("Scanning: %s", series.Title))
+		
+		// Get series details from TMDB to get number of seasons
+		tmdbSeries, err := h.tmdbClient.GetSeries(ctx, series.TMDBID)
+		if err != nil {
+			fmt.Printf("[Episode Scan] Failed to get details for '%s' (TMDB:%d): %v\n", series.Title, series.TMDBID, err)
+			errors++
+			continue
+		}
+		
+		numSeasons := tmdbSeries.Seasons
+		if numSeasons == 0 {
+			fmt.Printf("[Episode Scan] '%s' has 0 seasons, skipping\n", series.Title)
+			continue
+		}
+		
+		// Get all episodes for this series
+		episodes, err := h.tmdbClient.GetEpisodes(ctx, series.ID, series.TMDBID, numSeasons)
+		if err != nil {
+			fmt.Printf("[Episode Scan] Failed to get episodes for '%s': %v\n", series.Title, err)
+			errors++
+			continue
+		}
+		
+		// Set the series ID for all episodes
+		for _, ep := range episodes {
+			ep.SeriesID = series.ID
+			ep.Monitored = series.Monitored
+		}
+		
+		// Add episodes to database (batch insert)
+		if len(episodes) > 0 {
+			if err := h.episodeStore.AddBatch(ctx, episodes); err != nil {
+				// Check if it's a duplicate error, if so, skip silently
+				if err.Error() != "" && !containsDuplicateError(err.Error()) {
+					fmt.Printf("[Episode Scan] Failed to add episodes for '%s': %v\n", series.Title, err)
+					errors++
+				}
+			} else {
+				totalEpisodes += len(episodes)
+				fmt.Printf("[Episode Scan] Added %d episodes for '%s'\n", len(episodes), series.Title)
+			}
+		}
+		
+		seriesProcessed++
+		
+		// Rate limit TMDB requests (40 per 10s limit)
+		time.Sleep(300 * time.Millisecond)
+	}
+	
+	services.GlobalScheduler.UpdateProgress(services.ServiceEpisodeScan, totalSeries, totalSeries, 
+		fmt.Sprintf("Complete: %d episodes from %d series", totalEpisodes, seriesProcessed))
+	
+	fmt.Printf("[Episode Scan] Complete: %d episodes added from %d series (%d errors)\n", 
+		totalEpisodes, seriesProcessed, errors)
+	return nil
+}
+
+// containsDuplicateError checks if an error message indicates a duplicate key violation
+func containsDuplicateError(errMsg string) bool {
+	return strings.Contains(errMsg, "duplicate key") || strings.Contains(errMsg, "UNIQUE constraint")
+}
+
 // UpdateMovie handles PUT /api/movies/{id}
 func (h *Handler) UpdateMovie(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
@@ -803,7 +896,26 @@ func (h *Handler) ListChannels(w http.ResponseWriter, r *http.Request) {
 		channels = h.channelManager.GetAllChannels()
 	}
 
-	respondJSON(w, http.StatusOK, channels)
+	// Create enriched response with EPG data
+	type EnrichedChannel struct {
+		*livetv.Channel
+		CurrentProgram *livetv.EPGProgram `json:"current_program,omitempty"`
+		HasEPG         bool               `json:"has_epg"`
+	}
+
+	enriched := make([]EnrichedChannel, len(channels))
+	for i, ch := range channels {
+		enriched[i] = EnrichedChannel{
+			Channel: ch,
+			HasEPG:  false,
+		}
+		if h.epgManager != nil {
+			enriched[i].HasEPG = h.epgManager.HasEPG(ch.ID)
+			enriched[i].CurrentProgram = h.epgManager.GetCurrentProgram(ch.ID)
+		}
+	}
+
+	respondJSON(w, http.StatusOK, enriched)
 }
 
 // GetChannelStats handles GET /api/channels/stats - returns categories and sources
@@ -1430,6 +1542,14 @@ func (h *Handler) runService(serviceName string) {
 			fmt.Println("[Collection Sync] Phase 2 skipped: collectionStore or settingsManager is nil")
 		}
 	
+	case services.ServiceEpisodeScan:
+		interval = 24 * time.Hour
+		if h.seriesStore != nil && h.episodeStore != nil && h.tmdbClient != nil {
+			err = h.scanEpisodesForAllSeries(ctx)
+		} else {
+			fmt.Println("[Episode Scan] Skipped: required stores not initialized")
+		}
+	
 	default:
 		interval = 1 * time.Hour
 	}
@@ -1466,37 +1586,33 @@ func (h *Handler) UpdateServiceEnabled(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) GetDatabaseStats(w http.ResponseWriter, r *http.Request) {
 	ctx := context.Background()
 	
-	var movieCount, seriesCount, episodeCount, streamCount, collectionCount int
+	var movieCount, seriesCount, episodeCount, streamCount, collectionCount int64
 	
-	// Count movies
+	// Count movies using Count method
 	if h.movieStore != nil {
-		movies, err := h.movieStore.List(ctx, 0, 100000, nil)
-		if err == nil {
-			movieCount = len(movies)
+		if count, err := h.movieStore.Count(ctx); err == nil {
+			movieCount = count
 		}
 	}
 	
-	// Count series
+	// Count series using Count method
 	if h.seriesStore != nil {
-		series, err := h.seriesStore.List(ctx, 0, 100000, nil)
-		if err == nil {
-			seriesCount = len(series)
+		if count, err := h.seriesStore.Count(ctx, nil); err == nil {
+			seriesCount = int64(count)
 		}
 	}
 	
-	// Count episodes
+	// Count episodes using CountAll method
 	if h.episodeStore != nil {
-		episodes, err := h.episodeStore.ListAll(ctx)
-		if err == nil {
-			episodeCount = len(episodes)
+		if count, err := h.episodeStore.CountAll(ctx); err == nil {
+			episodeCount = int64(count)
 		}
 	}
 	
-	// Count streams
+	// Count streams using CountAll method
 	if h.streamStore != nil {
-		streams, err := h.streamStore.List(ctx)
-		if err == nil {
-			streamCount = len(streams)
+		if count, err := h.streamStore.CountAll(ctx); err == nil {
+			streamCount = int64(count)
 		}
 	}
 	
@@ -1504,7 +1620,7 @@ func (h *Handler) GetDatabaseStats(w http.ResponseWriter, r *http.Request) {
 	if h.collectionStore != nil {
 		collections, err := h.collectionStore.ListAll(ctx)
 		if err == nil {
-			collectionCount = len(collections)
+			collectionCount = int64(len(collections))
 		}
 	}
 	
@@ -1514,6 +1630,74 @@ func (h *Handler) GetDatabaseStats(w http.ResponseWriter, r *http.Request) {
 		"episodes":    episodeCount,
 		"streams":     streamCount,
 		"collections": collectionCount,
+	})
+}
+
+// GetStats handles GET /api/stats - dashboard stats
+func (h *Handler) GetStats(w http.ResponseWriter, r *http.Request) {
+	ctx := context.Background()
+	
+	var totalMovies, monitoredMovies, availableMovies int64
+	var totalSeries, monitoredSeries int64
+	var totalEpisodes int
+	var totalChannels, activeChannels int
+	var totalCollections int
+	
+	// Movie counts
+	if h.movieStore != nil {
+		if count, err := h.movieStore.Count(ctx); err == nil {
+			totalMovies = count
+		}
+		if count, err := h.movieStore.CountMonitored(ctx); err == nil {
+			monitoredMovies = count
+		}
+		if count, err := h.movieStore.CountAvailable(ctx); err == nil {
+			availableMovies = count
+		}
+	}
+	
+	// Series counts
+	if h.seriesStore != nil {
+		if count, err := h.seriesStore.Count(ctx, nil); err == nil {
+			totalSeries = int64(count)
+		}
+		monitored := true
+		if count, err := h.seriesStore.Count(ctx, &monitored); err == nil {
+			monitoredSeries = int64(count)
+		}
+		if count, err := h.seriesStore.CountEpisodes(ctx); err == nil {
+			totalEpisodes = count
+		}
+	}
+	
+	// Channel counts
+	if h.channelManager != nil {
+		channels := h.channelManager.GetAllChannels()
+		totalChannels = len(channels)
+		for _, ch := range channels {
+			if ch.Active {
+				activeChannels++
+			}
+		}
+	}
+	
+	// Collection counts
+	if h.collectionStore != nil {
+		if count, err := h.collectionStore.Count(ctx); err == nil {
+			totalCollections = count
+		}
+	}
+	
+	respondJSON(w, http.StatusOK, map[string]interface{}{
+		"total_movies":      totalMovies,
+		"monitored_movies":  monitoredMovies,
+		"available_movies":  availableMovies,
+		"total_series":      totalSeries,
+		"monitored_series":  monitoredSeries,
+		"total_episodes":    totalEpisodes,
+		"total_channels":    totalChannels,
+		"active_channels":   activeChannels,
+		"total_collections": totalCollections,
 	})
 }
 

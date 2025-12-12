@@ -70,6 +70,41 @@ func (e *Manager) GetEPG(channelID string, date time.Time) []livetv.EPGProgram {
 	return filtered
 }
 
+// GetCurrentProgram returns the currently airing program for a channel
+func (e *Manager) GetCurrentProgram(channelID string) *livetv.EPGProgram {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+
+	programs, ok := e.programs[channelID]
+	if !ok {
+		return nil
+	}
+
+	now := time.Now()
+	for _, p := range programs {
+		if now.After(p.StartTime) && now.Before(p.EndTime) {
+			return &p
+		}
+	}
+
+	return nil
+}
+
+// HasEPG checks if a channel has EPG data
+func (e *Manager) HasEPG(channelID string) bool {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	_, ok := e.programs[channelID]
+	return ok
+}
+
+// GetChannelCount returns number of channels with EPG data
+func (e *Manager) GetChannelCount() int {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	return len(e.programs)
+}
+
 // UpdateEPG refreshes EPG data from all sources
 func (e *Manager) UpdateEPG(channels []livetv.Channel) error {
 	e.mu.Lock()

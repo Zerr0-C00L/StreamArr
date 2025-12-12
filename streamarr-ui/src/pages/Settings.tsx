@@ -2413,6 +2413,17 @@ export default function Settings() {
                       <div className="text-xs text-yellow-400">Re-enable scanning for all series</div>
                     </div>
                   </button>
+                  <button
+                    onClick={() => triggerService('episode_scan')}
+                    disabled={triggeringService === 'episode_scan'}
+                    className="flex items-center gap-2 px-4 py-3 bg-blue-900/50 text-blue-300 rounded-lg hover:bg-blue-900/70 border border-blue-700 disabled:opacity-50"
+                  >
+                    <Download className="h-5 w-5" />
+                    <div className="text-left">
+                      <div className="font-medium">Scan Episodes</div>
+                      <div className="text-xs text-blue-400">Fetch episode metadata from TMDB</div>
+                    </div>
+                  </button>
                 </div>
               </div>
 

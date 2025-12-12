@@ -475,6 +475,16 @@ func (e *EpisodeStore) DeleteAll(ctx context.Context) error {
 	return err
 }
 
+// CountAll returns the total count of all episodes
+func (e *EpisodeStore) CountAll(ctx context.Context) (int, error) {
+	var count int
+	err := e.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM library_episodes").Scan(&count)
+	if err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
 // ListAll returns all episodes (just counts for stats)
 func (e *EpisodeStore) ListAll(ctx context.Context) ([]*models.Episode, error) {
 	var count int

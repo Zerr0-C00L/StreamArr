@@ -171,6 +171,7 @@ const (
 	ServiceMDBListSync    = "mdblist_sync"
 	ServiceStreamSearch   = "stream_search"
 	ServiceCollectionSync = "collection_sync"
+	ServiceEpisodeScan    = "episode_scan"
 )
 
 // InitializeDefaultServices sets up the default service definitions
@@ -182,4 +183,5 @@ func InitializeDefaultServices() {
 	GlobalScheduler.Register(ServiceMDBListSync, "Syncs library with configured MDBList watchlists", 6*time.Hour, true)
 	GlobalScheduler.Register(ServiceStreamSearch, "Searches for streams for monitored content", 30*time.Minute, true)
 	GlobalScheduler.Register(ServiceCollectionSync, "Syncs incomplete movie collections", 24*time.Hour, true)
+	GlobalScheduler.Register(ServiceEpisodeScan, "Fetches episode metadata from TMDB for all series", 24*time.Hour, true)
 }

@@ -47,6 +47,13 @@ func (s *CollectionStore) Create(ctx context.Context, collection *models.Collect
 	).Scan(&collection.ID, &collection.CreatedAt, &collection.UpdatedAt)
 }
 
+// Count returns the total number of collections
+func (s *CollectionStore) Count(ctx context.Context) (int, error) {
+	var count int
+	err := s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM collections").Scan(&count)
+	return count, err
+}
+
 // GetByID retrieves a collection by ID
 func (s *CollectionStore) GetByID(ctx context.Context, id int64) (*models.Collection, error) {
 	query := `

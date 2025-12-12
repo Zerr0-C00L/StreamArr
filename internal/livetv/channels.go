@@ -420,9 +420,21 @@ func extractProviderName(groupTitle string) string {
 }
 
 // mapChannelToCategory determines the category based on channel name
-// Categories: Sports, News, Movies, Entertainment, Kids, Music, Documentary, Lifestyle, General
+// Categories: Sports, News, Movies, Entertainment, Kids, Music, Documentary, Lifestyle, Latino, General
 func mapChannelToCategory(channelName string) string {
 	name := strings.ToLower(channelName)
+	
+	// Latino/Spanish channels - check first to catch Spanish variants
+	latinoKeywords := []string{"latino", "latina", "español", "espanol", "spanish", "telemundo", 
+		"univision", "azteca", "galavision", "unimas", "estrella", "telefe", "caracol",
+		"mexiquense", "cine latino", "cine mexicano", "novela", "íconos latinos", "iconos latinos",
+		"en español", "en espanol", "latv", "sony cine", "cine sony", "pluto tv cine",
+		"comedia", "acción", "accion", "clásicos", "clasicos", "peliculas", "películas"}
+	for _, kw := range latinoKeywords {
+		if strings.Contains(name, kw) {
+			return "Latino"
+		}
+	}
 	
 	// Sports channels
 	sportsKeywords := []string{"sport", "espn", "fox sports", "nfl", "nba", "mlb", "nhl", "golf", "tennis",

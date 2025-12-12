@@ -76,6 +76,9 @@ func SetupRoutes(handler *Handler) http.Handler {
 	// MDBList
 	api.HandleFunc("/mdblist/user-lists", handler.GetMDBListUserLists).Methods("GET")
 
+	// Stats (for dashboard)
+	api.HandleFunc("/stats", handler.GetStats).Methods("GET")
+
 	// Database management
 	api.HandleFunc("/database/stats", handler.GetDatabaseStats).Methods("GET")
 	api.HandleFunc("/database/{action}", handler.ExecuteDatabaseAction).Methods("POST")
@@ -251,6 +254,9 @@ func SetupRoutesWithXtream(handler *Handler, xtreamHandler interface{ RegisterRo
 
 	// MDBList
 	api.HandleFunc("/mdblist/user-lists", handler.GetMDBListUserLists).Methods("GET")
+
+	// Stats (for dashboard)
+	api.HandleFunc("/stats", handler.GetStats).Methods("GET")
 
 	// Database management
 	api.HandleFunc("/database/stats", handler.GetDatabaseStats).Methods("GET")

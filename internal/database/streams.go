@@ -392,6 +392,16 @@ func (s *StreamStore) DeleteStale(ctx context.Context, days int) error {
 	return err
 }
 
+// CountAll returns the total count of all streams
+func (s *StreamStore) CountAll(ctx context.Context) (int, error) {
+	var count int
+	err := s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM available_streams").Scan(&count)
+	if err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
 // List returns all streams (count only for stats)
 func (s *StreamStore) List(ctx context.Context) ([]*models.Stream, error) {
 	var count int

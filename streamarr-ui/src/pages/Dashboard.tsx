@@ -1,63 +1,65 @@
 import { useQuery } from '@tanstack/react-query';
 import { streamarrApi } from '../services/api';
-import { Film, Tv, Check, Radio } from 'lucide-react';
+import { Film, Tv, Layers, Radio } from 'lucide-react';
+
+interface DashboardStats {
+  total_movies: number;
+  monitored_movies: number;
+  available_movies: number;
+  total_series: number;
+  monitored_series: number;
+  total_episodes: number;
+  total_channels: number;
+  active_channels: number;
+  total_collections: number;
+}
 
 export default function Dashboard() {
-  const { data: movies } = useQuery({
-    queryKey: ['movies'],
-    queryFn: () => streamarrApi.getMovies({ limit: 1000 }).then(res => res.data),
+  const { data: stats } = useQuery<DashboardStats>({
+    queryKey: ['stats'],
+    queryFn: () => streamarrApi.getStats().then(res => res.data),
   });
 
-  const { data: series } = useQuery({
-    queryKey: ['series'],
-    queryFn: () => streamarrApi.getSeries({ limit: 1000 }).then(res => res.data),
-  });
-
-  const { data: channels } = useQuery({
-    queryKey: ['channels'],
-    queryFn: () => streamarrApi.getChannels().then(res => res.data),
-  });
-
-  const stats = {
-    totalMovies: movies?.length || 0,
-    monitoredMovies: movies?.filter(m => m.monitored).length || 0,
-    availableMovies: movies?.filter(m => m.available).length || 0,
-    totalSeries: series?.length || 0,
-    monitoredSeries: series?.filter(s => s.monitored).length || 0,
-    totalEpisodes: series?.reduce((sum, s) => sum + s.total_episodes, 0) || 0,
-    totalChannels: channels?.length || 0,
-    liveChannels: channels?.filter(ch => ch.active).length || 0,
-    recentlyAdded: movies?.slice(0, 10) || [],
+  const dashboardStats = {
+    totalMovies: stats?.total_movies || 0,
+    monitoredMovies: stats?.monitored_movies || 0,
+    availableMovies: stats?.available_movies || 0,
+    totalSeries: stats?.total_series || 0,
+    monitoredSeries: stats?.monitored_series || 0,
+    totalEpisodes: stats?.total_episodes || 0,
+    totalChannels: stats?.total_channels || 0,
+    activeChannels: stats?.active_channels || 0,
+    totalCollections: stats?.total_collections || 0,
   };
 
   const statCards = [
     {
       label: 'Total Movies',
-      value: stats.totalMovies,
+      value: dashboardStats.totalMovies,
       icon: Film,
       color: 'bg-blue-500',
-      subtitle: `${stats.monitoredMovies} monitored`,
+      subtitle: `${dashboardStats.monitoredMovies} monitored`,
     },
     {
       label: 'TV Series',
-      value: stats.totalSeries,
+      value: dashboardStats.totalSeries,
       icon: Tv,
       color: 'bg-purple-500',
-      subtitle: `${stats.totalEpisodes} episodes`,
+      subtitle: `${dashboardStats.monitoredSeries} monitored`,
     },
     {
       label: 'Live Channels',
-      value: stats.totalChannels,
+      value: dashboardStats.totalChannels,
       icon: Radio,
       color: 'bg-red-500',
-      subtitle: `${stats.liveChannels} active`,
+      subtitle: `${dashboardStats.activeChannels} active`,
     },
     {
-      label: 'Available',
-      value: stats.availableMovies,
-      icon: Check,
-      color: 'bg-green-500',
-      subtitle: 'Ready to watch',
+      label: 'Collections',
+      value: dashboardStats.totalCollections,
+      icon: Layers,
+      color: 'bg-cyan-500',
+      subtitle: 'Movie collections',
     },
   ];
 
@@ -98,8 +100,8 @@ export default function Dashboard() {
               <div className="flex justify-between text-sm mb-2">
                 <span className="text-slate-400">Monitoring Rate</span>
                 <span className="text-white">
-                  {stats.totalMovies > 0 
-                    ? Math.round((stats.monitoredMovies / stats.totalMovies) * 100)
+                  {dashboardStats.totalMovies > 0 
+                    ? Math.round((dashboardStats.monitoredMovies / dashboardStats.totalMovies) * 100)
                     : 0}%
                 </span>
               </div>
@@ -107,8 +109,8 @@ export default function Dashboard() {
                 <div
                   className="h-full bg-green-500 transition-all"
                   style={{
-                    width: `${stats.totalMovies > 0 
-                      ? (stats.monitoredMovies / stats.totalMovies) * 100
+                    width: `${dashboardStats.totalMovies > 0 
+                      ? (dashboardStats.monitoredMovies / dashboardStats.totalMovies) * 100
                       : 0}%`
                   }}
                 />
@@ -117,10 +119,10 @@ export default function Dashboard() {
 
             <div>
               <div className="flex justify-between text-sm mb-2">
-                <span className="text-slate-400">Availability Rate</span>
+                <span className="text-slate-400">Series Coverage</span>
                 <span className="text-white">
-                  {stats.totalMovies > 0 
-                    ? Math.round((stats.availableMovies / stats.totalMovies) * 100)
+                  {dashboardStats.totalSeries > 0 
+                    ? Math.round((dashboardStats.monitoredSeries / dashboardStats.totalSeries) * 100)
                     : 0}%
                 </span>
               </div>
@@ -128,8 +130,8 @@ export default function Dashboard() {
                 <div
                   className="h-full bg-purple-500 transition-all"
                   style={{
-                    width: `${stats.totalMovies > 0 
-                      ? (stats.availableMovies / stats.totalMovies) * 100
+                    width: `${dashboardStats.totalSeries > 0 
+                      ? (dashboardStats.monitoredSeries / dashboardStats.totalSeries) * 100
                       : 0}%`
                   }}
                 />
@@ -139,12 +141,12 @@ export default function Dashboard() {
             <div className="pt-4 border-t border-slate-700">
               <div className="grid grid-cols-2 gap-4 text-center">
                 <div>
-                  <div className="text-2xl font-bold text-white">{stats.totalMovies}</div>
+                  <div className="text-2xl font-bold text-white">{dashboardStats.totalMovies + dashboardStats.totalSeries}</div>
                   <div className="text-sm text-slate-400">Total Items</div>
                 </div>
                 <div>
-                  <div className="text-2xl font-bold text-green-400">{stats.availableMovies}</div>
-                  <div className="text-sm text-slate-400">Ready to Watch</div>
+                  <div className="text-2xl font-bold text-cyan-400">{dashboardStats.totalCollections}</div>
+                  <div className="text-sm text-slate-400">Collections</div>
                 </div>
               </div>
             </div>
