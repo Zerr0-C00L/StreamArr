@@ -1907,10 +1907,23 @@ func (h *Handler) CheckForUpdates(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Check if update is available by comparing commits
-	updateAvailable := Commit != "unknown" && Commit != commitData.SHA[:len(Commit)]
-	if Commit == "unknown" {
-		// If we don't have a commit hash, we can't compare
-		updateAvailable = false
+	latestCommitShort := commitData.SHA
+	if len(latestCommitShort) > 7 {
+		latestCommitShort = latestCommitShort[:7]
+	}
+	
+	updateAvailable := false
+	if Commit != "unknown" && len(Commit) >= 7 {
+		// Compare short commit hashes
+		currentShort := Commit
+		if len(currentShort) > 7 {
+			currentShort = currentShort[:7]
+		}
+		updateAvailable = currentShort != latestCommitShort
+	} else {
+		// If commit is unknown, always show update available
+		// so user can update to get proper version tracking
+		updateAvailable = true
 	}
 
 	// Get first line of commit message as changelog
