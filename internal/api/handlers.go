@@ -596,10 +596,137 @@ func (h *Handler) scanStreamAvailability(ctx context.Context) error {
 	}
 	
 	services.GlobalScheduler.UpdateProgress(services.ServiceStreamSearch, total, total, 
-		fmt.Sprintf("Complete: %d available, %d unavailable", available, unavailable))
+		fmt.Sprintf("Movies: %d available, %d unavailable", available, unavailable))
 	
-	fmt.Printf("[Stream Scan] Complete: %d available, %d unavailable out of %d movies\n", 
+	fmt.Printf("[Stream Scan] Movies complete: %d available, %d unavailable out of %d\n", 
 		available, unavailable, total)
+	
+	// ========== Phase 2: Scan Episodes ==========
+	fmt.Println("[Stream Scan] Starting episode availability scan...")
+	
+	// Get episodes that need checking, joined with series to get IMDB ID
+	episodeQuery := `
+		SELECT e.id, e.series_id, e.season_number, e.episode_number, e.title, s.imdb_id, s.title as series_title
+		FROM library_episodes e
+		JOIN library_series s ON e.series_id = s.id
+		WHERE e.monitored = true 
+		AND s.imdb_id IS NOT NULL AND s.imdb_id != ''
+		AND (e.last_checked IS NULL OR e.last_checked < NOW() - INTERVAL '7 days')
+		AND e.air_date IS NOT NULL AND e.air_date < NOW()
+		ORDER BY e.air_date DESC
+		LIMIT 200
+	`
+	
+	episodeRows, err := h.movieStore.GetDB().QueryContext(ctx, episodeQuery)
+	if err != nil {
+		fmt.Printf("[Stream Scan] Failed to query episodes: %v\n", err)
+		return err
+	}
+	defer episodeRows.Close()
+	
+	type episodeToScan struct {
+		ID            int64
+		SeriesID      int64
+		SeasonNumber  int
+		EpisodeNumber int
+		Title         string
+		SeriesIMDBID  string
+		SeriesTitle   string
+	}
+	
+	var episodes []episodeToScan
+	for episodeRows.Next() {
+		var ep episodeToScan
+		var imdbID sql.NullString
+		var epTitle sql.NullString
+		if err := episodeRows.Scan(&ep.ID, &ep.SeriesID, &ep.SeasonNumber, &ep.EpisodeNumber, &epTitle, &imdbID, &ep.SeriesTitle); err != nil {
+			continue
+		}
+		ep.SeriesIMDBID = imdbID.String
+		ep.Title = epTitle.String
+		if ep.SeriesIMDBID != "" {
+			episodes = append(episodes, ep)
+		}
+	}
+	
+	episodeTotal := len(episodes)
+	if episodeTotal == 0 {
+		fmt.Println("[Stream Scan] No episodes to scan")
+		return nil
+	}
+	
+	fmt.Printf("[Stream Scan] Found %d episodes to check\n", episodeTotal)
+	services.GlobalScheduler.UpdateProgress(services.ServiceStreamSearch, 0, episodeTotal, 
+		fmt.Sprintf("Checking %d episodes...", episodeTotal))
+	
+	epAvailable := 0
+	epUnavailable := 0
+	
+	for i, ep := range episodes {
+		displayTitle := fmt.Sprintf("%s S%02dE%02d", ep.SeriesTitle, ep.SeasonNumber, ep.EpisodeNumber)
+		services.GlobalScheduler.UpdateProgress(services.ServiceStreamSearch, i+1, episodeTotal, 
+			fmt.Sprintf("Checking: %s", displayTitle))
+		
+		hasStreams := false
+		
+		// Build the episode stream ID format: tt1234567:1:5 (imdb:season:episode)
+		episodeStreamID := fmt.Sprintf("%s:%d:%d", ep.SeriesIMDBID, ep.SeasonNumber, ep.EpisodeNumber)
+		
+		// Check each provider for streams
+		for _, providerName := range providerNames {
+			switch providerName {
+			case "comet":
+				url := fmt.Sprintf("https://comet.elfhosted.com/stream/series/%s.json", episodeStreamID)
+				resp, err := http.Get(url)
+				if err == nil {
+					var result struct {
+						Streams []interface{} `json:"streams"`
+					}
+					if json.NewDecoder(resp.Body).Decode(&result) == nil && len(result.Streams) > 0 {
+						hasStreams = true
+					}
+					resp.Body.Close()
+				}
+			case "mediafusion":
+				url := fmt.Sprintf("https://mediafusion.elfhosted.com/stream/series/%s.json", episodeStreamID)
+				resp, err := http.Get(url)
+				if err == nil {
+					var result struct {
+						Streams []interface{} `json:"streams"`
+					}
+					if json.NewDecoder(resp.Body).Decode(&result) == nil && len(result.Streams) > 0 {
+						hasStreams = true
+					}
+					resp.Body.Close()
+				}
+			}
+			
+			if hasStreams {
+				break
+			}
+		}
+		
+		// Update the episode
+		updateEpisodeQuery := `UPDATE library_episodes SET available = $1, last_checked = NOW() WHERE id = $2 AND series_id = $3`
+		h.movieStore.GetDB().ExecContext(ctx, updateEpisodeQuery, hasStreams, ep.ID, ep.SeriesID)
+		
+		if hasStreams {
+			epAvailable++
+		} else {
+			epUnavailable++
+			fmt.Printf("[Stream Scan] No streams for: %s (%s)\n", displayTitle, episodeStreamID)
+		}
+		
+		// Rate limit
+		time.Sleep(300 * time.Millisecond)
+	}
+	
+	services.GlobalScheduler.UpdateProgress(services.ServiceStreamSearch, episodeTotal, episodeTotal, 
+		fmt.Sprintf("Episodes: %d available, %d unavailable", epAvailable, epUnavailable))
+	
+	fmt.Printf("[Stream Scan] Episodes complete: %d available, %d unavailable out of %d\n", 
+		epAvailable, epUnavailable, episodeTotal)
+	
 	return nil
 }
 

@@ -1103,6 +1103,30 @@ func (h *XtreamHandler) getSeriesInfo(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	
+	// Build a map of episode availability from the database if hideUnavailable is enabled
+	episodeAvailability := make(map[string]bool) // key: "season:episode" -> available
+	hideUnavailableEpisodes := h.hideUnavailable != nil && h.hideUnavailable()
+	if hideUnavailableEpisodes {
+		availQuery := `
+			SELECT e.season_number, e.episode_number, e.available 
+			FROM library_episodes e
+			JOIN library_series s ON e.series_id = s.id
+			WHERE s.tmdb_id = $1 AND e.last_checked IS NOT NULL
+		`
+		availRows, err := h.db.Query(availQuery, tmdbID)
+		if err == nil {
+			defer availRows.Close()
+			for availRows.Next() {
+				var seasonNum, episodeNum int
+				var available bool
+				if availRows.Scan(&seasonNum, &episodeNum, &available) == nil {
+					key := fmt.Sprintf("%d:%d", seasonNum, episodeNum)
+					episodeAvailability[key] = available
+				}
+			}
+		}
+	}
+	
 	seasons := make([]map[string]interface{}, 0)
 	episodes := make(map[string][]map[string]interface{})
 	
@@ -1128,6 +1152,14 @@ func (h *XtreamHandler) getSeriesInfo(w http.ResponseWriter, r *http.Request) {
 				}
 			} else {
 				continue // Skip episodes without air date
+			}
+			
+			// Skip unavailable episodes if hideUnavailable is enabled
+			if hideUnavailableEpisodes {
+				key := fmt.Sprintf("%d:%d", seasonNum, ep.EpisodeNumber)
+				if available, checked := episodeAvailability[key]; checked && !available {
+					continue // Episode was checked and has no streams
+				}
 			}
 			
 			episodeCount++
