@@ -1954,21 +1954,35 @@ func (h *Handler) InstallUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Run update script in background
-	go func() {
-		log.Println("[Update] Starting update process...")
-		cmd := exec.Command("/bin/bash", updateScript)
-		cmd.Dir = "."
-		output, err := cmd.CombinedOutput()
-		if err != nil {
-			log.Printf("[Update] Failed: %v\nOutput: %s", err, string(output))
-		} else {
-			log.Printf("[Update] Success: %s", string(output))
+	// Get update branch from settings
+	branch := "main"
+	if h.settings != nil {
+		settings := h.settings.Get()
+		if settings.UpdateBranch != "" {
+			branch = settings.UpdateBranch
 		}
-	}()
+	}
+
+	log.Println("[Update] Starting update process...")
+	
+	// Run update script completely detached using nohup + setsid
+	// This ensures the script survives even when the server process dies
+	cmd := exec.Command("/bin/bash", "-c", 
+		fmt.Sprintf("nohup setsid /bin/bash %s %s > /opt/StreamArr/logs/update.log 2>&1 &", updateScript, branch))
+	cmd.Dir = "."
+	
+	// Start the command but don't wait for it
+	if err := cmd.Start(); err != nil {
+		log.Printf("[Update] Failed to start update: %v", err)
+		respondError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to start update: %v", err))
+		return
+	}
+
+	// Detach from the process immediately
+	go cmd.Wait()
 
 	respondJSON(w, http.StatusOK, map[string]interface{}{
 		"success": true,
-		"message": "Update started. The server will restart shortly.",
+		"message": "Update started. The server will restart shortly. Check logs/update.log for progress.",
 	})
 }
