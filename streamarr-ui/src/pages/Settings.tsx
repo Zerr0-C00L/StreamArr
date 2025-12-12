@@ -56,6 +56,7 @@ interface SettingsData {
   livetv_enable_plutotv: boolean;
   // Content filter settings
   only_released_content: boolean;
+  hide_unavailable_content: boolean;
   // Update settings
   update_branch: string;
 }
@@ -1304,6 +1305,25 @@ export default function Settings() {
                 <p className="text-xs text-gray-500 mt-1 ml-6">
                   Only include movies/series in the IPTV playlist that are already released on streaming, digital, or Blu-ray. 
                   Unreleased items remain in your library but won't appear in the playlist until they're available for streaming.
+                </p>
+              </div>
+
+              <div className="pt-4 border-t border-gray-700">
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    id="hide_unavailable"
+                    checked={settings.hide_unavailable_content || false}
+                    onChange={(e) => updateSetting('hide_unavailable_content', e.target.checked)}
+                    className="w-4 h-4 bg-gray-800 border-gray-700 rounded"
+                  />
+                  <label htmlFor="hide_unavailable" className="text-sm font-medium text-gray-300">
+                    Hide Content Without Streams
+                  </label>
+                </div>
+                <p className="text-xs text-gray-500 mt-1 ml-6">
+                  Only show movies/episodes in IPTV apps if they have at least one stream available. 
+                  Run the "Stream Search" service to scan your library for available streams.
                 </p>
               </div>
             </div>

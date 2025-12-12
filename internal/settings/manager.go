@@ -91,6 +91,9 @@ type Settings struct {
 	StreamSortOrder  string `json:"stream_sort_order"`  // e.g., "quality,size,seeders"
 	StreamSortPrefer string `json:"stream_sort_prefer"` // "best", "smallest", or "balanced"
 	
+	// Stream Availability Settings
+	HideUnavailableContent bool `json:"hide_unavailable_content"` // Don't show movies/episodes with no streams
+	
 	// Update Settings
 	UpdateBranch string `json:"update_branch"` // GitHub branch for updates: main, dev, etc.
 	

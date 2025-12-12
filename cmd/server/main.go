@@ -227,6 +227,12 @@ func main() {
 	// Initialize Xtream Codes API handler
 	xtreamHandler := xtream.NewXtreamHandler(cfg, db, tmdbClient, rdClient, channelManager, epgManager)
 	
+	// Wire up settings for hiding unavailable content
+	xtreamHandler.SetHideUnavailable(func() bool {
+		s := settingsManager.Get()
+		return s.HideUnavailableContent
+	})
+	
 	// Initialize playlist generator
 	playlistGen := playlist.NewPlaylistGenerator(cfg, db, tmdbClient)
 	_ = playlistGen // Use in background worker or on-demand

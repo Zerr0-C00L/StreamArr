@@ -18,6 +18,11 @@ func NewMovieStore(db *sql.DB) *MovieStore {
 	return &MovieStore{db: db}
 }
 
+// GetDB returns the underlying database connection
+func (s *MovieStore) GetDB() *sql.DB {
+	return s.db
+}
+
 // Add adds a new movie to the library
 func (s *MovieStore) Add(ctx context.Context, movie *models.Movie) error {
 	// Build metadata JSON with all movie details

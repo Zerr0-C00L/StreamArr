@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -463,6 +464,142 @@ func (h *Handler) scanEpisodesForAllSeries(ctx context.Context) error {
 	
 	fmt.Printf("[Episode Scan] Complete: %d episodes added from %d series (%d errors)\n", 
 		totalEpisodes, seriesProcessed, errors)
+	return nil
+}
+
+// scanStreamAvailability checks stream availability for movies and updates the 'available' column
+func (h *Handler) scanStreamAvailability(ctx context.Context) error {
+	fmt.Println("[Stream Scan] Starting stream availability scan...")
+	services.GlobalScheduler.UpdateProgress(services.ServiceStreamSearch, 0, 0, "Loading movies to scan...")
+	
+	// Get movies that haven't been checked recently (or never checked)
+	// We'll check movies that were added in the last 30 days OR haven't been checked in 7 days
+	query := `
+		SELECT id, tmdb_id, imdb_id, title 
+		FROM library_movies 
+		WHERE monitored = true 
+		AND (last_checked IS NULL OR last_checked < NOW() - INTERVAL '7 days')
+		ORDER BY added_at DESC
+		LIMIT 100
+	`
+	
+	rows, err := h.movieStore.GetDB().QueryContext(ctx, query)
+	if err != nil {
+		fmt.Printf("[Stream Scan] Failed to query movies: %v\n", err)
+		return err
+	}
+	defer rows.Close()
+	
+	type movieToScan struct {
+		ID     int64
+		TMDBID int
+		IMDBID string
+		Title  string
+	}
+	
+	var movies []movieToScan
+	for rows.Next() {
+		var m movieToScan
+		var imdbID sql.NullString
+		if err := rows.Scan(&m.ID, &m.TMDBID, &imdbID, &m.Title); err != nil {
+			continue
+		}
+		m.IMDBID = imdbID.String
+		if m.IMDBID != "" {
+			movies = append(movies, m)
+		}
+	}
+	
+	total := len(movies)
+	if total == 0 {
+		fmt.Println("[Stream Scan] No movies to scan")
+		services.GlobalScheduler.UpdateProgress(services.ServiceStreamSearch, 0, 0, "No movies to scan")
+		return nil
+	}
+	
+	fmt.Printf("[Stream Scan] Found %d movies to check\n", total)
+	services.GlobalScheduler.UpdateProgress(services.ServiceStreamSearch, 0, total, 
+		fmt.Sprintf("Checking %d movies...", total))
+	
+	// Get settings for providers
+	settings := h.settingsManager.Get()
+	providerNames := settings.StreamProviders
+	if len(providerNames) == 0 {
+		providerNames = []string{"comet", "mediafusion"}
+	}
+	
+	// Create a simple stream checker
+	available := 0
+	unavailable := 0
+	
+	for i, movie := range movies {
+		services.GlobalScheduler.UpdateProgress(services.ServiceStreamSearch, i+1, total, 
+			fmt.Sprintf("Checking: %s", movie.Title))
+		
+		hasStreams := false
+		
+		// Check each provider for streams (just need one to confirm availability)
+		for _, providerName := range providerNames {
+			var streams interface{}
+			var checkErr error
+			
+			switch providerName {
+			case "comet":
+				// Quick check using Comet
+				url := fmt.Sprintf("https://comet.elfhosted.com/stream/movie/%s.json", movie.IMDBID)
+				resp, err := http.Get(url)
+				if err == nil {
+					defer resp.Body.Close()
+					var result struct {
+						Streams []interface{} `json:"streams"`
+					}
+					if json.NewDecoder(resp.Body).Decode(&result) == nil && len(result.Streams) > 0 {
+						hasStreams = true
+					}
+				}
+			case "mediafusion":
+				// Quick check using MediaFusion
+				url := fmt.Sprintf("https://mediafusion.elfhosted.com/stream/movie/%s.json", movie.IMDBID)
+				resp, err := http.Get(url)
+				if err == nil {
+					defer resp.Body.Close()
+					var result struct {
+						Streams []interface{} `json:"streams"`
+					}
+					if json.NewDecoder(resp.Body).Decode(&result) == nil && len(result.Streams) > 0 {
+						hasStreams = true
+					}
+				}
+			}
+			
+			_ = streams
+			_ = checkErr
+			
+			if hasStreams {
+				break // Found streams, no need to check other providers
+			}
+		}
+		
+		// Update the database
+		updateQuery := `UPDATE library_movies SET available = $1, last_checked = NOW() WHERE id = $2`
+		h.movieStore.GetDB().ExecContext(ctx, updateQuery, hasStreams, movie.ID)
+		
+		if hasStreams {
+			available++
+		} else {
+			unavailable++
+			fmt.Printf("[Stream Scan] No streams for: %s (%s)\n", movie.Title, movie.IMDBID)
+		}
+		
+		// Rate limit - don't hammer the providers
+		time.Sleep(500 * time.Millisecond)
+	}
+	
+	services.GlobalScheduler.UpdateProgress(services.ServiceStreamSearch, total, total, 
+		fmt.Sprintf("Complete: %d available, %d unavailable", available, unavailable))
+	
+	fmt.Printf("[Stream Scan] Complete: %d available, %d unavailable out of %d movies\n", 
+		available, unavailable, total)
 	return nil
 }
 
@@ -1549,6 +1686,10 @@ func (h *Handler) runService(serviceName string) {
 		} else {
 			fmt.Println("[Episode Scan] Skipped: required stores not initialized")
 		}
+	
+	case services.ServiceStreamSearch:
+		interval = 6 * time.Hour
+		err = h.scanStreamAvailability(ctx)
 	
 	default:
 		interval = 1 * time.Hour

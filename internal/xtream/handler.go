@@ -35,17 +35,32 @@ type EpisodeLookup struct {
 // episodeCacheFile is the path to the episode cache JSON file
 const episodeCacheFile = "cache/episode_lookup.json"
 
+// XtreamSettings interface for the settings we need
+type XtreamSettings interface {
+	HideUnavailable() bool
+}
+
+// settingsAdapter wraps a generic settings getter
+type settingsAdapter struct {
+	getter func() bool
+}
+
+func (s *settingsAdapter) HideUnavailable() bool {
+	return s.getter()
+}
+
 type XtreamHandler struct {
-	cfg            *config.Config
-	db             *sql.DB
-	tmdb           *services.TMDBClient
-	rdClient       *services.RealDebridClient
-	multiProvider  *providers.MultiProvider
-	channelManager *livetv.ChannelManager
-	epgManager     *epg.Manager
-	baseURL        string
-	episodeCache   map[string]EpisodeLookup
-	episodeMu      sync.RWMutex
+	cfg             *config.Config
+	db              *sql.DB
+	tmdb            *services.TMDBClient
+	rdClient        *services.RealDebridClient
+	multiProvider   *providers.MultiProvider
+	channelManager  *livetv.ChannelManager
+	epgManager      *epg.Manager
+	hideUnavailable func() bool
+	baseURL         string
+	episodeCache    map[string]EpisodeLookup
+	episodeMu       sync.RWMutex
 }
 
 func NewXtreamHandler(cfg *config.Config, db *sql.DB, tmdb *services.TMDBClient, rdClient *services.RealDebridClient, channelManager *livetv.ChannelManager, epgManager *epg.Manager) *XtreamHandler {
@@ -73,6 +88,11 @@ func NewXtreamHandler(cfg *config.Config, db *sql.DB, tmdb *services.TMDBClient,
 	h.loadEpisodeCache()
 	
 	return h
+}
+
+// SetSettingsManager sets the settings manager for dynamic settings access
+func (h *XtreamHandler) SetHideUnavailable(getter func() bool) {
+	h.hideUnavailable = getter
 }
 
 // loadEpisodeCache loads the episode cache from disk
@@ -461,13 +481,30 @@ func (h *XtreamHandler) getVODStreams(w http.ResponseWriter, r *http.Request) {
 	// Get category_id filter from query params
 	categoryFilter := r.URL.Query().Get("category_id")
 	
+	// Check if we should hide unavailable content
+	hideUnavailable := false
+	if h.hideUnavailable != nil {
+		hideUnavailable = h.hideUnavailable()
+	}
+	
 	// Query movies - using TMDB ID as stream_id for proper playback routing
-	query := `
-		SELECT id, tmdb_id, title, year, metadata, COALESCE(EXTRACT(EPOCH FROM added_at), 0) as added_ts
-		FROM library_movies
-		WHERE monitored = true
-		ORDER BY id DESC
-	`
+	// If hideUnavailable is true, only show movies where available = true
+	var query string
+	if hideUnavailable {
+		query = `
+			SELECT id, tmdb_id, title, year, metadata, COALESCE(EXTRACT(EPOCH FROM added_at), 0) as added_ts
+			FROM library_movies
+			WHERE monitored = true AND available = true
+			ORDER BY id DESC
+		`
+	} else {
+		query = `
+			SELECT id, tmdb_id, title, year, metadata, COALESCE(EXTRACT(EPOCH FROM added_at), 0) as added_ts
+			FROM library_movies
+			WHERE monitored = true
+			ORDER BY id DESC
+		`
+	}
 	
 	rows, err := h.db.Query(query)
 	if err != nil {
