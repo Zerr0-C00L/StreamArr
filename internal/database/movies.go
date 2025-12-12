@@ -376,8 +376,13 @@ func (s *MovieStore) GetUpcoming(ctx context.Context, start, end string) ([]*mod
 				movie.Overview = overview
 			}
 			if releaseDate, ok := movie.Metadata["release_date"].(string); ok {
-				if t, err := time.Parse("2006-01-02", releaseDate); err == nil {
-					movie.ReleaseDate = &t
+				// Try multiple date formats
+				formats := []string{"2006-01-02", time.RFC3339, "2006-01-02T15:04:05Z07:00", "2006-01-02T15:04:05Z"}
+				for _, format := range formats {
+					if t, err := time.Parse(format, releaseDate); err == nil {
+						movie.ReleaseDate = &t
+						break
+					}
 				}
 			}
 		}
