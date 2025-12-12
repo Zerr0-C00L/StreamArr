@@ -2,305 +2,297 @@
 
 **Self-hosted media server for Live TV, Movies & Series with Xtream Codes & M3U8 support**
 
-Generate dynamic playlists for Live TV, Movies and TV Series using Xtream Codes compatible API. Stream content via Real-Debrid, Torrentio, Comet, MediaFusion and direct sources. Perfect for apps like Chillio,TiviMate, iMPlayer, IPTV Smarters Pro, XCIPTV and more.
+Generate dynamic playlists for Live TV, Movies and TV Series using Xtream Codes compatible API. Stream content via Real-Debrid, Torrentio, Comet, MediaFusion and direct sources. Perfect for IPTV apps like TiviMate, iMPlayer, IPTV Smarters Pro, XCIPTV, Kodi and more.
 
 [![Download ZIP](https://img.shields.io/badge/Download%20ZIP-latest-blue?style=for-the-badge&logo=github)](https://github.com/Zerr0-C00L/StreamArr/archive/refs/heads/main.zip)
+[![Docker](https://img.shields.io/badge/Docker-Ready-blue?style=for-the-badge&logo=docker)](https://github.com/Zerr0-C00L/StreamArr)
 [![Ko-fi](https://www.ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/zeroq)
 
 ---
 
 ## 🎬 Features
 
-### Content Management
-- **Movies & Series Library** - Add content from TMDB with full metadata
-- **Movie Collections** - Auto-detect and complete movie collections (e.g., add one MCU movie, get them all)
-- **Live TV** - 500+ channels with EPG support (DrewLive, DaddyLive, PlutoTV, etc.)
-- **MDBList Integration** - Sync watchlists and custom lists automatically
-- **Quality Profiles** - Set preferred resolution (4K, 1080p, 720p) per item
-
-### Streaming Providers
-- **Multi-Provider Fallback** - Automatically tries next provider if one fails
-- **Real-Debrid** - Premium cached torrents
-- **Torrentio** - Direct torrent streaming
-- **Comet** - Works on datacenter IPs (Hetzner, DigitalOcean)
-- **MediaFusion** - ElfHosted backup provider
-
-### Background Services
-- **Collection Sync** - Scans library and adds missing collection movies
-- **MDBList Sync** - Keeps library in sync with your watchlists
-- **EPG Update** - Refreshes TV guide data automatically
-- **Stream Search** - Finds streams for monitored content
-- **Playlist Generation** - Regenerates M3U8 playlists
-- **Cache Cleanup** - Removes expired cache entries
-
-### Modern Web UI
-- **Dashboard** - Overview of library stats and recent additions
-- **Library Browser** - Browse movies/series with sorting options
-- **Search** - Find and add content from TMDB
-- **Settings** - Configure providers, quality, services, and more
-- **Services Monitor** - View background task status with manual triggers
-
-### API Compatibility
-- **Xtream Codes API** - Full compatibility with IPTV apps
-- **M3U8 Playlists** - Standard playlist format support
-- **REST API** - Modern JSON API for all operations
+- **Movies & Series** - Add content from TMDB with full metadata, posters, and descriptions
+- **Movie Collections** - Auto-detect and complete collections (add one MCU movie, get them all)
+- **Live TV** - 700+ channels with EPG (DrewLive, DaddyLive, PlutoTV)
+- **Multi-Provider Streaming** - Real-Debrid, Torrentio, Comet, MediaFusion with automatic fallback
+- **MDBList Sync** - Auto-sync your watchlists and custom lists
+- **Modern Web UI** - Beautiful dashboard, library browser, and settings
+- **Xtream Codes API** - Full compatibility with all IPTV apps
+- **Background Services** - Auto-sync collections, search streams, update EPG
 
 ---
 
-## 📦 Quick Start
+## 🚀 Installation
 
-### Prerequisites
-- Go 1.21+
-- PostgreSQL 14+
-- Node.js 18+ (for UI development)
+### Option 1: Docker (Recommended)
 
-### Installation
+The easiest way to get started. Requires [Docker](https://docs.docker.com/get-docker/) and Docker Compose.
 
-\`\`\`bash
-# Clone repository
+```bash
+# Clone the repository
 git clone https://github.com/Zerr0-C00L/StreamArr.git
 cd StreamArr
 
-# Run database migrations
-psql \$DATABASE_URL < migrations/001_initial_schema.up.sql
-psql \$DATABASE_URL < migrations/002_add_settings.up.sql
-psql \$DATABASE_URL < migrations/003_add_users.up.sql
-psql \$DATABASE_URL < migrations/004_add_collections.up.sql
+# Start with Docker Compose
+docker compose up -d
 
-# Build and start
-./start-all.sh
-\`\`\`
+# View logs
+docker compose logs -f streamarr
+```
 
-### Access Points
-- **Web UI**: http://localhost:8080
-- **Xtream Codes**: http://localhost:8080/player_api.php
+**That's it!** Access the Web UI at http://localhost:8080
+
+The database is automatically set up and migrations are applied.
+
+### Option 2: Manual Installation
+
+<details>
+<summary>Click to expand manual installation steps</summary>
+
+#### Prerequisites
+- Go 1.21+ ([download](https://golang.org/dl/))
+- PostgreSQL 14+ ([download](https://www.postgresql.org/download/))
+- Node.js 18+ ([download](https://nodejs.org/)) - only needed if building UI from source
+
+#### Step 1: Clone and Configure
+
+```bash
+# Clone the repository
+git clone https://github.com/Zerr0-C00L/StreamArr.git
+cd StreamArr
+
+# Copy environment file
+cp .env.example .env
+
+# Edit .env with your settings (at minimum, set DATABASE_URL)
+nano .env
+```
+
+#### Step 2: Set Up PostgreSQL
+
+```bash
+# Create database and user
+sudo -u postgres psql
+
+# In psql:
+CREATE USER streamarr WITH PASSWORD 'streamarr';
+CREATE DATABASE streamarr OWNER streamarr;
+\q
+```
+
+#### Step 3: Run Migrations
+
+```bash
+# Apply all migrations
+psql postgres://streamarr:streamarr@localhost:5432/streamarr -f migrations/001_initial_schema.up.sql
+psql postgres://streamarr:streamarr@localhost:5432/streamarr -f migrations/002_add_settings.up.sql
+psql postgres://streamarr:streamarr@localhost:5432/streamarr -f migrations/003_add_users.up.sql
+psql postgres://streamarr:streamarr@localhost:5432/streamarr -f migrations/004_add_collections.up.sql
+psql postgres://streamarr:streamarr@localhost:5432/streamarr -f migrations/005_add_collection_checked.up.sql
+```
+
+#### Step 4: Build and Run
+
+```bash
+# Build the server
+go build -o bin/server cmd/server/main.go
+
+# Build the UI (optional - pre-built UI is included)
+cd streamarr-ui && npm install && npm run build && cd ..
+
+# Start the server
+./bin/server
+```
+
+Access the Web UI at http://localhost:8080
+
+</details>
 
 ---
 
-## 🔧 Configuration
+## ⚙️ First-Time Setup
 
-# Optional - Streaming Providers
-RD_API_KEY=your_realdebrid_key
-TORRENTIO_URL=https://torrentio.strem.fun
-COMET_URL=https://comet.elfhosted.com
-MEDIAFUSION_URL=https://mediafusion.elfhosted.com
+After installation, open http://localhost:8080 and go to **Settings**:
 
-### Web UI Settings
-
-Access Settings from the web UI to configure:
-
-| Tab | Options |
-|-----|---------|
-| **General** | Server URL, authentication |
-| **Providers** | Enable/disable and configure streaming providers |
-| **Quality** | Default quality profiles, auto-add collections |
-| **Live TV** | M3U sources, EPG URLs |
-| **MDBList** | API key, watchlist sync |
-| **Services** | View/trigger background tasks |
+| Setting | Description | Required |
+|---------|-------------|----------|
+| **TMDB API Key** | For movie/series metadata. [Get free key](https://developer.themoviedb.org/docs/getting-started) | ✅ Yes |
+| **Real-Debrid Key** | Premium cached torrents. [Get key](https://real-debrid.com/apitoken) | Optional |
+| **MDBList API Key** | Watchlist sync. [Get key](https://mdblist.com/preferences/) | Optional |
 
 ---
 
 ## 📱 IPTV App Setup
 
-### Xtream Codes (Recommended)
-Most IPTV apps support Xtream Codes login:
+### Xtream Codes Login (Recommended)
+
+Most IPTV apps support Xtream Codes. Use these settings:
 
 | Field | Value |
 |-------|-------|
-| Server | \`http://your-ip:8080\` |
-| Username | \`any\` |
-| Password | \`any\` |
+| **Server URL** | `http://YOUR-IP:8080` |
+| **Username** | `user` (or anything) |
+| **Password** | `pass` (or anything) |
 
-### M3U Playlist
+### M3U Playlist URL
+
 For apps without Xtream support:
-\`\`\`
-http://your-ip:8080/playlist.m3u8
-\`\`\`
+```
+http://YOUR-IP:8080/get.php?username=user&password=pass&type=m3u_plus&output=ts
+```
 
 ### Supported Apps
-- Chillio
-- TiviMate
-- iMPlayer
-- IPTV Smarters Pro
-- XCIPTV Player
-- OTT Navigator
-- Kodi (with IPTV Simple Client)
+
+| App | Platform | Xtream Support |
+|-----|----------|----------------|
+| TiviMate | Android/TV | ✅ Yes |
+| iMPlayer | iOS/Apple TV | ✅ Yes |
+| IPTV Smarters Pro | All | ✅ Yes |
+| XCIPTV | Android | ✅ Yes |
+| OTT Navigator | Android | ✅ Yes |
+| Kodi (PVR IPTV) | All | M3U only |
+| VLC | All | M3U only |
 
 ---
 
-## 🎯 Usage Guide
+## 🔧 Adding Content
 
-### Adding Content
+### Add Movies/Series
 
-1. **Search** - Use the search bar to find movies/series on TMDB
-2. **Add to Library** - Click + to add with your preferred quality profile
-3. **Collections** - Enable "Auto-add Collections" in Settings > Quality to automatically complete movie collections
+1. Go to **Movies** or **Series** in the sidebar
+2. Click **+ Add** button
+3. Search for content by name
+4. Click the result to add it to your library
 
-### Library Management
+### Auto-Add Collections
 
-- **Sorting** - Sort by title, date added, release date, rating, or year
-- **Filtering** - Filter by monitored status, availability, type
-- **Bulk Actions** - Select multiple items for batch operations
+When you add a movie that's part of a collection (like Marvel, Star Wars, etc.), StreamArr can automatically add all other movies in that collection.
 
-### Background Services
+Enable in **Settings → Quality → Auto-add Collections**
 
-View and manage background tasks in Settings > Services:
+### MDBList Sync
 
-| Service | Interval | Description |
-|---------|----------|-------------|
-| Collection Sync | 24 hours | Links movies to collections, adds missing titles |
-| MDBList Sync | 6 hours | Syncs with configured watchlists |
-| EPG Update | 6 hours | Refreshes TV guide data |
-| Stream Search | 30 mins | Finds streams for monitored content |
-| Playlist Generation | 12 hours | Regenerates M3U8 playlists |
-| Cache Cleanup | 1 hour | Removes expired entries |
-| Channel Refresh | 1 hour | Updates Live TV channel list |
-
-Click "Run Now" to manually trigger any service.
+1. Get your API key from [mdblist.com/preferences](https://mdblist.com/preferences/)
+2. Go to **Settings → MDBList** and enter your key
+3. Your lists will sync automatically every 6 hours
 
 ---
 
-## 🏗️ Architecture
+## 🐳 Docker Commands
 
-\`\`\`
-StreamArr/
-├── cmd/
-│   ├── server/          # Main API server
-│   ├── worker/          # Background task worker
-│   └── migrate/         # Database migration tool
-├── internal/
-│   ├── api/             # HTTP handlers and routes
-│   ├── database/        # PostgreSQL stores
-│   ├── models/          # Data models
-│   ├── services/        # External service clients (TMDB, RD, etc.)
-│   ├── livetv/          # Live TV channel management
-│   ├── epg/             # Electronic Program Guide
-│   └── settings/        # Configuration management
-├── migrations/          # SQL migrations
-├── streamarr-ui/        # React frontend
-└── cache/               # Local cache files
-\`\`\`
+```bash
+# Start services
+docker compose up -d
 
-### Tech Stack
-- **Backend**: Go 1.24
-- **Frontend**: React 19 + TypeScript + Vite + TailwindCSS
-- **Database**: PostgreSQL
-- **API**: REST + Xtream Codes compatible
+# View logs
+docker compose logs -f
+
+# Stop services
+docker compose down
+
+# Rebuild after updates
+git pull
+docker compose build
+docker compose up -d
+
+# Reset database (WARNING: deletes all data)
+docker compose down -v
+docker compose up -d
+```
 
 ---
 
-## 🚀 Deployment
+## 🔄 Updating
 
-### Docker (Coming Soon)
+### Docker
+```bash
+cd StreamArr
+git pull
+docker compose build
+docker compose up -d
+```
 
-\`\`\`bash
-docker-compose up -d
-\`\`\`
-
-### Cloud (Hetzner/DigitalOcean)
-
-\`\`\`bash
-# 1. Create Ubuntu 24.04 Server
-
-# 2. Install dependencies
-apt update && apt install -y golang postgresql nginx
-
-# 3. Clone and configure
-git clone https://github.com/Zerr0-C00L/StreamArr.git /var/www/streamarr
-cd /var/www/streamarr
-cp .env.example .env
-nano .env  # Add your API keys
-
-# 4. Setup database
-sudo -u postgres createdb streamarr
-# Run migrations...
-
-# 5. Build and run
-./start-all.sh
-
-# 6. (Optional) Setup systemd service for auto-start
-\`\`\`
-
-### Reverse Proxy (nginx)
-
-\`\`\`nginx
-server {
-    listen 80;
-    server_name streamarr.example.com;
-
-    location / {
-        proxy_pass http://127.0.0.1:8080;
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-    }
-}
-\`\`\`
+### Manual
+```bash
+cd StreamArr
+git pull
+go build -o bin/server cmd/server/main.go
+# Restart the server
+```
 
 ---
 
-## 📝 API Reference
+## 🛠️ Troubleshooting
 
-### REST API
+<details>
+<summary><b>Server won't start</b></summary>
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| \`/api/v1/movies\` | GET | List library movies |
-| \`/api/v1/movies\` | POST | Add movie to library |
-| \`/api/v1/series\` | GET | List library series |
-| \`/api/v1/series\` | POST | Add series to library |
-| \`/api/v1/search/movies\` | GET | Search TMDB for movies |
-| \`/api/v1/search/series\` | GET | Search TMDB for series |
-| \`/api/v1/collections\` | GET | List collections |
-| \`/api/v1/services\` | GET | Get background service status |
-| \`/api/v1/services/{name}/trigger\` | POST | Trigger a service |
-| \`/api/v1/settings\` | GET/PUT | Get/update settings |
-| \`/api/v1/livetv/channels\` | GET | List Live TV channels |
+1. Check PostgreSQL is running: `sudo systemctl status postgresql`
+2. Verify DATABASE_URL is correct in .env
+3. Check logs: `docker compose logs streamarr`
+</details>
+
+<details>
+<summary><b>No streams found</b></summary>
+
+1. Ensure at least one provider is enabled in Settings → Providers
+2. For Real-Debrid, verify your API key is valid
+3. Check if the content has available torrents
+</details>
+
+<details>
+<summary><b>IPTV app can't connect</b></summary>
+
+1. Use your server's IP address, not `localhost`
+2. Ensure port 8080 is open in firewall
+3. Try the full URL format: `http://IP:8080`
+</details>
+
+<details>
+<summary><b>Live TV channels not loading</b></summary>
+
+1. Go to Settings → Services
+2. Manually trigger "Channel Refresh" service
+3. Wait for EPG Update to complete
+</details>
+
+---
+
+## 📊 API Endpoints
 
 ### Xtream Codes API
+- `GET /player_api.php` - Xtream Codes compatible API
+- `GET /get.php` - Playlist generation
 
-| Endpoint | Description |
-|----------|-------------|
-| \`/player_api.php?action=get_live_categories\` | Live TV categories |
-| \`/player_api.php?action=get_live_streams\` | Live TV channels |
-| \`/player_api.php?action=get_vod_categories\` | Movie categories |
-| \`/player_api.php?action=get_vod_streams\` | Movie list |
-| \`/player_api.php?action=get_series_categories\` | Series categories |
-| \`/player_api.php?action=get_series\` | Series list |
-
----
-
-## 🔄 Changelog
-
-### December 12, 2025
-- **Movie Collections** - Auto-detect collections, add missing movies
-- **Services Monitor** - View/trigger background tasks from UI
-- **Library Sorting** - 10 sort options (title, added, release, rating, year)
-- **Collection Badges** - Visual indicator on movie cards
-
-### December 8, 2025
-- **Multi-Provider Support** - Comet, MediaFusion, Torrentio fallback
-- **Cloud Deployment** - Optimized for datacenter hosting
-- **Background Sync** - Worker daemon for automatic updates
-- **Full Go Rewrite** - Improved performance and reliability
-
-### September 28, 2025
-- Fixed Live TV and added DrewLive (7,000+ channels)
-- Fixed Real-Debrid cache checks
-- Fixed Adult VOD (10K movies)
-- Major HeadlessVidX overhaul
-
----
-
-## ⚠️ Legal Disclaimer
-
-This software retrieves movie information from TMDB and searches for content on third-party sources. The legality of streaming content through these sources varies by jurisdiction. Users are responsible for ensuring compliance with local laws. Always respect copyright and terms of service.
+### REST API (v1)
+- `GET /api/v1/movies` - List movies
+- `GET /api/v1/series` - List series  
+- `GET /api/v1/channels` - List channels
+- `GET /api/v1/health` - Health check
 
 ---
 
 ## 🤝 Contributing
 
-Contributions welcome! Please open an issue or PR.
+Contributions are welcome! Please feel free to submit a Pull Request.
 
-## 📄 License
+---
 
-MIT License - see [LICENSE.md](LICENSE.md)
+## 📝 License
+
+MIT License - see [LICENSE.md](LICENSE.md) for details.
+
+---
+
+## ☕ Support
+
+If you find this project useful, consider supporting:
+
+[![Ko-fi](https://www.ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/zeroq)
+
+---
+
+## ⚠️ Disclaimer
+
+This software is for personal use only. Users are responsible for ensuring they have the right to access any content they stream.
