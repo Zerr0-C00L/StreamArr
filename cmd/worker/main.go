@@ -16,6 +16,7 @@ import (
 	"github.com/Zerr0-C00L/StreamArr/internal/database"
 	"github.com/Zerr0-C00L/StreamArr/internal/epg"
 	"github.com/Zerr0-C00L/StreamArr/internal/livetv"
+	"github.com/Zerr0-C00L/StreamArr/internal/models"
 	"github.com/Zerr0-C00L/StreamArr/internal/playlist"
 	"github.com/Zerr0-C00L/StreamArr/internal/providers"
 	"github.com/Zerr0-C00L/StreamArr/internal/services"
@@ -127,6 +128,13 @@ func main() {
 	// Initialize MDBList sync service
 	mdbSyncService := services.NewMDBListSyncService(db, cfg.MDBListAPIKey, cfg.TMDBAPIKey)
 
+	// Initialize stores for collection and episode workers
+	movieStore := models.NewMovieStore(db)
+	seriesStore := models.NewSeriesStore(db)
+	episodeStore := models.NewEpisodeStore(db)
+	streamStore := models.NewStreamStore(db)
+	collectionStore := models.NewCollectionStore(db)
+
 	// Create context for workers
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -148,6 +156,15 @@ func main() {
 
 	// Worker 5: MDBList Sync (every 6 hours)
 	go mdblistSyncWorker(ctx, mdbSyncService, db, 6*time.Hour)
+
+	// Worker 6: Collection Sync (every 24 hours)
+	go collectionSyncWorker(ctx, collectionStore, movieStore, tmdbClient, settingsManager, 24*time.Hour)
+
+	// Worker 7: Episode Scan (every 24 hours)
+	go episodeScanWorker(ctx, seriesStore, episodeStore, tmdbClient, 24*time.Hour)
+
+	// Worker 8: Stream Search (every 30 minutes)
+	go streamSearchWorker(ctx, movieStore, streamStore, multiProvider, 30*time.Minute)
 
 	log.Println("✅ All workers started successfully")
 	log.Println("========================================")
