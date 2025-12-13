@@ -3,7 +3,10 @@ package main
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
+	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -130,8 +133,9 @@ func main() {
 
 	// Initialize stores for collection worker
 	movieStore := database.NewMovieStore(db)
+	seriesStore := database.NewSeriesStore(db)
+	episodeStore := database.NewEpisodeStore(db)
 	collectionStore := database.NewCollectionStore(db)
-	// Unused stores for future workers: seriesStore, episodeStore, streamStore
 
 	// Create context for workers
 	ctx, cancel := context.WithCancel(context.Background())
@@ -158,13 +162,13 @@ func main() {
 	// Worker 6: Collection Sync (every 24 hours)
 	go collectionSyncWorker(ctx, collectionStore, movieStore, tmdbClient, settingsManager, 24*time.Hour)
 
-	// Worker 7: Episode Scan (every 24 hours) - DISABLED: requires API handler methods
-	// go episodeScanWorker(ctx, seriesStore, episodeStore, tmdbClient, 24*time.Hour)
+	// Worker 7: Episode Scan (every 24 hours)
+	go episodeScanWorker(ctx, seriesStore, episodeStore, tmdbClient, 24*time.Hour)
 
-	// Worker 8: Stream Search (every 30 minutes) - DISABLED: requires API handler methods
-	// go streamSearchWorker(ctx, movieStore, streamStore, multiProvider, 30*time.Minute)
+	// Worker 8: Stream Search (every 6 hours)
+	go streamSearchWorker(ctx, movieStore, settingsManager, 6*time.Hour)
 
-	log.Println("✅ All workers started successfully (Collection Sync, Episode Scan, Stream Search can be triggered manually)")
+	log.Println("✅ All workers started successfully")
 	log.Println("========================================")
 
 	// Wait for interrupt signal
@@ -428,4 +432,206 @@ func runCollectionSync(ctx context.Context, collectionStore *database.Collection
 	} else {
 		log.Println("📦 Collection Sync Phase 2 skipped: AutoAddCollections is disabled")
 	}
+}
+func episodeScanWorker(ctx context.Context, seriesStore *database.SeriesStore, episodeStore *database.EpisodeStore, tmdbClient *services.TMDBClient, interval time.Duration) {
+	log.Printf("📺 Episode Scan Worker: Starting (interval: %v)", interval)
+	
+	// Run immediately on startup
+	runEpisodeScan(ctx, seriesStore, episodeStore, tmdbClient)
+	
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	
+	for {
+		select {
+		case <-ctx.Done():
+			log.Println("📺 Episode Scan Worker: Stopping")
+			return
+		case <-ticker.C:
+			runEpisodeScan(ctx, seriesStore, episodeStore, tmdbClient)
+		}
+	}
+}
+
+func runEpisodeScan(ctx context.Context, seriesStore *database.SeriesStore, episodeStore *database.EpisodeStore, tmdbClient *services.TMDBClient) {
+	log.Println("📺 Episode Scan Worker: Scanning episodes for all series...")
+	
+	allSeries, err := seriesStore.List(ctx, 0, 10000, nil)
+	if err != nil {
+		log.Printf("❌ Episode Scan error: %v", err)
+		return
+	}
+	
+	totalSeries := len(allSeries)
+	if totalSeries == 0 {
+		log.Println("✅ Episode Scan: No series in library")
+		return
+	}
+	
+	log.Printf("📺 Found %d series to scan\n", totalSeries)
+	totalEpisodes := 0
+	errors := 0
+	
+	for i, series := range allSeries {
+		if i%5 == 0 {
+			log.Printf("📺 Progress: %d/%d series scanned\n", i, totalSeries)
+		}
+		
+		// Get series details from TMDB
+		tmdbSeries, err := tmdbClient.GetSeries(ctx, series.TMDBID)
+		if err != nil {
+			errors++
+			continue
+		}
+		
+		numSeasons := tmdbSeries.Seasons
+		if numSeasons == 0 {
+			continue
+		}
+		
+		// Get all episodes for this series
+		episodes, err := tmdbClient.GetEpisodes(ctx, series.ID, series.TMDBID, numSeasons)
+		if err != nil {
+			errors++
+			continue
+		}
+		
+		// Set the series ID for all episodes
+		for _, ep := range episodes {
+			ep.SeriesID = series.ID
+			ep.Monitored = series.Monitored
+		}
+		
+		// Add episodes to database (batch insert)
+		if len(episodes) > 0 {
+			if err := episodeStore.AddBatch(ctx, episodes); err == nil {
+				totalEpisodes += len(episodes)
+			}
+		}
+		
+		time.Sleep(200 * time.Millisecond) // Rate limit
+	}
+	
+	log.Printf("✅ Episode Scan complete: %d episodes for %d series (%d errors)\n", totalEpisodes, totalSeries, errors)
+}
+
+func streamSearchWorker(ctx context.Context, movieStore *database.MovieStore, settingsManager *settings.Manager, interval time.Duration) {
+	log.Printf("🔍 Stream Search Worker: Starting (interval: %v)", interval)
+	
+	// Wait one interval before first run to avoid startup load
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	
+	for {
+		select {
+		case <-ctx.Done():
+			log.Println("🔍 Stream Search Worker: Stopping")
+			return
+		case <-ticker.C:
+			runStreamSearch(ctx, movieStore, settingsManager)
+		}
+	}
+}
+
+func runStreamSearch(ctx context.Context, movieStore *database.MovieStore, settingsManager *settings.Manager) {
+	log.Println("🔍 Stream Search Worker: Checking stream availability...")
+	
+	// Query for monitored movies that need checking
+	query := `
+		SELECT id, tmdb_id, imdb_id, title 
+		FROM library_movies 
+		WHERE monitored = true 
+		AND imdb_id IS NOT NULL 
+		AND (last_checked IS NULL OR last_checked < NOW() - INTERVAL '7 days')
+		ORDER BY added_at DESC
+		LIMIT 50
+	`
+	
+	rows, err := movieStore.GetDB().QueryContext(ctx, query)
+	if err != nil {
+		log.Printf("❌ Stream Search error: %v", err)
+		return
+	}
+	defer rows.Close()
+	
+	type movieToScan struct {
+		ID     int64
+		TMDBID int
+		IMDBID string
+		Title  string
+	}
+	
+	var movies []movieToScan
+	for rows.Next() {
+		var m movieToScan
+		if err := rows.Scan(&m.ID, &m.TMDBID, &m.IMDBID, &m.Title); err != nil {
+			continue
+		}
+		if m.IMDBID != "" {
+			movies = append(movies, m)
+		}
+	}
+	
+	total := len(movies)
+	if total == 0 {
+		log.Println("✅ Stream Search: No movies to scan")
+		return
+	}
+	
+	log.Printf("🔍 Found %d movies to check\n", total)
+	
+	// Get provider settings
+	appSettings := settingsManager.Get()
+	providerNames := appSettings.StreamProviders
+	if len(providerNames) == 0 {
+		providerNames = []string{"comet", "mediafusion"}
+	}
+	
+	foundStreams := 0
+	
+	for i, movie := range movies {
+		if i%10 == 0 {
+			log.Printf("🔍 Progress: %d/%d movies checked\n", i, total)
+		}
+		
+		hasStreams := false
+		
+		// Check each provider for streams
+		for _, providerName := range providerNames {
+			var url string
+			switch providerName {
+			case "comet":
+				url = fmt.Sprintf("https://comet.elfhosted.com/stream/movie/%s.json", movie.IMDBID)
+			case "mediafusion":
+				url = fmt.Sprintf("https://mediafusion.elfhosted.com/stream/movie/%s.json", movie.IMDBID)
+			default:
+				continue
+			}
+			
+			client := &http.Client{Timeout: 5 * time.Second}
+			resp, err := client.Get(url)
+			if err == nil {
+				defer resp.Body.Close()
+				var result struct {
+					Streams []interface{} `json:"streams"`
+				}
+				if json.NewDecoder(resp.Body).Decode(&result) == nil && len(result.Streams) > 0 {
+					hasStreams = true
+					break
+				}
+			}
+		}
+		
+		if hasStreams {
+			foundStreams++
+		}
+		
+		// Update movie availability
+		updateQuery := `UPDATE library_movies SET available = $1, last_checked = NOW() WHERE id = $2`
+		movieStore.GetDB().ExecContext(ctx, updateQuery, hasStreams, movie.ID)
+		
+		time.Sleep(500 * time.Millisecond) // Rate limit
+	}
+	
+	log.Printf("✅ Stream Search complete: %d/%d movies have available streams\n", foundStreams, total)
 }
