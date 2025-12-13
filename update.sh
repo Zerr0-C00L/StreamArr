@@ -36,16 +36,24 @@ if [ -f /.dockerenv ]; then
         # Use docker-compose from mounted location
         if [ -f /app/host/docker-compose.yml ]; then
             cd /app/host
+            
+            # Get version info from git
+            export VERSION=$(git describe --tags --abbrev=0 2>/dev/null || echo "main")
+            export COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+            export BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+            
+            log "Building version: $VERSION (commit: $COMMIT)"
+            
             docker-compose down 2>&1 | tee -a "$LOG_FILE"
             docker-compose up -d --build 2>&1 | tee -a "$LOG_FILE"
             log "Container rebuild complete!"
         else
             log "ERROR: docker-compose.yml not found at /app/host"
-            log "Please rebuild manually: cd /opt/StreamArr && docker-compose down && docker-compose up -d --build"
+            log "Please rebuild manually: cd /opt/StreamArr_Pro && docker-compose down && docker-compose up -d --build"
         fi
     else
         log "Docker socket not mounted, please rebuild manually"
-        log "From host, run: cd /opt/StreamArr && docker-compose down && docker-compose up -d --build"
+        log "From host, run: cd /opt/StreamArr_Pro && docker-compose down && docker-compose up -d --build"
     fi
     
     exit 0
