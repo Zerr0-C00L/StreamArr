@@ -49,6 +49,13 @@ type ChannelManager struct {
 	enablePlutoTV      bool
 	validateStreams    bool
 	validationTimeout  time.Duration
+	validationCache    map[string]validationCacheEntry
+	cacheMutex         sync.RWMutex
+}
+
+type validationCacheEntry struct {
+	isValid   bool
+	timestamp time.Time
 }
 
 type ChannelSource interface {
@@ -64,6 +71,7 @@ func NewChannelManager() *ChannelManager {
 		enablePlutoTV:     true, // Enabled by default
 		validateStreams:   false, // Disabled by default (can be enabled in settings)
 		validationTimeout: 10 * time.Second, // Increased from 3s to reduce false positives
+		validationCache:   make(map[string]validationCacheEntry),
 		httpClient: &http.Client{
 			Timeout: 30 * time.Second,
 		},
@@ -94,14 +102,32 @@ func (cm *ChannelManager) SetStreamValidation(enabled bool) {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
 	cm.validateStreams = enabled
+	
+	// Clear validation cache when disabling validation
+	if !enabled {
+		cm.cacheMutex.Lock()
+		cm.validationCache = make(map[string]validationCacheEntry)
+		cm.cacheMutex.Unlock()
+	}
 }
 
-// validateStreamURL checks if a stream URL is accessible
+// validateStreamURL checks if a stream URL is accessible (with 24-hour caching)
 func (cm *ChannelManager) validateStreamURL(url string) bool {
 	if !cm.validateStreams {
 		return true // Skip validation if disabled
 	}
 	
+	// Check cache first (24-hour validity)
+	cm.cacheMutex.RLock()
+	if entry, exists := cm.validationCache[url]; exists {
+		if time.Since(entry.timestamp) < 24*time.Hour {
+			cm.cacheMutex.RUnlock()
+			return entry.isValid
+		}
+	}
+	cm.cacheMutex.RUnlock()
+	
+	// Not in cache or expired, validate now
 	client := &http.Client{
 		Timeout: cm.validationTimeout,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
@@ -121,12 +147,29 @@ func (cm *ChannelManager) validateStreamURL(url string) bool {
 	
 	resp, err := client.Do(req)
 	if err != nil {
+		// Cache the result (failed validation)
+		cm.cacheMutex.Lock()
+		cm.validationCache[url] = validationCacheEntry{
+			isValid:   false,
+			timestamp: time.Now(),
+		}
+		cm.cacheMutex.Unlock()
 		return false
 	}
 	defer resp.Body.Close()
 	
 	// Accept any 2xx or 3xx status code as valid
-	return resp.StatusCode >= 200 && resp.StatusCode < 400
+	isValid := resp.StatusCode >= 200 && resp.StatusCode < 400
+	
+	// Cache the result
+	cm.cacheMutex.Lock()
+	cm.validationCache[url] = validationCacheEntry{
+		isValid:   isValid,
+		timestamp: time.Now(),
+	}
+	cm.cacheMutex.Unlock()
+	
+	return isValid
 }
 
 // validateChannelsConcurrent validates multiple channels concurrently
