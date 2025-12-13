@@ -128,12 +128,10 @@ func main() {
 	// Initialize MDBList sync service
 	mdbSyncService := services.NewMDBListSyncService(db, cfg.MDBListAPIKey, cfg.TMDBAPIKey)
 
-	// Initialize stores for collection and episode workers
+	// Initialize stores for collection worker
 	movieStore := database.NewMovieStore(db)
-	seriesStore := database.NewSeriesStore(db)
-	episodeStore := database.NewEpisodeStore(db)
-	streamStore := database.NewStreamStore(db)
 	collectionStore := database.NewCollectionStore(db)
+	// Unused stores for future workers: seriesStore, episodeStore, streamStore
 
 	// Create context for workers
 	ctx, cancel := context.WithCancel(context.Background())
