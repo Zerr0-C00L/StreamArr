@@ -1,1 +1,4 @@
-"* text=auto" 
+* text=auto
+
+# Shell scripts must use LF line endings
+*.sh text eol=lf
