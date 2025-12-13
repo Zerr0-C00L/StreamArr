@@ -37,22 +37,35 @@ if [ -f /.dockerenv ]; then
         if [ -f /app/host/docker-compose.yml ]; then
             cd /app/host
             
-            # Fetch latest and reset to ensure we have the latest code
-            log "Fetching latest code..."
-            git fetch --tags 2>&1 | tee -a "$LOG_FILE"
+            # Fetch latest code and tags
+            log "Fetching latest code and tags..."
+            git fetch --all --tags --prune 2>&1 | tee -a "$LOG_FILE"
             git reset --hard origin/$BRANCH 2>&1 | tee -a "$LOG_FILE"
             
-            # Get version info from git
-            export VERSION=$(git describe --tags --abbrev=0 2>/dev/null || echo "main")
+            # Ensure we're on the branch, not detached HEAD
+            git checkout $BRANCH 2>&1 | tee -a "$LOG_FILE" || true
+            git pull origin $BRANCH 2>&1 | tee -a "$LOG_FILE"
+            
+            # Get version info from git after ensuring we have all tags
+            export VERSION=$(git describe --tags --abbrev=0 2>/dev/null || git describe --always 2>/dev/null || echo "main")
             export COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
             export BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
             
             log "Building version: $VERSION (commit: $COMMIT)"
             
+            # Stop containers
+            log "Stopping containers..."
             docker-compose down 2>&1 | tee -a "$LOG_FILE"
-            docker-compose build --no-cache 2>&1 | tee -a "$LOG_FILE"
+            
+            # Build with no cache to ensure fresh build
+            log "Building new image (this may take a few minutes)..."
+            docker-compose build --no-cache --pull 2>&1 | tee -a "$LOG_FILE"
+            
+            # Start containers
+            log "Starting containers..."
             docker-compose up -d 2>&1 | tee -a "$LOG_FILE"
-            log "Container rebuild complete! New version: $VERSION"
+            
+            log "✅ Container rebuild complete! New version: $VERSION ($COMMIT)"
         else
             log "ERROR: docker-compose.yml not found at /app/host"
             log "Please rebuild manually: cd /opt/StreamArr_Pro && docker-compose down && docker-compose up -d --build"
