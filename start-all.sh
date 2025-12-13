@@ -30,7 +30,7 @@ fi
 # Start frontend
 echo ""
 echo "🎨 Starting frontend development server..."
-cd streamarr-ui && npm run dev > /dev/null 2>&1 &
+cd streamarr-pro-ui && npm run dev > /dev/null 2>&1 &
 
 # Wait a moment for frontend to start
 sleep 2

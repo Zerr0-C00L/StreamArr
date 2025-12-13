@@ -25,7 +25,7 @@ sessions/
 .env.*.local
 
 # Node modules (rebuilt in Docker)
-streamarr-ui/node_modules/
+streamarr-pro-ui/node_modules/
 
 # Test files
 *_test.go

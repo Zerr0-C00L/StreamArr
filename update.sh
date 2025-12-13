@@ -68,7 +68,7 @@ git reset --hard origin/main
 
 # Build UI
 log "Building UI..."
-cd streamarr-ui
+cd streamarr-pro-ui
 npm install --silent
 npm run build
 cd ..

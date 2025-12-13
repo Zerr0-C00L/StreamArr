@@ -27,16 +27,16 @@ RUN LDFLAGS="-X 'github.com/Zerr0-C00L/StreamArr/internal/api.Version=${VERSION}
 # Build stage for React frontend
 FROM node:20-alpine AS frontend-builder
 
-WORKDIR /app/streamarr-ui
+WORKDIR /app/streamarr-pro-ui
 
 # Copy package files
-COPY streamarr-ui/package*.json ./
+COPY streamarr-pro-ui/package*.json ./
 
 # Install dependencies
 RUN npm ci
 
 # Copy source and build
-COPY streamarr-ui/ ./
+COPY streamarr-pro-ui/ ./
 RUN npm run build
 
 # Final stage
@@ -56,7 +56,7 @@ COPY --from=backend-builder /app/bin/migrate /app/bin/migrate
 COPY --from=backend-builder /app/migrations /app/migrations
 
 # Copy frontend build
-COPY --from=frontend-builder /app/streamarr-ui/dist /app/streamarr-ui/dist
+COPY --from=frontend-builder /app/streamarr-pro-ui/dist /app/streamarr-pro-ui/dist
 
 # Copy channel files and configs
 COPY channels/ /app/channels/

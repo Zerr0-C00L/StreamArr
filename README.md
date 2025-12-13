@@ -99,7 +99,7 @@ psql postgres://streamarr:streamarr@localhost:5432/streamarr -f migrations/005_a
 go build -o bin/server cmd/server/main.go
 
 # Build the UI (optional - pre-built UI is included)
-cd streamarr-ui && npm install && npm run build && cd ..
+cd streamarr-pro-ui && npm install && npm run build && cd ..
 
 # Start the server
 ./bin/server

@@ -149,9 +149,9 @@ func (h spaHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // getUIPath returns the path to the UI dist folder
 func getUIPath() string {
 	paths := []string{
-		"./streamarr-ui/dist",
-		"/opt/StreamArr/streamarr-ui/dist",
-		"/opt/streamarr/streamarr-ui/dist",
+		"./streamarr-pro-ui/dist",
+		"/opt/StreamArr/streamarr-pro-ui/dist",
+		"/opt/streamarr/streamarr-pro-ui/dist",
 	}
 	
 	for _, p := range paths {
