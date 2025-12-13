@@ -6,13 +6,14 @@ import (
 	"log"
 	"time"
 
+	"github.com/Zerr0-C00L/StreamArr/internal/database"
 	"github.com/Zerr0-C00L/StreamArr/internal/models"
 	"github.com/Zerr0-C00L/StreamArr/internal/providers"
 	"github.com/Zerr0-C00L/StreamArr/internal/services"
 	"github.com/Zerr0-C00L/StreamArr/internal/settings"
 )
 
-func collectionSyncWorker(ctx context.Context, collectionStore *models.CollectionStore, movieStore *models.MovieStore, tmdbClient *services.TMDBClient, settingsManager *settings.Manager, interval time.Duration) {
+func collectionSyncWorker(ctx context.Context, collectionStore *database.CollectionStore, movieStore *database.MovieStore, tmdbClient *services.TMDBClient, settingsManager *settings.Manager, interval time.Duration) {
 	log.Printf("📦 Collection Sync Worker: Starting (interval: %v)", interval)
 	
 	// Run immediately on startup
@@ -32,7 +33,7 @@ func collectionSyncWorker(ctx context.Context, collectionStore *models.Collectio
 	}
 }
 
-func runCollectionSync(ctx context.Context, collectionStore *models.CollectionStore, movieStore *models.MovieStore, tmdbClient *services.TMDBClient, settingsManager *settings.Manager) {
+func runCollectionSync(ctx context.Context, collectionStore *database.CollectionStore, movieStore *database.MovieStore, tmdbClient *services.TMDBClient, settingsManager *settings.Manager) {
 	log.Println("📦 Collection Sync Worker: Phase 1 - Scanning movies for collections...")
 	
 	// Phase 1: Scan and link movies to collections
@@ -110,7 +111,7 @@ func runCollectionSync(ctx context.Context, collectionStore *models.CollectionSt
 	}
 }
 
-func episodeScanWorker(ctx context.Context, seriesStore *models.SeriesStore, episodeStore *models.EpisodeStore, tmdbClient *services.TMDBClient, interval time.Duration) {
+func episodeScanWorker(ctx context.Context, seriesStore *database.SeriesStore, episodeStore *database.EpisodeStore, tmdbClient *services.TMDBClient, interval time.Duration) {
 	log.Printf("📺 Episode Scan Worker: Starting (interval: %v)", interval)
 	
 	// Run immediately on startup
@@ -130,7 +131,7 @@ func episodeScanWorker(ctx context.Context, seriesStore *models.SeriesStore, epi
 	}
 }
 
-func runEpisodeScan(ctx context.Context, seriesStore *models.SeriesStore, episodeStore *models.EpisodeStore, tmdbClient *services.TMDBClient) {
+func runEpisodeScan(ctx context.Context, seriesStore *database.SeriesStore, episodeStore *database.EpisodeStore, tmdbClient *services.TMDBClient) {
 	log.Println("📺 Episode Scan Worker: Scanning episodes for all series...")
 	
 	allSeries, err := seriesStore.List(ctx, 0, 10000, nil)
@@ -189,7 +190,7 @@ func runEpisodeScan(ctx context.Context, seriesStore *models.SeriesStore, episod
 	log.Printf("✅ Episode Scan complete: %d episodes processed for %d series\n", totalEpisodes, totalSeries)
 }
 
-func streamSearchWorker(ctx context.Context, movieStore *models.MovieStore, streamStore *models.StreamStore, multiProvider *providers.MultiProvider, interval time.Duration) {
+func streamSearchWorker(ctx context.Context, movieStore *database.MovieStore, streamStore *database.StreamStore, multiProvider *providers.MultiProvider, interval time.Duration) {
 	log.Printf("🔍 Stream Search Worker: Starting (interval: %v)", interval)
 	
 	// Don't run immediately - wait for first interval to avoid startup load
@@ -207,7 +208,7 @@ func streamSearchWorker(ctx context.Context, movieStore *models.MovieStore, stre
 	}
 }
 
-func runStreamSearch(ctx context.Context, movieStore *models.MovieStore, streamStore *models.StreamStore, multiProvider *providers.MultiProvider) {
+func runStreamSearch(ctx context.Context, movieStore *database.MovieStore, streamStore *database.StreamStore, multiProvider *providers.MultiProvider) {
 	log.Println("🔍 Stream Search Worker: Checking stream availability...")
 	
 	// Query for monitored movies that need checking
