@@ -331,53 +331,7 @@ export default function LiveTV() {
       )}
 
       {/* Pagination Controls */}
-      {filteredChannels.length > CHANNELS_PER_PAGE && viewMode !== 'epg'0" />
-          <select
-            value={selectedCategory}
-            onChange={(e) => handleCategoryChange(e.target.value)}
-            className="input"
-          >
-            {categories.map(cat => (
-              <option key={cat} value={cat}>
-                {cat === 'all' ? 'All Categories' : cat}
-              </option>
-            ))}
-          </select>
-        </div>
-      </div>
-
-      {/* Channels List */}
-      {isLoading ? (
-        <div className="text-center py-20">
-          <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-primary-500"></div>
-          <p className="text-slate-400 mt-4">Loading channels...</p>
-        </div>
-      ) : filteredChannels.length === 0 ? (
-        <div className="text-center py-20">
-          <Radio className="w-24 h-24 text-slate-600 mx-auto mb-4" />
-          <h3 className="text-xl font-semibold text-white mb-2">
-            {searchQuery ? 'No channels found' : 'No channels available'}
-          </h3>
-          <p className="text-slate-400 mb-6">
-            {searchQuery
-              ? 'Try adjusting your search or category filter'
-              : 'Configure your IPTV sources to start watching live TV'}
-          </p>
-        </div>
-      ) : (
-        <div className="space-y-3">
-          {paginatedChannels.map((channel) => (
-            <ChannelCard
-              key={channel.id}
-              channel={channel}
-              onClick={() => handleChannelClick(channel.id)}
-            />
-          ))}
-        </div>
-      )}
-
-      {/* Pagination Controls */}
-      {filteredChannels.length > CHANNELS_PER_PAGE && (
+      {filteredChannels.length > CHANNELS_PER_PAGE && viewMode !== 'epg' && (
         <div className="mt-6 flex items-center justify-between">
           <div className="text-sm text-slate-400">
             Showing {((currentPage - 1) * CHANNELS_PER_PAGE) + 1} to{' '}
