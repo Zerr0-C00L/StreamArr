@@ -239,6 +239,8 @@ func NewXMLTVSource() *XMLTVSource {
 			"https://raw.githubusercontent.com/Zerr0-C00L/public-files/main/epg.xml",
 			// Pluto TV EPG
 			"https://raw.githubusercontent.com/Zerr0-C00L/public-files/main/Pluto-TV/us.xml",
+			// Serbian Forum EPG - comprehensive Balkan/European channels
+			"http://epg.serbianforum.org/losmij/epg.xml.gz",
 		},
 		client: &http.Client{Timeout: 60 * time.Second},
 	}
