@@ -2173,7 +2173,7 @@ func (h *Handler) CheckForUpdates(w http.ResponseWriter, r *http.Request) {
 	}
 	
 	// Fetch latest commit from GitHub API
-	resp, err := http.Get(fmt.Sprintf("https://api.github.com/repos/Zerr0-C00L/StreamArr/commits/%s", branch))
+	resp, err := http.Get(fmt.Sprintf("https://api.github.com/repos/Zerr0-C00L/StreamArr_Pro/commits/%s", branch))
 	if err != nil {
 		respondJSON(w, http.StatusOK, map[string]interface{}{
 			"current_version": Version,
