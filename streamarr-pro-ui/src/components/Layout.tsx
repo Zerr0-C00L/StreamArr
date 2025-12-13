@@ -1,6 +1,6 @@
 import { useState, useEffect, type ReactNode } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { Film, Calendar, Settings, Activity, Compass, Radio, Library } from 'lucide-react';
+import { Calendar, Settings, Activity, Compass, Radio, Library } from 'lucide-react';
 
 interface LayoutProps {
   children: ReactNode;
