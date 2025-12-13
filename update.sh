@@ -53,19 +53,18 @@ if [ -f /.dockerenv ]; then
             
             log "Building version: $VERSION (commit: $COMMIT)"
             
+            # Export as environment variables for docker-compose
+            export VERSION
+            export COMMIT
+            export BUILD_DATE
+            
             # Stop containers
             log "Stopping containers..."
             docker-compose down 2>&1 | tee -a "$LOG_FILE"
             
-            # Build with explicit build args to override any cached values
+            # Build with no cache - environment variables will be picked up by docker-compose.yml
             log "Building new image (this may take a few minutes)..."
-            docker-compose build \
-                --no-cache \
-                --pull \
-                --build-arg VERSION="$VERSION" \
-                --build-arg COMMIT="$COMMIT" \
-                --build-arg BUILD_DATE="$BUILD_DATE" \
-                2>&1 | tee -a "$LOG_FILE"
+            docker-compose build --no-cache --pull 2>&1 | tee -a "$LOG_FILE"
             
             # Start containers
             log "Starting containers..."
