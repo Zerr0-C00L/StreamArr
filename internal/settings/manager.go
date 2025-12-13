@@ -59,6 +59,7 @@ type Settings struct {
 	LiveTVShowAllSources  bool        `json:"livetv_show_all_sources"`   // Show all sources by default
 	LiveTVShowAllCategories bool      `json:"livetv_show_all_categories"` // Show all categories by default
 	LiveTVEnablePlutoTV   bool        `json:"livetv_enable_plutotv"`     // Enable built-in Pluto TV channels
+	LiveTVValidateStreams bool        `json:"livetv_validate_streams"`   // Validate stream URLs before loading channels
 	
 	// Provider Settings
 	UseRealDebrid      bool     `json:"use_realdebrid"`

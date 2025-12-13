@@ -205,6 +205,12 @@ func main() {
 	// Set Pluto TV enabled/disabled from settings (default true if not set)
 	channelManager.SetPlutoTVEnabled(currentSettings.LiveTVEnablePlutoTV)
 	
+	// Set stream validation enabled/disabled from settings (default false)
+	channelManager.SetStreamValidation(currentSettings.LiveTVValidateStreams)
+	if currentSettings.LiveTVValidateStreams {
+		log.Println("Live TV: Stream validation enabled - broken streams will be filtered")
+	}
+	
 	if err := channelManager.LoadChannels(); err != nil {
 		log.Printf("Warning: Could not load channels: %v", err)
 	} else {

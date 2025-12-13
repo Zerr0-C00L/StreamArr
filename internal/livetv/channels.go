@@ -41,12 +41,14 @@ type M3USource struct {
 }
 
 type ChannelManager struct {
-	channels       map[string]*Channel
-	mu             sync.RWMutex
-	sources        []ChannelSource
-	m3uSources     []M3USource
-	httpClient     *http.Client
-	enablePlutoTV  bool
+	channels           map[string]*Channel
+	mu                 sync.RWMutex
+	sources            []ChannelSource
+	m3uSources         []M3USource
+	httpClient         *http.Client
+	enablePlutoTV      bool
+	validateStreams    bool
+	validationTimeout  time.Duration
 }
 
 type ChannelSource interface {
@@ -56,10 +58,12 @@ type ChannelSource interface {
 
 func NewChannelManager() *ChannelManager {
 	cm := &ChannelManager{
-		channels:      make(map[string]*Channel),
-		sources:       make([]ChannelSource, 0),
-		m3uSources:    make([]M3USource, 0),
-		enablePlutoTV: true, // Enabled by default
+		channels:          make(map[string]*Channel),
+		sources:           make([]ChannelSource, 0),
+		m3uSources:        make([]M3USource, 0),
+		enablePlutoTV:     true, // Enabled by default
+		validateStreams:   false, // Disabled by default (can be enabled in settings)
+		validationTimeout: 3 * time.Second,
 		httpClient: &http.Client{
 			Timeout: 30 * time.Second,
 		},
@@ -83,6 +87,43 @@ func (cm *ChannelManager) SetPlutoTVEnabled(enabled bool) {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
 	cm.enablePlutoTV = enabled
+}
+
+// SetStreamValidation enables/disables stream URL validation
+func (cm *ChannelManager) SetStreamValidation(enabled bool) {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+	cm.validateStreams = enabled
+}
+
+// validateStreamURL checks if a stream URL is accessible
+func (cm *ChannelManager) validateStreamURL(url string) bool {
+	if !cm.validateStreams {
+		return true // Skip validation if disabled
+	}
+	
+	client := &http.Client{
+		Timeout: cm.validationTimeout,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse // Don't follow redirects, just check if URL responds
+		},
+	}
+	
+	req, err := http.NewRequest("HEAD", url, nil)
+	if err != nil {
+		return false
+	}
+	
+	req.Header.Set("User-Agent", "StreamArr/1.0")
+	
+	resp, err := client.Do(req)
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	
+	// Accept any 2xx or 3xx status code as valid
+	return resp.StatusCode >= 200 && resp.StatusCode < 400
 }
 
 func (cm *ChannelManager) LoadChannels() error {
@@ -222,6 +263,8 @@ func (cm *ChannelManager) parseM3U(content string, sourceName string) ([]*Channe
 	
 	var currentChannel *Channel
 	channelID := 0
+	totalParsed := 0
+	totalFiltered := 0
 	
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
@@ -278,12 +321,23 @@ func (cm *ChannelManager) parseM3U(content string, sourceName string) ([]*Channe
 			// This is the stream URL
 			currentChannel.StreamURL = line
 			if currentChannel.Name != "" {
-				// Set category based on channel name (smart mapping)
-				currentChannel.Category = mapChannelToCategory(currentChannel.Name)
-				channels = append(channels, currentChannel)
+				totalParsed++
+				// Validate stream if validation is enabled
+				if cm.validateStreamURL(currentChannel.StreamURL) {
+					// Set category based on channel name (smart mapping)
+					currentChannel.Category = mapChannelToCategory(currentChannel.Name)
+					channels = append(channels, currentChannel)
+				} else {
+					totalFiltered++
+				}
 			}
 			currentChannel = nil
 		}
+	}
+	
+	if cm.validateStreams && totalFiltered > 0 {
+		fmt.Printf("Filtered %d broken channels from %s (%d valid out of %d total)\n", 
+			totalFiltered, sourceName, len(channels), totalParsed)
 	}
 	
 	return channels, nil
@@ -298,6 +352,8 @@ func (cm *ChannelManager) parseM3UWithProviders(content string) ([]*Channel, err
 	var currentChannel *Channel
 	var currentGroupTitle string
 	channelID := 0
+	totalParsed := 0
+	totalFiltered := 0
 	
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
@@ -362,12 +418,23 @@ func (cm *ChannelManager) parseM3UWithProviders(content string) ([]*Channel, err
 			// This is the stream URL
 			currentChannel.StreamURL = line
 			if currentChannel.Name != "" {
-				// Set category based on channel name (smart mapping)
-				currentChannel.Category = mapChannelToCategory(currentChannel.Name)
-				channels = append(channels, currentChannel)
+				totalParsed++
+				// Validate stream if validation is enabled
+				if cm.validateStreamURL(currentChannel.StreamURL) {
+					// Set category based on channel name (smart mapping)
+					currentChannel.Category = mapChannelToCategory(currentChannel.Name)
+					channels = append(channels, currentChannel)
+				} else {
+					totalFiltered++
+				}
 			}
 			currentChannel = nil
 		}
+	}
+	
+	if cm.validateStreams && totalFiltered > 0 {
+		fmt.Printf("Filtered %d broken channels from local M3U (%d valid out of %d total)\n", 
+			totalFiltered, len(channels), totalParsed)
 	}
 	
 	return channels, nil
