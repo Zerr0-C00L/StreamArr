@@ -72,6 +72,7 @@ type ChannelManager struct {
 	validationCache    map[string]validationCacheEntry
 	cacheMutex         sync.RWMutex
 	includeLiveTV      bool
+	iptvImportMode     string // "live_only", "vod_only", "both"
 }
 
 type validationCacheEntry struct {
@@ -97,6 +98,7 @@ func NewChannelManager() *ChannelManager {
 			Timeout: 30 * time.Second,
 		},
 		includeLiveTV:     false, // Default false after factory reset
+		iptvImportMode:    "live_only",
 	}
 	// Note: Removed broken third-party sources
 	// Users can add their own M3U sources in Settings
@@ -107,6 +109,18 @@ func (cm *ChannelManager) SetIncludeLiveTV(enabled bool) {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
 	cm.includeLiveTV = enabled
+}
+
+// SetIPTVImportMode sets how IPTV content is handled: live_only, vod_only, both
+func (cm *ChannelManager) SetIPTVImportMode(mode string) {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+	switch mode {
+	case "live_only", "vod_only", "both":
+		cm.iptvImportMode = mode
+	default:
+		cm.iptvImportMode = "live_only"
+	}
 }
 
 // SetM3USources sets the custom M3U sources
@@ -259,6 +273,13 @@ func (cm *ChannelManager) LoadChannels() error {
 	if !cm.isLiveTVEnabled() {
 		cm.channels = make(map[string]*Channel)
 		fmt.Println("Live TV: Disabled, no channels loaded")
+		return nil
+	}
+
+	// If IPTV import mode is VOD-only, do not load Live TV channels
+	if strings.EqualFold(cm.iptvImportMode, "vod_only") {
+		cm.channels = make(map[string]*Channel)
+		fmt.Println("Live TV: VOD-only mode; no live channels loaded")
 		return nil
 	}
 
@@ -482,6 +503,7 @@ func (cm *ChannelManager) parseM3U(content string, sourceName string) ([]*Channe
 	scanner := bufio.NewScanner(strings.NewReader(content))
 	
 	var currentChannel *Channel
+	var currentIsVOD bool
 	channelID := 0
 	
 	for scanner.Scan() {
@@ -493,6 +515,21 @@ func (cm *ChannelManager) parseM3U(content string, sourceName string) ([]*Channe
 				IsLive: true,
 				Active: true,
 				Source: sourceName,
+			}
+
+			// Detect VOD via group-title when available
+			currentIsVOD = false
+			if idx := strings.Index(line, "group-title="); idx != -1 {
+				start := idx + len("group-title=")
+				if start < len(line) && line[start] == '"' {
+					end := strings.Index(line[start+1:], "\"")
+					if end != -1 {
+						group := strings.ToLower(line[start+1 : start+1+end])
+						if strings.Contains(group, "vod") || strings.Contains(group, "movie") || strings.Contains(group, "series") || strings.Contains(group, "film") {
+							currentIsVOD = true
+						}
+					}
+				}
 			}
 			
 			// Extract tvg-name or channel name
@@ -538,10 +575,16 @@ func (cm *ChannelManager) parseM3U(content string, sourceName string) ([]*Channe
 		} else if !strings.HasPrefix(line, "#") && line != "" && currentChannel != nil {
 			// This is the stream URL
 			currentChannel.StreamURL = line
-			if currentChannel.Name != "" {
-				// Set category based on channel name (smart mapping)
-				currentChannel.Category = mapChannelToCategory(currentChannel.Name)
-				channels = append(channels, currentChannel)
+			// Detect VOD via stream URL patterns
+			isVODURL := strings.Contains(strings.ToLower(line), "/movie/") || strings.Contains(strings.ToLower(line), "/series/") || strings.HasSuffix(strings.ToLower(line), ".mp4") || strings.HasSuffix(strings.ToLower(line), ".mkv")
+			// In Live TV, we never include VOD entries (they belong to Library when supported)
+			shouldInclude := !currentIsVOD && !isVODURL
+			if shouldInclude {
+				if currentChannel.Name != "" {
+					// Set category based on channel name (smart mapping)
+					currentChannel.Category = mapChannelToCategory(currentChannel.Name)
+					channels = append(channels, currentChannel)
+				}
 			}
 			currentChannel = nil
 		}
@@ -568,6 +611,7 @@ func (cm *ChannelManager) parseM3UWithProviders(content string) ([]*Channel, err
 	scanner := bufio.NewScanner(strings.NewReader(content))
 	
 	var currentChannel *Channel
+	var currentIsVOD bool
 	var currentGroupTitle string
 	channelID := 0
 	
@@ -592,6 +636,13 @@ func (cm *ChannelManager) parseM3UWithProviders(content string) ([]*Channel, err
 			
 			// Map group-title to provider name
 			currentChannel.Source = extractProviderName(currentGroupTitle)
+
+			// Detect VOD via group-title
+			currentIsVOD = false
+			lowerGroup := strings.ToLower(currentGroupTitle)
+			if strings.Contains(lowerGroup, "vod") || strings.Contains(lowerGroup, "movie") || strings.Contains(lowerGroup, "series") || strings.Contains(lowerGroup, "film") {
+				currentIsVOD = true
+			}
 			
 			// Extract tvg-name or channel name
 			if idx := strings.Index(line, "tvg-name=\""); idx != -1 {
@@ -633,10 +684,14 @@ func (cm *ChannelManager) parseM3UWithProviders(content string) ([]*Channel, err
 		} else if !strings.HasPrefix(line, "#") && line != "" && currentChannel != nil {
 			// This is the stream URL
 			currentChannel.StreamURL = line
-			if currentChannel.Name != "" {
-				// Set category based on channel name (smart mapping)
-				currentChannel.Category = mapChannelToCategory(currentChannel.Name)
-				channels = append(channels, currentChannel)
+			// Detect VOD via stream URL patterns
+			isVODURL := strings.Contains(strings.ToLower(line), "/movie/") || strings.Contains(strings.ToLower(line), "/series/") || strings.HasSuffix(strings.ToLower(line), ".mp4") || strings.HasSuffix(strings.ToLower(line), ".mkv")
+			if !currentIsVOD && !isVODURL {
+				if currentChannel.Name != "" {
+					// Set category based on channel name (smart mapping)
+					currentChannel.Category = mapChannelToCategory(currentChannel.Name)
+					channels = append(channels, currentChannel)
+				}
 			}
 			currentChannel = nil
 		}

@@ -82,6 +82,10 @@ type Settings struct {
 	UserCreatePlaylist     bool   `json:"user_create_playlist"`
 	IncludeAdultVOD        bool   `json:"include_adult_vod"`
 	IncludeLiveTV          bool   `json:"include_live_tv"`
+	IPTVImportMode         string `json:"iptv_import_mode"`
+	IPTVVODSyncIntervalHours int  `json:"iptv_vod_sync_interval_hours"`
+	DuplicateVODPerProvider bool  `json:"duplicate_vod_per_provider"`
+	IPTVVODFastImport      bool   `json:"iptv_vod_fast_import"` // If true, import VOD without TMDB lookups (basic metadata only)
 	AutoCacheIntervalHours int    `json:"auto_cache_interval_hours"`
 	OnlyReleasedContent    bool   `json:"only_released_content"` // Only include movies/series released on streaming/digital/bluray
 	ImportAdultVODFromGitHub bool `json:"import_adult_vod_from_github"` // Import adult VOD content from public-files repo
@@ -186,6 +190,10 @@ func getDefaultSettings() *Settings {
 		MoviesOriginCountry:    "US",
 		UserCreatePlaylist:     true,
 		IncludeAdultVOD:        false,
+		IPTVImportMode:         "live_only",
+		IPTVVODSyncIntervalHours: 6,
+		DuplicateVODPerProvider: false,
+		IPTVVODFastImport:      false,
 		ImportAdultVODFromGitHub: false,
 		AutoCacheIntervalHours: 6,
 		UseRealDebrid:          true,

@@ -1,0 +1,552 @@
+package services
+
+import (
+    "bufio"
+    "context"
+    "encoding/json"
+    "fmt"
+    "io"
+    "net/http"
+    "regexp"
+    "sort"
+    "strings"
+    "time"
+
+    "github.com/Zerr0-C00L/StreamArr/internal/database"
+    "github.com/Zerr0-C00L/StreamArr/internal/models"
+    isettings "github.com/Zerr0-C00L/StreamArr/internal/settings"
+)
+
+// IPTVVODImportSummary reports results of an import run
+type IPTVVODImportSummary struct {
+    SourcesChecked int `json:"sources_checked"`
+    ItemsFound     int `json:"items_found"`
+    MoviesImported int `json:"movies_imported"`
+    SeriesImported int `json:"series_imported"`
+    Skipped        int `json:"skipped"`
+    Errors         int `json:"errors"`
+}
+
+// ImportIPTVVOD scans configured M3U/Xtream sources for VOD items and adds them to the Library
+func ImportIPTVVOD(ctx context.Context, cfg *isettings.Settings, tmdb *TMDBClient, movieStore *database.MovieStore, seriesStore *database.SeriesStore) (*IPTVVODImportSummary, error) {
+    client := &http.Client{Timeout: 30 * time.Second}
+    summary := &IPTVVODImportSummary{}
+
+    // Build list of M3U URLs to scan
+    type src struct { url, name string }
+    var m3uURLs []src
+    for _, s := range cfg.M3USources {
+        if s.Enabled && strings.TrimSpace(s.URL) != "" {
+            m3uURLs = append(m3uURLs, src{url: s.URL, name: s.Name})
+        }
+    }
+    for _, xs := range cfg.XtreamSources {
+        if !xs.Enabled || strings.TrimSpace(xs.ServerURL) == "" || strings.TrimSpace(xs.Username) == "" || strings.TrimSpace(xs.Password) == "" {
+            continue
+        }
+        server := strings.TrimSuffix(xs.ServerURL, "/")
+        url := fmt.Sprintf("%s/get.php?username=%s&password=%s&type=m3u_plus&output=ts", server, xs.Username, xs.Password)
+        m3uURLs = append(m3uURLs, src{url: url, name: xs.Name})
+    }
+
+    // Dedup map: key = kind:title:year
+    seen := make(map[string]bool)
+
+    for _, s := range m3uURLs {
+        req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.url, nil)
+        if err != nil {
+            summary.Errors++
+            continue
+        }
+        req.Header.Set("User-Agent", "Mozilla/5.0")
+        resp, err := client.Do(req)
+        if err != nil {
+            summary.Errors++
+            continue
+        }
+        func() {
+            defer resp.Body.Close()
+            if resp.StatusCode != http.StatusOK {
+                summary.Errors++
+                return
+            }
+            // Parse M3U, collecting VOD entries only
+            items := extractVODItems(resp.Body, s.name)
+            summary.ItemsFound += len(items)
+            // Import each item
+            for _, it := range items {
+                key := fmt.Sprintf("%s:%s:%d", it.Kind, normalizeTitle(it.Title), it.Year)
+                if seen[key] {
+                    summary.Skipped++
+                    continue
+                }
+                seen[key] = true
+
+                switch it.Kind {
+                case "movie":
+                    var err error
+                    if cfg.IPTVVODFastImport {
+                        err = importMovieBasic(ctx, movieStore, it)
+                    } else {
+                        err = importMovie(ctx, tmdb, movieStore, it)
+                    }
+                    if err != nil {
+                        summary.Errors++
+                    } else {
+                        summary.MoviesImported++
+                    }
+                case "series":
+                    var err error
+                    if cfg.IPTVVODFastImport {
+                        err = importSeriesBasic(ctx, seriesStore, it)
+                    } else {
+                        err = importSeries(ctx, tmdb, seriesStore, it)
+                    }
+                    if err != nil {
+                        summary.Errors++
+                    } else {
+                        summary.SeriesImported++
+                    }
+                default:
+                    summary.Skipped++
+                }
+            }
+        }()
+        summary.SourcesChecked++
+    }
+
+    return summary, nil
+}
+
+type vodItem struct {
+    Kind  string // "movie" or "series"
+    Title string
+    Year  int
+    URL   string
+    SourceName string
+}
+
+// extractVODItems scans M3U content for VOD entries and extracts title/year hints
+func extractVODItems(r io.Reader, sourceName string) []vodItem {
+    items := make([]vodItem, 0)
+    scanner := bufio.NewScanner(r)
+    var currentTitle string
+    var currentGroup string
+    var currentURL string
+
+    for scanner.Scan() {
+        line := strings.TrimSpace(scanner.Text())
+        if strings.HasPrefix(line, "#EXTINF:") {
+            currentTitle = ""
+            currentGroup = ""
+            // tvg-name
+            if idx := strings.Index(line, "tvg-name=\""); idx != -1 {
+                end := strings.Index(line[idx+10:], "\"")
+                if end != -1 {
+                    currentTitle = line[idx+10 : idx+10+end]
+                }
+            }
+            // fallback name after comma
+            if currentTitle == "" {
+                if c := strings.LastIndex(line, ","); c != -1 {
+                    currentTitle = strings.TrimSpace(line[c+1:])
+                }
+            }
+            // group-title (for kind hint)
+            if idx := strings.Index(line, "group-title=\""); idx != -1 {
+                end := strings.Index(line[idx+13:], "\"")
+                if end != -1 {
+                    currentGroup = strings.ToLower(line[idx+13 : idx+13+end])
+                }
+            }
+        } else if currentTitle != "" && !strings.HasPrefix(line, "#") && line != "" {
+            // URL line – decide if VOD
+            lowerURL := strings.ToLower(line)
+            currentURL = line
+            isVOD := strings.Contains(lowerURL, "/movie/") || strings.Contains(lowerURL, "/series/") || strings.HasSuffix(lowerURL, ".mp4") || strings.HasSuffix(lowerURL, ".mkv")
+            isVOD = isVOD || strings.Contains(currentGroup, "vod") || strings.Contains(currentGroup, "movie") || strings.Contains(currentGroup, "series") || strings.Contains(currentGroup, "film")
+            if isVOD {
+                kind := "movie"
+                if strings.Contains(lowerURL, "/series/") || strings.Contains(currentGroup, "series") {
+                    kind = "series"
+                }
+                title, year := splitTitleYear(currentTitle)
+                items = append(items, vodItem{Kind: kind, Title: title, Year: year, URL: currentURL, SourceName: sourceName})
+            }
+            currentTitle = ""
+            currentGroup = ""
+            currentURL = ""
+        }
+    }
+    return items
+}
+
+var yearRe = regexp.MustCompile(`(?i)\b(19|20)\d{2}\b`)
+
+func splitTitleYear(name string) (string, int) {
+    year := 0
+    // Prefer a year at end or in parentheses
+    // e.g., "Dune (2021)" or "Dune 2021"
+    if m := yearRe.FindAllString(name, -1); len(m) > 0 {
+        last := m[len(m)-1]
+        if len(last) == 4 {
+            // parse simple int
+            year = atoiSafe(last)
+            // remove from title for cleaner TMDB search
+            name = strings.ReplaceAll(name, last, "")
+        }
+    }
+    title := strings.TrimSpace(stripQualityTags(name))
+    return title, year
+}
+
+func atoiSafe(s string) int {
+    n := 0
+    for _, ch := range s {
+        if ch >= '0' && ch <= '9' {
+            n = n*10 + int(ch-'0')
+        }
+    }
+    return n
+}
+
+// stripQualityTags removes common quality/extra tags from titles
+func stripQualityTags(s string) string {
+    lower := strings.ToLower(s)
+    tags := []string{"1080p", "720p", "2160p", "480p", "hdr", "x264", "x265", "h264", "h265", "webrip", "web-dl", "dvdrip", "bluray", "remux", "aac", "dts", "atmos"}
+    for _, t := range tags {
+        lower = strings.ReplaceAll(lower, t, "")
+    }
+    // collapse whitespace back onto original case-preserving form where possible
+    fields := strings.Fields(lower)
+    return strings.Join(fields, " ")
+}
+
+func normalizeTitle(s string) string {
+    s = strings.ToLower(strings.TrimSpace(s))
+    s = strings.NewReplacer(":", " ", "-", " ", ".", " ", "_", " ", "(", " ", ")", " ").Replace(s)
+    fields := strings.Fields(s)
+    return strings.Join(fields, " ")
+}
+
+// --- Fast import (no TMDB) helpers ---
+
+// synthID generates a stable negative ID for items lacking TMDB IDs
+func synthID(kind, title string, year int) int {
+    // 32-bit FNV-1a hash
+    h := uint32(2166136261)
+    key := fmt.Sprintf("%s|%s|%d", kind, normalizeTitle(title), year)
+    for i := 0; i < len(key); i++ {
+        h ^= uint32(key[i])
+        h *= 16777619
+    }
+    // ensure negative, avoid 0
+    val := int(h & 0x3fffffff) // 30 bits
+    if val == 0 { val = 1 }
+    return -val
+}
+
+func importMovieBasic(ctx context.Context, store *database.MovieStore, it vodItem) error {
+    m := &models.Movie{
+        TMDBID:        synthID("movie", it.Title, it.Year),
+        Title:         it.Title,
+        OriginalTitle: it.Title,
+        Overview:      "",
+        Monitored:     true,
+        Available:     true,
+        QualityProfile: "1080p",
+        Metadata:      models.Metadata{},
+    }
+    if m.Metadata == nil { m.Metadata = models.Metadata{} }
+    m.Metadata["source"] = "iptv_vod"
+    m.Metadata["imported_at"] = time.Now().Format(time.RFC3339)
+    m.Metadata["iptv_vod_sources"] = []map[string]interface{}{{"name": it.SourceName, "url": it.URL}}
+    return store.Add(ctx, m)
+}
+
+func importSeriesBasic(ctx context.Context, store *database.SeriesStore, it vodItem) error {
+    s := &models.Series{
+        TMDBID:        synthID("series", it.Title, it.Year),
+        Title:         it.Title,
+        OriginalTitle: it.Title,
+        Monitored:     true,
+        QualityProfile: "1080p",
+        Metadata:      models.Metadata{},
+    }
+    if s.Metadata == nil { s.Metadata = models.Metadata{} }
+    s.Metadata["source"] = "iptv_vod"
+    s.Metadata["imported_at"] = time.Now().Format(time.RFC3339)
+    s.Metadata["iptv_vod_sources"] = []map[string]interface{}{{"name": it.SourceName, "url": it.URL}}
+    return store.Add(ctx, s)
+}
+
+func importMovie(ctx context.Context, tmdb *TMDBClient, store *database.MovieStore, it vodItem) error {
+    // Search TMDB
+    movies, err := tmdb.SearchMovies(ctx, it.Title, 1)
+    if err != nil || len(movies) == 0 {
+        return fmt.Errorf("no TMDB match for movie: %s", it.Title)
+    }
+    // Choose best candidate by year/title proximity
+    sort.SliceStable(movies, func(i, j int) bool {
+        // Prefer exact year match, then higher vote average if available via metadata
+        yi := yearFromMovie(movies[i])
+        yj := yearFromMovie(movies[j])
+        if it.Year != 0 && yi != yj {
+            di := abs(it.Year - yi)
+            dj := abs(it.Year - yj)
+            if di != dj { return di < dj }
+        }
+        // fallback: lexical closeness by normalized title
+        return levenshtein(normalizeTitle(movies[i].Title), normalizeTitle(it.Title)) <
+            levenshtein(normalizeTitle(movies[j].Title), normalizeTitle(it.Title))
+    })
+
+    // Fetch full movie to populate metadata properly
+    m, _, err2 := tmdb.GetMovieWithCollection(ctx, movies[0].TMDBID)
+    if err2 != nil {
+        // fallback to basic
+        m = movies[0]
+    }
+    // Ensure monitored/available defaults
+    if m.QualityProfile == "" { m.QualityProfile = "1080p" }
+    m.Monitored = true
+    m.Available = true
+    if m.Metadata == nil { m.Metadata = models.Metadata{} }
+    m.Metadata["source"] = "iptv_vod"
+    m.Metadata["imported_at"] = time.Now().Format(time.RFC3339)
+
+    // Merge IPTV VOD source into metadata (dedupe by URL)
+    if m.Metadata == nil { m.Metadata = models.Metadata{} }
+    sources := ensureSourcesArray(m.Metadata["iptv_vod_sources"]) 
+    if !hasSourceURL(sources, it.URL) {
+        sources = append(sources, map[string]interface{}{"name": it.SourceName, "url": it.URL})
+        m.Metadata["iptv_vod_sources"] = sources
+    }
+
+    // Try upsert: if exists, update metadata; else add
+    if existing, errGet := store.GetByTMDBID(ctx, m.TMDBID); errGet == nil && existing != nil {
+        existing.Metadata = mergeMetadata(existing.Metadata, m.Metadata)
+        existing.Monitored = true
+        existing.Available = true
+        if existing.QualityProfile == "" { existing.QualityProfile = m.QualityProfile }
+        return store.Update(ctx, existing)
+    }
+    return store.Add(ctx, m)
+}
+
+func importSeries(ctx context.Context, tmdb *TMDBClient, store *database.SeriesStore, it vodItem) error {
+    series, err := tmdb.SearchSeries(ctx, it.Title, 1)
+    if err != nil || len(series) == 0 {
+        return fmt.Errorf("no TMDB match for series: %s", it.Title)
+    }
+    sort.SliceStable(series, func(i, j int) bool {
+        // Prefer closer year if available
+        yi := yearFromSeries(series[i])
+        yj := yearFromSeries(series[j])
+        if it.Year != 0 && yi != yj {
+            di := abs(it.Year - yi)
+            dj := abs(it.Year - yj)
+            if di != dj { return di < dj }
+        }
+        return levenshtein(normalizeTitle(series[i].Title), normalizeTitle(it.Title)) <
+            levenshtein(normalizeTitle(series[j].Title), normalizeTitle(it.Title))
+    })
+
+    // Fetch full series to include external IDs
+    s, err2 := tmdb.GetSeries(ctx, series[0].TMDBID)
+    if err2 != nil {
+        s = series[0]
+    }
+    if s.QualityProfile == "" { s.QualityProfile = "1080p" }
+    s.Monitored = true
+    if s.Metadata == nil { s.Metadata = models.Metadata{} }
+    s.Metadata["source"] = "iptv_vod"
+    s.Metadata["imported_at"] = time.Now().Format(time.RFC3339)
+
+    if s.Metadata == nil { s.Metadata = models.Metadata{} }
+    sources := ensureSourcesArray(s.Metadata["iptv_vod_sources"]) 
+    if !hasSourceURL(sources, it.URL) {
+        sources = append(sources, map[string]interface{}{"name": it.SourceName, "url": it.URL})
+        s.Metadata["iptv_vod_sources"] = sources
+    }
+    if existing, errGet := store.GetByTMDBID(ctx, s.TMDBID); errGet == nil && existing != nil {
+        existing.Metadata = mergeMetadata(existing.Metadata, s.Metadata)
+        existing.Monitored = true
+        if existing.QualityProfile == "" { existing.QualityProfile = s.QualityProfile }
+        return store.Update(ctx, existing)
+    }
+    return store.Add(ctx, s)
+}
+
+func ensureSourcesArray(v interface{}) []map[string]interface{} {
+    out := []map[string]interface{}{}
+    if v == nil { return out }
+    if arr, ok := v.([]interface{}); ok {
+        for _, e := range arr {
+            if m, ok2 := e.(map[string]interface{}); ok2 {
+                out = append(out, m)
+            }
+        }
+    } else if arr2, ok := v.([]map[string]interface{}); ok {
+        return arr2
+    }
+    return out
+}
+
+func hasSourceURL(arr []map[string]interface{}, url string) bool {
+    for _, m := range arr {
+        if u, ok := m["url"].(string); ok && u == url {
+            return true
+        }
+    }
+    return false
+}
+
+func mergeMetadata(a, b models.Metadata) models.Metadata {
+    if a == nil { a = models.Metadata{} }
+    for k, v := range b {
+        if k == "iptv_vod_sources" {
+            existing := ensureSourcesArray(a[k])
+            incoming := ensureSourcesArray(v)
+            for _, src := range incoming {
+                if u, ok := src["url"].(string); ok && !hasSourceURL(existing, u) {
+                    existing = append(existing, src)
+                }
+            }
+            a[k] = existing
+        } else {
+            a[k] = v
+        }
+    }
+    return a
+}
+
+// CleanupIPTVVOD removes sources from metadata that belong to disabled/removed providers.
+// If an item has no remaining IPTV sources and was imported via iptv_vod, it is deleted.
+func CleanupIPTVVOD(ctx context.Context, cfg *isettings.Settings, movieStore *database.MovieStore, seriesStore *database.SeriesStore) error {
+    active := map[string]bool{}
+    for _, s := range cfg.M3USources { if s.Enabled { active[s.Name] = true } }
+    for _, s := range cfg.XtreamSources { if s.Enabled { active[s.Name] = true } }
+
+    db := movieStore.GetDB()
+    // Movies
+    rows, err := db.QueryContext(ctx, `SELECT id, metadata FROM library_movies`)
+    if err == nil {
+        defer rows.Close()
+        for rows.Next() {
+            var id int64
+            var metadataJSON []byte
+            if err := rows.Scan(&id, &metadataJSON); err != nil { continue }
+            meta := models.Metadata{}
+            _ = json.Unmarshal(metadataJSON, &meta)
+            sources := ensureSourcesArray(meta["iptv_vod_sources"]) 
+            filtered := make([]map[string]interface{}, 0, len(sources))
+            for _, s := range sources {
+                name, _ := s["name"].(string)
+                if active[name] { filtered = append(filtered, s) }
+            }
+            changed := len(filtered) != len(sources)
+            if changed {
+                if len(filtered) == 0 {
+                    delete(meta, "iptv_vod_sources")
+                } else {
+                    meta["iptv_vod_sources"] = filtered
+                }
+                m, _ := movieStore.Get(ctx, id)
+                if m != nil {
+                    m.Metadata = meta
+                    // If orphaned and originally imported via iptv_vod, delete
+                    if len(filtered) == 0 && meta["source"] == "iptv_vod" {
+                        _ = movieStore.Delete(ctx, id)
+                    } else {
+                        _ = movieStore.Update(ctx, m)
+                    }
+                }
+            }
+        }
+    }
+
+    // Series
+    rows2, err2 := seriesStore.GetDB().QueryContext(ctx, `SELECT id, metadata FROM library_series`)
+    if err2 == nil {
+        defer rows2.Close()
+        for rows2.Next() {
+            var id int64
+            var metadataJSON []byte
+            if err := rows2.Scan(&id, &metadataJSON); err != nil { continue }
+            meta := models.Metadata{}
+            _ = json.Unmarshal(metadataJSON, &meta)
+            sources := ensureSourcesArray(meta["iptv_vod_sources"]) 
+            filtered := make([]map[string]interface{}, 0, len(sources))
+            for _, s := range sources {
+                name, _ := s["name"].(string)
+                if active[name] { filtered = append(filtered, s) }
+            }
+            changed := len(filtered) != len(sources)
+            if changed {
+                if len(filtered) == 0 {
+                    delete(meta, "iptv_vod_sources")
+                } else {
+                    meta["iptv_vod_sources"] = filtered
+                }
+                s, _ := seriesStore.Get(ctx, id)
+                if s != nil {
+                    s.Metadata = meta
+                    if len(filtered) == 0 && meta["source"] == "iptv_vod" {
+                        _ = seriesStore.Delete(ctx, id)
+                    } else {
+                        _ = seriesStore.Update(ctx, s)
+                    }
+                }
+            }
+        }
+    }
+    return nil
+}
+
+func yearFromMovie(m *models.Movie) int {
+    if m.ReleaseDate != nil {
+        return m.ReleaseDate.Year()
+    }
+    // try metadata->release_date string
+    if m.Metadata != nil {
+        if s, ok := m.Metadata["release_date"].(string); ok && len(s) >= 4 {
+            return atoiSafe(s[:4])
+        }
+    }
+    return 0
+}
+
+func yearFromSeries(s *models.Series) int {
+    if s.FirstAirDate != nil {
+        return s.FirstAirDate.Year()
+    }
+    return 0
+}
+
+func abs(n int) int { if n < 0 { return -n }; return n }
+
+// very small Levenshtein (optimized for short strings)
+func levenshtein(a, b string) int {
+    if a == b { return 0 }
+    if len(a) == 0 { return len(b) }
+    if len(b) == 0 { return len(a) }
+    da := make([]int, len(b)+1)
+    for j := 0; j <= len(b); j++ { da[j] = j }
+    for i := 1; i <= len(a); i++ {
+        prev := i-1
+        da[0] = i
+        for j := 1; j <= len(b); j++ {
+            temp := da[j]
+            cost := 0
+            if a[i-1] != b[j-1] { cost = 1 }
+            // min of deletion, insertion, substitution
+            d := da[j] + 1
+            if da[j-1] + 1 < d { d = da[j-1] + 1 }
+            if prev + cost < d { d = prev + cost }
+            da[j] = d
+            prev = temp
+        }
+    }
+    return da[len(b)]
+}

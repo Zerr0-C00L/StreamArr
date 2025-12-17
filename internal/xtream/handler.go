@@ -61,6 +61,7 @@ type XtreamHandler struct {
 	baseURL         string
 	episodeCache    map[string]EpisodeLookup
 	episodeMu       sync.RWMutex
+	duplicateVODPerProvider func() bool
 }
 
 func NewXtreamHandler(cfg *config.Config, db *sql.DB, tmdb *services.TMDBClient, rdClient *services.RealDebridClient, channelManager *livetv.ChannelManager, epgManager *epg.Manager, stremioAddons []providers.StremioAddon) *XtreamHandler {
@@ -95,6 +96,11 @@ func NewXtreamHandlerWithProvider(cfg *config.Config, db *sql.DB, tmdb *services
 // SetSettingsManager sets the settings manager for dynamic settings access
 func (h *XtreamHandler) SetHideUnavailable(getter func() bool) {
 	h.hideUnavailable = getter
+}
+
+// SetDuplicateVODPerProvider allows toggling per-provider duplication in VOD streams list
+func (h *XtreamHandler) SetDuplicateVODPerProvider(getter func() bool) {
+	h.duplicateVODPerProvider = getter
 }
 
 // ValidateXtreamCredentials checks if the provided username/password match the configured Xtream API credentials
@@ -392,7 +398,7 @@ func (h *XtreamHandler) getServerInfo(w http.ResponseWriter, r *http.Request) {
 	// Current timestamp for update tracking
 	now := time.Now().Unix()
 
-	info := map[string]interface{}{
+			info := map[string]interface{}{
 		"user_info": map[string]interface{}{
 			"username":             username,
 			"password":             password,
@@ -649,7 +655,7 @@ func (h *XtreamHandler) getVODStreams(w http.ResponseWriter, r *http.Request) {
 		}
 		
 		// IMPORTANT: Use TMDB ID as stream_id for playback
-		stream := map[string]interface{}{
+		baseStream := map[string]interface{}{
 			"num":                 num,
 			"stream_id":           tmdbID,
 			"name":                title,
@@ -685,8 +691,39 @@ func (h *XtreamHandler) getVODStreams(w http.ResponseWriter, r *http.Request) {
 				continue // Skip this movie
 			}
 		}
-		
-		streams = append(streams, stream)
+
+		// If enabled, duplicate entries for each IPTV VOD provider source
+		dupEnabled := false
+		if h.duplicateVODPerProvider != nil {
+			dupEnabled = h.duplicateVODPerProvider()
+		}
+
+		if dupEnabled {
+			if sources, ok := metadata["iptv_vod_sources"].([]interface{}); ok && len(sources) > 0 {
+				for _, s := range sources {
+					provName := "Source"
+					if sm, ok := s.(map[string]interface{}); ok {
+						if n, ok := sm["name"].(string); ok && n != "" {
+							provName = n
+						}
+					}
+					// Clone base stream map
+					stream := make(map[string]interface{}, len(baseStream))
+					for k, v := range baseStream {
+						stream[k] = v
+					}
+					stream["name"] = fmt.Sprintf("%s [%s]", title, provName)
+					stream["title"] = stream["name"]
+					stream["num"] = num
+					streams = append(streams, stream)
+					num++
+				}
+				continue
+			}
+		}
+
+		baseStream["num"] = num
+		streams = append(streams, baseStream)
 		num++
 	}
 	
@@ -1027,7 +1064,36 @@ func (h *XtreamHandler) getSeries(w http.ResponseWriter, r *http.Request) {
 				continue // Skip this series
 			}
 		}
-		
+
+		// If enabled, duplicate entries for each IPTV VOD provider source
+		dupEnabled := false
+		if h.duplicateVODPerProvider != nil {
+			dupEnabled = h.duplicateVODPerProvider()
+		}
+		if dupEnabled {
+			if sources, ok := metadata["iptv_vod_sources"].([]interface{}); ok && len(sources) > 0 {
+				for _, src := range sources {
+					provName := "Source"
+					if m, ok := src.(map[string]interface{}); ok {
+						if n, ok := m["name"].(string); ok && n != "" {
+							provName = n
+						}
+					}
+					// clone base series map
+					entry := make(map[string]interface{}, len(s))
+					for k, v := range s { entry[k] = v }
+					name := fmt.Sprintf("%s [%s]", title, provName)
+					entry["name"] = name
+					entry["title"] = name
+					entry["num"] = num
+					series = append(series, entry)
+					num++
+				}
+				continue
+			}
+		}
+
+		s["num"] = num
 		series = append(series, s)
 		num++
 	}
@@ -1241,7 +1307,26 @@ func (h *XtreamHandler) getSeriesInfo(w http.ResponseWriter, r *http.Request) {
 			}
 			
 			// Use TMDB episode ID as the id (like PHP version)
-			episode := map[string]interface{}{
+			// Build multiple video sources from metadata.iptv_vod_sources if present
+			videos := []map[string]interface{}{}
+			if sources, ok := metadata["iptv_vod_sources"].([]interface{}); ok {
+				for _, s := range sources {
+					if m, ok := s.(map[string]interface{}); ok {
+						title := "Source"
+						if n, ok := m["name"].(string); ok && n != "" { title = n }
+						if u, ok := m["url"].(string); ok && u != "" {
+							videos = append(videos, map[string]interface{}{
+								"title":  title,
+								"url":    u,
+								"bitrate": 0,
+								"quality": title,
+							})
+						}
+					}
+				}
+			}
+
+			info := map[string]interface{}{
 				"id":                  episodeIDStr,
 				"episode_num":         ep.EpisodeNumber,
 				"title":               fmt.Sprintf("%s - S%02dE%02d - %s", title, seasonNum, ep.EpisodeNumber, ep.Name),
@@ -1254,7 +1339,7 @@ func (h *XtreamHandler) getSeriesInfo(w http.ResponseWriter, r *http.Request) {
 					"tmdb_id":       fmt.Sprintf("%d", tmdbID),
 					"name":          ep.Name,
 					"air_date":      ep.AirDate,
-					"rating":        ep.VoteAverage,
+					"video":           videos,
 					"cover_big":     episodeImage,
 					"plot":          ep.Overview,
 					"movie_image":   episodeImage,
@@ -1263,7 +1348,7 @@ func (h *XtreamHandler) getSeriesInfo(w http.ResponseWriter, r *http.Request) {
 				},
 			}
 			
-			episodes[seasonKey] = append(episodes[seasonKey], episode)
+			episodes[seasonKey] = append(episodes[seasonKey], info)
 		}
 		
 		// Add season to seasons array

@@ -7,13 +7,14 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/Zerr0-C00L/StreamArr/internal/models"
 )
 
 const (
-	tmdbBaseURL = "https://api.themoviedb.org/3"
+	tmdbBaseURL      = "https://api.themoviedb.org/3"
 	tmdbImageBaseURL = "https://image.tmdb.org/t/p"
 )
 
@@ -33,22 +34,22 @@ func NewTMDBClient(apiKey string) *TMDBClient {
 
 // Movie API responses
 type tmdbMovie struct {
-	ID              int       `json:"id"`
-	Title           string    `json:"title"`
-	OriginalTitle   string    `json:"original_title"`
-	Overview        string    `json:"overview"`
-	PosterPath      string    `json:"poster_path"`
-	BackdropPath    string    `json:"backdrop_path"`
-	ReleaseDate     string    `json:"release_date"`
-	Runtime         int       `json:"runtime"`
-	Genres          []struct {
+	ID            int    `json:"id"`
+	Title         string `json:"title"`
+	OriginalTitle string `json:"original_title"`
+	Overview      string `json:"overview"`
+	PosterPath    string `json:"poster_path"`
+	BackdropPath  string `json:"backdrop_path"`
+	ReleaseDate   string `json:"release_date"`
+	Runtime       int    `json:"runtime"`
+	Genres        []struct {
 		ID   int    `json:"id"`
 		Name string `json:"name"`
 	} `json:"genres"`
-	VoteAverage     float64 `json:"vote_average"`
-	VoteCount       int     `json:"vote_count"`
-	Status          string  `json:"status"`
-	IMDbID          string  `json:"imdb_id"`
+	VoteAverage         float64                  `json:"vote_average"`
+	VoteCount           int                      `json:"vote_count"`
+	Status              string                   `json:"status"`
+	IMDbID              string                   `json:"imdb_id"`
 	BelongsToCollection *tmdbBelongsToCollection `json:"belongs_to_collection"`
 }
 
@@ -79,45 +80,45 @@ type tmdbCollection struct {
 }
 
 type tmdbSeries struct {
-	ID              int       `json:"id"`
-	Name            string    `json:"name"`
-	OriginalName    string    `json:"original_name"`
-	Overview        string    `json:"overview"`
-	PosterPath      string    `json:"poster_path"`
-	BackdropPath    string    `json:"backdrop_path"`
-	FirstAirDate    string    `json:"first_air_date"`
-	Status          string    `json:"status"`
-	NumberOfSeasons int       `json:"number_of_seasons"`
+	ID              int    `json:"id"`
+	Name            string `json:"name"`
+	OriginalName    string `json:"original_name"`
+	Overview        string `json:"overview"`
+	PosterPath      string `json:"poster_path"`
+	BackdropPath    string `json:"backdrop_path"`
+	FirstAirDate    string `json:"first_air_date"`
+	Status          string `json:"status"`
+	NumberOfSeasons int    `json:"number_of_seasons"`
 	Genres          []struct {
 		ID   int    `json:"id"`
 		Name string `json:"name"`
 	} `json:"genres"`
-	VoteAverage     float64 `json:"vote_average"`
-	VoteCount       int     `json:"vote_count"`
+	VoteAverage float64 `json:"vote_average"`
+	VoteCount   int     `json:"vote_count"`
 }
 
 type tmdbSeason struct {
-	ID            int    `json:"id"`
-	SeasonNumber  int    `json:"season_number"`
-	Name          string `json:"name"`
-	Overview      string `json:"overview"`
-	PosterPath    string `json:"poster_path"`
-	AirDate       string `json:"air_date"`
-	EpisodeCount  int    `json:"episode_count"`
-	Episodes      []tmdbEpisode `json:"episodes"`
+	ID           int           `json:"id"`
+	SeasonNumber int           `json:"season_number"`
+	Name         string        `json:"name"`
+	Overview     string        `json:"overview"`
+	PosterPath   string        `json:"poster_path"`
+	AirDate      string        `json:"air_date"`
+	EpisodeCount int           `json:"episode_count"`
+	Episodes     []tmdbEpisode `json:"episodes"`
 }
 
 type tmdbEpisode struct {
-	ID             int     `json:"id"`
-	SeasonNumber   int     `json:"season_number"`
-	EpisodeNumber  int     `json:"episode_number"`
-	Name           string  `json:"name"`
-	Overview       string  `json:"overview"`
-	AirDate        string  `json:"air_date"`
-	StillPath      string  `json:"still_path"`
-	Runtime        int     `json:"runtime"`
-	VoteAverage    float64 `json:"vote_average"`
-	VoteCount      int     `json:"vote_count"`
+	ID            int     `json:"id"`
+	SeasonNumber  int     `json:"season_number"`
+	EpisodeNumber int     `json:"episode_number"`
+	Name          string  `json:"name"`
+	Overview      string  `json:"overview"`
+	AirDate       string  `json:"air_date"`
+	StillPath     string  `json:"still_path"`
+	Runtime       int     `json:"runtime"`
+	VoteAverage   float64 `json:"vote_average"`
+	VoteCount     int     `json:"vote_count"`
 }
 
 type tmdbSearchResult struct {
@@ -228,13 +229,13 @@ func (c *TMDBClient) GetSeries(ctx context.Context, tmdbID int) (*models.Series,
 	}
 
 	series := c.convertSeries(&tmdbSeries)
-	
+
 	// Fetch external IDs to get IMDB ID
 	externalIDs, err := c.GetSeriesExternalIDs(ctx, tmdbID)
 	if err == nil && externalIDs.IMDBID != "" {
 		series.Metadata["imdb_id"] = externalIDs.IMDBID
 	}
-	
+
 	return series, nil
 }
 
@@ -259,10 +260,10 @@ func (c *TMDBClient) GetSeason(ctx context.Context, seriesID, seasonNumber int) 
 
 // ExternalIDs represents external IDs for a TV series
 type ExternalIDs struct {
-	ID       int    `json:"id"`
-	IMDBID   string `json:"imdb_id"`
+	ID         int    `json:"id"`
+	IMDBID     string `json:"imdb_id"`
 	FreebaseID string `json:"freebase_id"`
-	TVDBID   int    `json:"tvdb_id"`
+	TVDBID     int    `json:"tvdb_id"`
 }
 
 // GetSeriesExternalIDs retrieves external IDs (IMDB, TVDB, etc.) for a series
@@ -405,7 +406,7 @@ func (c *TMDBClient) DiscoverMovies(ctx context.Context, page int, year *int, ge
 	params.Set("api_key", c.apiKey)
 	params.Set("page", fmt.Sprintf("%d", page))
 	params.Set("sort_by", "popularity.desc")
-	
+
 	if year != nil {
 		params.Set("year", fmt.Sprintf("%d", *year))
 	}
@@ -437,18 +438,34 @@ func (c *TMDBClient) DiscoverMovies(ctx context.Context, page int, year *int, ge
 func (c *TMDBClient) makeRequest(ctx context.Context, endpoint string, params url.Values) ([]byte, error) {
 	// Add API key to params
 	params.Set("api_key", c.apiKey)
-	
-	// Build full URL
-	reqURL := fmt.Sprintf("%s%s?%s", tmdbBaseURL, endpoint, params.Encode())
 
-	req, err := http.NewRequestWithContext(ctx, "GET", reqURL, nil)
+	// Build full URL without double-prepending the TMDB base
+	baseURL := endpoint
+	if !strings.HasPrefix(endpoint, "http") {
+		baseURL = fmt.Sprintf("%s%s", tmdbBaseURL, endpoint)
+	}
+
+	u, err := url.Parse(baseURL)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse TMDB endpoint %s: %w", baseURL, err)
+	}
+
+	q := u.Query()
+	for k, vals := range params {
+		for _, v := range vals {
+			q.Add(k, v)
+		}
+	}
+	u.RawQuery = q.Encode()
+
+	req, err := http.NewRequestWithContext(ctx, "GET", u.String(), nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("failed to make request to %s: %w", reqURL, err)
+		return nil, fmt.Errorf("failed to make request to %s: %w", u.String(), err)
 	}
 	defer resp.Body.Close()
 
@@ -458,7 +475,7 @@ func (c *TMDBClient) makeRequest(ctx context.Context, endpoint string, params ur
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("TMDB API returned status %d for %s: %s", resp.StatusCode, reqURL, string(data))
+		return nil, fmt.Errorf("TMDB API returned status %d for %s: %s", resp.StatusCode, u.String(), string(data))
 	}
 
 	return data, nil
@@ -566,16 +583,16 @@ func (c *TMDBClient) GetPosterURL(path string, size string) string {
 // IMDBToTMDB converts an IMDB ID to TMDB ID
 func (c *TMDBClient) IMDBToTMDB(imdbID string, mediaType string) (int, error) {
 	ctx := context.Background()
-	
+
 	endpoint := fmt.Sprintf("/find/%s", imdbID)
 	params := url.Values{}
 	params.Set("external_source", "imdb_id")
-	
+
 	data, err := c.makeRequest(ctx, endpoint, params)
 	if err != nil {
 		return 0, err
 	}
-	
+
 	var result struct {
 		MovieResults []struct {
 			ID int `json:"id"`
@@ -584,19 +601,19 @@ func (c *TMDBClient) IMDBToTMDB(imdbID string, mediaType string) (int, error) {
 			ID int `json:"id"`
 		} `json:"tv_results"`
 	}
-	
+
 	if err := json.Unmarshal(data, &result); err != nil {
 		return 0, fmt.Errorf("failed to parse response: %w", err)
 	}
-	
+
 	if mediaType == "movie" && len(result.MovieResults) > 0 {
 		return result.MovieResults[0].ID, nil
 	}
-	
+
 	if mediaType == "tv" && len(result.TVResults) > 0 {
 		return result.TVResults[0].ID, nil
 	}
-	
+
 	return 0, fmt.Errorf("no TMDB ID found for IMDB ID %s", imdbID)
 }
 
@@ -680,7 +697,7 @@ func (c *TMDBClient) GetPopular(ctx context.Context, mediaType string) ([]Trendi
 	} else {
 		endpoint = fmt.Sprintf("%s/tv/popular", tmdbBaseURL)
 	}
-	
+
 	params := url.Values{}
 	params.Set("api_key", c.apiKey)
 
@@ -740,7 +757,7 @@ func (c *TMDBClient) GetNowPlaying(ctx context.Context, mediaType string) ([]Tre
 	} else {
 		endpoint = fmt.Sprintf("%s/tv/on_the_air", tmdbBaseURL)
 	}
-	
+
 	params := url.Values{}
 	params.Set("api_key", c.apiKey)
 

@@ -397,7 +397,7 @@ func (a *AdminHandler) GetSystemInfo(w http.ResponseWriter, r *http.Request) {
 		"system":  strings.TrimSpace(string(unameOutput)),
 		"go":      strings.TrimSpace(string(goVersion)),
 		"uptime":  strings.TrimSpace(string(uptimeOutput)),
-		"version": "1.0.0 Beta",
+		"version": "1.1.0",
 	}
 
 	respondJSON(w, http.StatusOK, info)

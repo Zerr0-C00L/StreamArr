@@ -28,6 +28,9 @@ type SettingsResponse struct {
 	M3U8Limit            int    `json:"m3u8_limit"`
 	IncludeLiveTV        bool   `json:"include_live_tv"`
 	IncludeAdultVOD      bool   `json:"include_adult_vod"`
+	IPTVImportMode       string `json:"iptv_import_mode"` // live_only | vod_only | both
+	DuplicateVODPerProvider bool `json:"duplicate_vod_per_provider"`
+	IPTVVODSyncIntervalHours int `json:"iptv_vod_sync_interval_hours"`
 
 	// IPTV-Org Settings
 	IPTVOrgEnabled      bool     `json:"iptv_org_enabled"`

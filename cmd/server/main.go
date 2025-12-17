@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -187,6 +188,8 @@ func main() {
 	currentSettings := settingsManager.Get()
 	// Set Live TV enabled/disabled from settings
 	channelManager.SetIncludeLiveTV(currentSettings.IncludeLiveTV)
+	// Set IPTV import mode (live_only/vod_only/both) BEFORE loading channels
+	channelManager.SetIPTVImportMode(currentSettings.IPTVImportMode)
 	if len(currentSettings.M3USources) > 0 {
 		m3uSources := make([]livetv.M3USource, len(currentSettings.M3USources))
 		for i, s := range currentSettings.M3USources {
@@ -238,6 +241,26 @@ func main() {
 		log.Printf("Warning: Could not load channels: %v", err)
 	} else {
 		log.Printf("Live TV: Loaded %d channels", len(channelManager.GetAllChannels()))
+	}
+
+	// Auto-import IPTV VOD when mode includes VOD
+	if strings.EqualFold(currentSettings.IPTVImportMode, "vod_only") || strings.EqualFold(currentSettings.IPTVImportMode, "both") {
+		if cfg.TMDBAPIKey != "" {
+			go func() {
+				ctx := context.Background()
+				summary, err := services.ImportIPTVVOD(ctx, currentSettings, tmdbClient, movieStore, seriesStore)
+				if err != nil {
+					log.Printf("IPTV VOD import error: %v", err)
+				} else if summary != nil {
+					log.Printf("IPTV VOD import: sources=%d items=%d movies=%d series=%d skipped=%d errors=%d",
+						summary.SourcesChecked, summary.ItemsFound, summary.MoviesImported, summary.SeriesImported, summary.Skipped, summary.Errors)
+				}
+				// Cleanup removed providers after import
+				_ = services.CleanupIPTVVOD(ctx, currentSettings, movieStore, seriesStore)
+			}()
+		} else {
+			log.Printf("IPTV VOD auto-import skipped: TMDB API key missing")
+		}
 	}
 
 	// Test Real-Debrid connection
@@ -292,6 +315,12 @@ func main() {
 		s := settingsManager.Get()
 		return s.HideUnavailableContent
 	})
+
+	// Wire up optional duplication of VOD entries per provider for broader IPTV client compatibility
+	xtreamHandler.SetDuplicateVODPerProvider(func() bool {
+		s := settingsManager.Get()
+		return s.DuplicateVODPerProvider
+	})
 	
 	// Initialize playlist generator
 	playlistGen := playlist.NewPlaylistGenerator(cfg, db, tmdbClient)
@@ -314,6 +343,31 @@ func main() {
 				log.Println("EPG data updated successfully")
 			}
 			<-ticker.C
+		}
+	}()
+
+	// Periodic IPTV VOD sync (import + cleanup) using configurable interval when mode includes VOD
+	go func() {
+		for {
+			current := settingsManager.Get()
+			mode := strings.ToLower(current.IPTVImportMode)
+			includesVOD := mode == "vod_only" || mode == "both"
+			intervalHours := current.IPTVVODSyncIntervalHours
+			if intervalHours <= 0 {
+				intervalHours = 6
+			}
+			interval := time.Duration(intervalHours) * time.Hour
+			if includesVOD && cfg.TMDBAPIKey != "" {
+				services.GlobalScheduler.MarkRunning(services.ServiceIPTVVODSync)
+				ctx := context.Background()
+				_, err := services.ImportIPTVVOD(ctx, current, tmdbClient, movieStore, seriesStore)
+				if err != nil {
+					log.Printf("[Scheduler] IPTV VOD import error: %v", err)
+				}
+				_ = services.CleanupIPTVVOD(ctx, current, movieStore, seriesStore)
+				services.GlobalScheduler.MarkComplete(services.ServiceIPTVVODSync, err, interval)
+			}
+			time.Sleep(interval)
 		}
 	}()
 

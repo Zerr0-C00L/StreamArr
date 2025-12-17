@@ -49,6 +49,9 @@ interface SettingsData {
   include_live_tv: boolean;
   include_adult_vod: boolean;
   import_adult_vod_from_github: boolean;
+  iptv_import_mode: 'live_only' | 'vod_only' | 'both';
+  iptv_vod_sync_interval_hours: number;
+  duplicate_vod_per_provider: boolean;
   min_year: number;
   min_runtime: number;
   enable_notifications: boolean;
@@ -574,6 +577,29 @@ export default function Settings() {
       setMessage(`❌ Error saving settings: ${error instanceof Error ? error.message : 'Unknown error'}`);
     } finally {
       setSaving(false);
+    }
+  };
+
+  // Save a specific setting immediately (merge with current state and send full payload)
+  const saveSettingsImmediate = async (patch: Partial<SettingsData>) => {
+    if (!settings) return;
+    const next: SettingsData = { ...settings, ...patch } as SettingsData;
+    const settingsToSave = {
+      ...next,
+      mdblist_lists: JSON.stringify(mdbLists),
+      m3u_sources: m3uSources,
+      xtream_sources: xtreamSources,
+      livetv_enabled_sources: Array.from(enabledSources),
+      livetv_enabled_categories: Array.from(enabledCategories),
+    };
+    try {
+      await api.put('/settings', settingsToSave);
+      setSettings(next);
+      setMessage('✅ Setting saved');
+      setTimeout(() => setMessage(''), 2000);
+    } catch (error: any) {
+      setMessage(`❌ Error saving: ${error.response?.data?.error || error.message}`);
+      setTimeout(() => setMessage(''), 3000);
     }
   };
 
@@ -1874,6 +1900,99 @@ export default function Settings() {
                     />
                     <div className="w-11 h-6 bg-gray-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-green-600"></div>
                   </label>
+                </div>
+              </div>
+
+              {/* IPTV Import Mode */}
+              <div className="p-4 bg-yellow-900/20 border border-yellow-800 rounded-lg">
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <h4 className="text-white font-medium flex items-center gap-2">
+                      <span>🎬</span> IPTV Import Mode
+                    </h4>
+                    <p className="text-sm text-slate-400 mt-1">
+                      Choose how to handle content from M3U/Xtream: live channels only, VOD only, or split both.
+                    </p>
+                  </div>
+                  <div>
+                    <select
+                      value={settings.iptv_import_mode || 'live_only'}
+                      onChange={(e) => updateSetting('iptv_import_mode', e.target.value)}
+                      className="bg-[#333] text-white border border-white/10 rounded-md px-3 py-2"
+                    >
+                      <option value="live_only">Live TV only</option>
+                      <option value="vod_only">VOD only</option>
+                      <option value="both">Both (Live TV + VOD)</option>
+                    </select>
+                  </div>
+                </div>
+                <div className="mt-3 flex items-center justify-between gap-4">
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      id="duplicate_vod_per_provider"
+                      checked={settings.duplicate_vod_per_provider || false}
+                      onChange={(e) => {
+                        const val = e.target.checked;
+                        // Update local state and persist immediately
+                        updateSetting('duplicate_vod_per_provider', val);
+                        saveSettingsImmediate({ duplicate_vod_per_provider: val });
+                      }}
+                      className="w-4 h-4 bg-[#2a2a2a] border-white/10 rounded"
+                    />
+                    <label htmlFor="duplicate_vod_per_provider" className="text-sm text-slate-300">
+                      Duplicate VOD entries per provider in VOD list
+                    </label>
+                  </div>
+                  <span className="text-xs text-slate-500">Helps clients that ignore multiple video sources</span>
+                </div>
+                <div className="mt-3 flex items-center justify-between gap-4">
+                  <div className="flex items-center gap-2">
+                    <label htmlFor="iptv_vod_sync_interval_hours" className="text-sm text-slate-300">
+                      IPTV VOD Sync Interval (hours)
+                    </label>
+                    <input
+                      type="number"
+                      id="iptv_vod_sync_interval_hours"
+                      min={1}
+                      value={Number(settings.iptv_vod_sync_interval_hours || 6)}
+                      onChange={(e) => updateSetting('iptv_vod_sync_interval_hours', Math.max(1, parseInt(e.target.value || '6', 10)))}
+                      className="w-24 p-2 bg-[#2a2a2a] border border-white/10 rounded text-white"
+                    />
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span className="text-xs text-slate-500">Controls auto-import/cleanup cadence (default 6h)</span>
+                    <button
+                      onClick={() => triggerService('iptv_vod_sync')}
+                      disabled={triggeringService === 'iptv_vod_sync'}
+                      className={`inline-flex items-center gap-2 px-3 py-2 rounded-md text-sm ${triggeringService === 'iptv_vod_sync' ? 'bg-gray-700 text-gray-300 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700 text-white'}`}
+                      title="Run IPTV VOD sync now"
+                    >
+                      <RefreshCw className={`w-4 h-4 ${triggeringService === 'iptv_vod_sync' ? 'animate-spin-slow' : ''}`} />
+                      {triggeringService === 'iptv_vod_sync' ? 'Running…' : 'Run now'}
+                    </button>
+                  </div>
+                </div>
+                <div className="mt-3 flex items-center justify-between gap-4">
+                  <p className="text-xs text-slate-400">
+                    When VOD is selected (vod_only/both), import IPTV VOD items into your Library.
+                  </p>
+                  <button
+                    onClick={async () => {
+                      try {
+                        const res = await api.post('/iptv-vod/import');
+                        const d = res.data || {};
+                        setMessage(
+                          `IPTV VOD import done: movies ${d.movies_imported || 0}, series ${d.series_imported || 0}, skipped ${d.skipped || 0}, errors ${d.errors || 0}`
+                        );
+                      } catch (err: any) {
+                        setMessage(`Import failed: ${err?.response?.data?.error || err.message}`);
+                      }
+                    }}
+                    className="inline-flex items-center gap-2 px-3 py-2 bg-green-600 hover:bg-green-700 text-white rounded-md text-sm"
+                  >
+                    <Download className="w-4 h-4" /> Import IPTV VOD to Library
+                  </button>
                 </div>
               </div>
 

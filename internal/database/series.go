@@ -18,6 +18,11 @@ func NewSeriesStore(db *sql.DB) *SeriesStore {
 	return &SeriesStore{db: db}
 }
 
+// GetDB returns the underlying database connection
+func (s *SeriesStore) GetDB() *sql.DB {
+	return s.db
+}
+
 // Add adds a new series to the library
 func (s *SeriesStore) Add(ctx context.Context, series *models.Series) error {
 	// Build metadata JSON with all series details

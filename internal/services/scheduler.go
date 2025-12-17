@@ -72,6 +72,7 @@ func (s *ServiceScheduler) MarkComplete(name string, err error, interval time.Du
 		svc.Running = false
 		svc.LastRun = time.Now()
 		svc.NextRun = time.Now().Add(interval)
+		svc.Interval = formatDuration(interval)
 		svc.RunCount++
 		svc.Progress = 0
 		svc.ProgressMessage = ""
@@ -172,6 +173,7 @@ const (
 	ServiceStreamSearch   = "stream_search"
 	ServiceCollectionSync = "collection_sync"
 	ServiceEpisodeScan    = "episode_scan"
+	ServiceIPTVVODSync    = "iptv_vod_sync"
 )
 
 // InitializeDefaultServices sets up the default service definitions
@@ -184,4 +186,5 @@ func InitializeDefaultServices() {
 	GlobalScheduler.Register(ServiceStreamSearch, "Searches for streams for monitored content", 30*time.Minute, true)
 	GlobalScheduler.Register(ServiceCollectionSync, "Syncs incomplete movie collections", 24*time.Hour, true)
 	GlobalScheduler.Register(ServiceEpisodeScan, "Fetches episode metadata from TMDB for all series", 24*time.Hour, true)
+	GlobalScheduler.Register(ServiceIPTVVODSync, "Imports and cleans up IPTV VOD items", 12*time.Hour, true)
 }

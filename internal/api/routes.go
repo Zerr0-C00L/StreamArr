@@ -113,6 +113,12 @@ func SetupRoutes(handler *Handler) http.Handler {
 	api.HandleFunc("/adult-vod/import", handler.ImportAdultVOD).Methods("POST")
 	api.HandleFunc("/adult-vod/stats", handler.GetAdultVODStats).Methods("GET")
 
+	// IPTV VOD Import (from configured M3U/Xtream)
+	api.HandleFunc("/iptv-vod/import", handler.ImportIPTVVOD).Methods("POST")
+	// Fallbacks for clients hitting /api/iptv-vod/import or trailing slash
+	r.HandleFunc("/api/iptv-vod/import", handler.ImportIPTVVOD).Methods("POST")
+	api.HandleFunc("/iptv-vod/import/", handler.ImportIPTVVOD).Methods("POST")
+
 	// Stremio Addon Management
 	api.HandleFunc("/stremio/generate-token", handler.GenerateStremioToken).Methods("POST")
 	api.HandleFunc("/stremio/manifest-url", handler.GetStremioManifestURL).Methods("GET")

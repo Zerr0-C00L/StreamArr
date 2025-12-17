@@ -26,19 +26,19 @@ import (
 )
 
 type Handler struct {
-	movieStore       *database.MovieStore
-	seriesStore      *database.SeriesStore
-	episodeStore     *database.EpisodeStore
-	streamStore      *database.StreamStore
-	settingsStore    *database.SettingsStore
-	userStore        *database.UserStore
-	collectionStore  *database.CollectionStore
-	tmdbClient       *services.TMDBClient
-	rdClient         *services.RealDebridClient
-	channelManager   *livetv.ChannelManager
-	settingsManager  *settings.Manager
-	epgManager       *epg.Manager
-	streamProvider   *providers.MultiProvider
+	movieStore      *database.MovieStore
+	seriesStore     *database.SeriesStore
+	episodeStore    *database.EpisodeStore
+	streamStore     *database.StreamStore
+	settingsStore   *database.SettingsStore
+	userStore       *database.UserStore
+	collectionStore *database.CollectionStore
+	tmdbClient      *services.TMDBClient
+	rdClient        *services.RealDebridClient
+	channelManager  *livetv.ChannelManager
+	settingsManager *settings.Manager
+	epgManager      *epg.Manager
+	streamProvider  *providers.MultiProvider
 }
 
 func NewHandler(
@@ -135,7 +135,7 @@ func (h *Handler) applyReleaseFilters(streams []providers.TorrentioStream) []pro
 	}
 
 	// Build regex pattern that matches terms separated by dots, spaces, dashes, etc.
-	combinedPattern := `(?i)(?:^|[\s.\-_\[\]()])(`  + strings.Join(patterns, "|") + `)(?:$|[\s.\-_\[\]()])`
+	combinedPattern := `(?i)(?:^|[\s.\-_\[\]()])(` + strings.Join(patterns, "|") + `)(?:$|[\s.\-_\[\]()])`
 	excludePattern, err := regexp.Compile(combinedPattern)
 	if err != nil {
 		log.Printf("Invalid release filter pattern: %v", err)
@@ -164,7 +164,7 @@ func sortStreams(streams []providers.TorrentioStream) {
 		if streams[i].Cached != streams[j].Cached {
 			return streams[i].Cached
 		}
-		
+
 		// Second: sort by size (larger files = better quality)
 		return streams[i].Size > streams[j].Size
 	})
@@ -221,7 +221,7 @@ func (h *Handler) ListMovies(w http.ResponseWriter, r *http.Request) {
 // GetMovie handles GET /api/movies/{id}
 func (h *Handler) GetMovie(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	
+
 	id, err := strconv.ParseInt(r.URL.Query().Get("id"), 10, 64)
 	if err != nil {
 		respondError(w, http.StatusBadRequest, "invalid movie ID")
@@ -308,7 +308,11 @@ func (h *Handler) AddMovie(w http.ResponseWriter, r *http.Request) {
 
 	// If auto-add collection is enabled and movie belongs to a collection
 	if shouldAddCollection && collection != nil && h.collectionStore != nil {
-		go h.addCollectionMovies(ctx, collection.TMDBID, req.Monitored, req.QualityProfile)
+		if isIPTVVODMovie(movie) {
+			log.Printf("[Collection Sync] Skipping auto-add for IPTV VOD movie %s", movie.Title)
+		} else {
+			go h.addCollectionMovies(ctx, collection.TMDBID, req.Monitored, req.QualityProfile)
+		}
 	}
 
 	// Load collection data for response
@@ -361,7 +365,7 @@ func (h *Handler) addCollectionMovies(ctx context.Context, collectionTMDBID int,
 			added++
 			fmt.Printf("[Collection Sync] Added '%s' from '%s'\n", movie.Title, collection.Name)
 		}
-		
+
 		// Small delay to avoid hitting API rate limits
 		time.Sleep(250 * time.Millisecond)
 	}
@@ -384,17 +388,17 @@ func (h *Handler) scanAndLinkCollections(ctx context.Context) error {
 		services.GlobalScheduler.UpdateProgress(services.ServiceCollectionSync, 0, 0, "All movies already checked")
 		return nil
 	}
-	
+
 	fmt.Printf("[Collection Sync] Starting scan of %d unchecked movies...\n", totalMovies)
 	services.GlobalScheduler.UpdateProgress(services.ServiceCollectionSync, 0, totalMovies, "Scanning movies for collections...")
-	
+
 	linked := 0
 	noCollection := 0
 	errors := 0
 
 	for i, movie := range movies {
 		// Update progress
-		services.GlobalScheduler.UpdateProgress(services.ServiceCollectionSync, i+1, totalMovies, 
+		services.GlobalScheduler.UpdateProgress(services.ServiceCollectionSync, i+1, totalMovies,
 			fmt.Sprintf("Checking: %s", movie.Title))
 
 		// Fetch movie with collection info from TMDB
@@ -427,7 +431,7 @@ func (h *Handler) scanAndLinkCollections(ctx context.Context) error {
 
 			// Link movie to collection - fullCollection.ID is populated by Create's RETURNING clause
 			if err := h.collectionStore.UpdateMovieCollection(ctx, movie.ID, fullCollection.ID); err != nil {
-				fmt.Printf("[Collection Sync] Failed to link movie %s (ID:%d) to collection %s (ID:%d): %v\n", 
+				fmt.Printf("[Collection Sync] Failed to link movie %s (ID:%d) to collection %s (ID:%d): %v\n",
 					movie.Title, movie.ID, fullCollection.Name, fullCollection.ID, err)
 				errors++
 				h.movieStore.MarkCollectionChecked(ctx, movie.ID)
@@ -436,20 +440,20 @@ func (h *Handler) scanAndLinkCollections(ctx context.Context) error {
 
 			linked++
 			fmt.Printf("[Collection Sync] Linked '%s' to '%s'\n", movie.Title, fullCollection.Name)
-			
+
 			// Update progress message with linked info
-			services.GlobalScheduler.UpdateProgress(services.ServiceCollectionSync, i+1, totalMovies, 
+			services.GlobalScheduler.UpdateProgress(services.ServiceCollectionSync, i+1, totalMovies,
 				fmt.Sprintf("Linked: %s → %s", movie.Title, fullCollection.Name))
 		} else {
 			noCollection++
 		}
-		
+
 		// Mark as checked regardless of whether it has a collection
 		h.movieStore.MarkCollectionChecked(ctx, movie.ID)
 
 		// Progress log every 100 movies
 		if (i+1)%100 == 0 {
-			fmt.Printf("[Collection Sync] Progress: %d/%d movies processed, %d linked, %d no collection, %d errors\n", 
+			fmt.Printf("[Collection Sync] Progress: %d/%d movies processed, %d linked, %d no collection, %d errors\n",
 				i+1, totalMovies, linked, noCollection, errors)
 		}
 
@@ -457,10 +461,10 @@ func (h *Handler) scanAndLinkCollections(ctx context.Context) error {
 		time.Sleep(200 * time.Millisecond)
 	}
 
-	services.GlobalScheduler.UpdateProgress(services.ServiceCollectionSync, totalMovies, totalMovies, 
+	services.GlobalScheduler.UpdateProgress(services.ServiceCollectionSync, totalMovies, totalMovies,
 		fmt.Sprintf("Complete: %d linked, %d no collection, %d errors", linked, noCollection, errors))
-	
-	fmt.Printf("[Collection Sync] Complete: %d movies linked, %d have no collection, %d errors\n", 
+
+	fmt.Printf("[Collection Sync] Complete: %d movies linked, %d have no collection, %d errors\n",
 		linked, noCollection, errors)
 	return nil
 }
@@ -469,34 +473,34 @@ func (h *Handler) scanAndLinkCollections(ctx context.Context) error {
 func (h *Handler) scanEpisodesForAllSeries(ctx context.Context) error {
 	fmt.Println("[Episode Scan] Starting episode scan for all series...")
 	services.GlobalScheduler.UpdateProgress(services.ServiceEpisodeScan, 0, 0, "Loading series list...")
-	
+
 	// Get all series from the library
 	allSeries, err := h.seriesStore.List(ctx, 0, 10000, nil)
 	if err != nil {
 		fmt.Printf("[Episode Scan] Failed to list series: %v\n", err)
 		return err
 	}
-	
+
 	totalSeries := len(allSeries)
 	if totalSeries == 0 {
 		fmt.Println("[Episode Scan] No series in library")
 		services.GlobalScheduler.UpdateProgress(services.ServiceEpisodeScan, 0, 0, "No series in library")
 		return nil
 	}
-	
+
 	fmt.Printf("[Episode Scan] Found %d series to scan\n", totalSeries)
-	services.GlobalScheduler.UpdateProgress(services.ServiceEpisodeScan, 0, totalSeries, 
+	services.GlobalScheduler.UpdateProgress(services.ServiceEpisodeScan, 0, totalSeries,
 		fmt.Sprintf("Scanning %d series...", totalSeries))
-	
+
 	totalEpisodes := 0
 	seriesProcessed := 0
 	errors := 0
-	
+
 	for i, series := range allSeries {
 		// Update progress
-		services.GlobalScheduler.UpdateProgress(services.ServiceEpisodeScan, i+1, totalSeries, 
+		services.GlobalScheduler.UpdateProgress(services.ServiceEpisodeScan, i+1, totalSeries,
 			fmt.Sprintf("Scanning: %s", series.Title))
-		
+
 		// Get series details from TMDB to get number of seasons
 		tmdbSeries, err := h.tmdbClient.GetSeries(ctx, series.TMDBID)
 		if err != nil {
@@ -504,13 +508,13 @@ func (h *Handler) scanEpisodesForAllSeries(ctx context.Context) error {
 			errors++
 			continue
 		}
-		
+
 		numSeasons := tmdbSeries.Seasons
 		if numSeasons == 0 {
 			fmt.Printf("[Episode Scan] '%s' has 0 seasons, skipping\n", series.Title)
 			continue
 		}
-		
+
 		// Get all episodes for this series
 		episodes, err := h.tmdbClient.GetEpisodes(ctx, series.ID, series.TMDBID, numSeasons)
 		if err != nil {
@@ -518,13 +522,13 @@ func (h *Handler) scanEpisodesForAllSeries(ctx context.Context) error {
 			errors++
 			continue
 		}
-		
+
 		// Set the series ID for all episodes
 		for _, ep := range episodes {
 			ep.SeriesID = series.ID
 			ep.Monitored = series.Monitored
 		}
-		
+
 		// Add episodes to database (batch insert)
 		if len(episodes) > 0 {
 			if err := h.episodeStore.AddBatch(ctx, episodes); err != nil {
@@ -538,17 +542,17 @@ func (h *Handler) scanEpisodesForAllSeries(ctx context.Context) error {
 				fmt.Printf("[Episode Scan] Added %d episodes for '%s'\n", len(episodes), series.Title)
 			}
 		}
-		
+
 		seriesProcessed++
-		
+
 		// Rate limit TMDB requests (40 per 10s limit)
 		time.Sleep(300 * time.Millisecond)
 	}
-	
-	services.GlobalScheduler.UpdateProgress(services.ServiceEpisodeScan, totalSeries, totalSeries, 
+
+	services.GlobalScheduler.UpdateProgress(services.ServiceEpisodeScan, totalSeries, totalSeries,
 		fmt.Sprintf("Complete: %d episodes from %d series", totalEpisodes, seriesProcessed))
-	
-	fmt.Printf("[Episode Scan] Complete: %d episodes added from %d series (%d errors)\n", 
+
+	fmt.Printf("[Episode Scan] Complete: %d episodes added from %d series (%d errors)\n",
 		totalEpisodes, seriesProcessed, errors)
 	return nil
 }
@@ -557,7 +561,7 @@ func (h *Handler) scanEpisodesForAllSeries(ctx context.Context) error {
 func (h *Handler) scanStreamAvailability(ctx context.Context) error {
 	fmt.Println("[Stream Scan] Starting stream availability scan...")
 	services.GlobalScheduler.UpdateProgress(services.ServiceStreamSearch, 0, 0, "Loading movies to scan...")
-	
+
 	// Get movies that haven't been checked recently (or never checked)
 	// We'll check movies that were added in the last 30 days OR haven't been checked in 7 days
 	query := `
@@ -568,21 +572,21 @@ func (h *Handler) scanStreamAvailability(ctx context.Context) error {
 		ORDER BY added_at DESC
 		LIMIT 100
 	`
-	
+
 	rows, err := h.movieStore.GetDB().QueryContext(ctx, query)
 	if err != nil {
 		fmt.Printf("[Stream Scan] Failed to query movies: %v\n", err)
 		return err
 	}
 	defer rows.Close()
-	
+
 	type movieToScan struct {
 		ID     int64
 		TMDBID int
 		IMDBID string
 		Title  string
 	}
-	
+
 	var movies []movieToScan
 	for rows.Next() {
 		var m movieToScan
@@ -595,18 +599,18 @@ func (h *Handler) scanStreamAvailability(ctx context.Context) error {
 			movies = append(movies, m)
 		}
 	}
-	
+
 	total := len(movies)
 	if total == 0 {
 		fmt.Println("[Stream Scan] No movies to scan")
 		services.GlobalScheduler.UpdateProgress(services.ServiceStreamSearch, 0, 0, "No movies to scan")
 		return nil
 	}
-	
+
 	fmt.Printf("[Stream Scan] Found %d movies to check\n", total)
-	services.GlobalScheduler.UpdateProgress(services.ServiceStreamSearch, 0, total, 
+	services.GlobalScheduler.UpdateProgress(services.ServiceStreamSearch, 0, total,
 		fmt.Sprintf("Checking %d movies...", total))
-	
+
 	// Get settings for providers
 	appSettings := h.settingsManager.Get()
 	stremioAddons := appSettings.StremioAddons
@@ -615,23 +619,23 @@ func (h *Handler) scanStreamAvailability(ctx context.Context) error {
 		services.GlobalScheduler.UpdateProgress(services.ServiceStreamSearch, 0, 0, "No addons configured")
 		return fmt.Errorf("no Stremio addons configured")
 	}
-	
+
 	// Create a simple stream checker
 	available := 0
 	unavailable := 0
-	
+
 	for i, movie := range movies {
-		services.GlobalScheduler.UpdateProgress(services.ServiceStreamSearch, i+1, total, 
+		services.GlobalScheduler.UpdateProgress(services.ServiceStreamSearch, i+1, total,
 			fmt.Sprintf("Checking: %s", movie.Title))
-		
+
 		hasStreams := false
-		
+
 		// Check each enabled addon for streams
 		for _, addon := range stremioAddons {
 			if !addon.Enabled {
 				continue
 			}
-			
+
 			// Quick check using generic addon endpoint
 			url := fmt.Sprintf("%s/stream/movie/%s.json", addon.URL, movie.IMDBID)
 			resp, err := http.Get(url)
@@ -645,36 +649,36 @@ func (h *Handler) scanStreamAvailability(ctx context.Context) error {
 					break
 				}
 			}
-			
+
 			if hasStreams {
 				break // Found streams, no need to check other addons
 			}
 		}
-		
+
 		// Update the database
 		updateQuery := `UPDATE library_movies SET available = $1, last_checked = NOW() WHERE id = $2`
 		h.movieStore.GetDB().ExecContext(ctx, updateQuery, hasStreams, movie.ID)
-		
+
 		if hasStreams {
 			available++
 		} else {
 			unavailable++
 			fmt.Printf("[Stream Scan] No streams for: %s (%s)\n", movie.Title, movie.IMDBID)
 		}
-		
+
 		// Rate limit - don't hammer the providers
 		time.Sleep(500 * time.Millisecond)
 	}
-	
-	services.GlobalScheduler.UpdateProgress(services.ServiceStreamSearch, total, total, 
+
+	services.GlobalScheduler.UpdateProgress(services.ServiceStreamSearch, total, total,
 		fmt.Sprintf("Movies: %d available, %d unavailable", available, unavailable))
-	
-	fmt.Printf("[Stream Scan] Movies complete: %d available, %d unavailable out of %d\n", 
+
+	fmt.Printf("[Stream Scan] Movies complete: %d available, %d unavailable out of %d\n",
 		available, unavailable, total)
-	
+
 	// ========== Phase 2: Scan Episodes ==========
 	fmt.Println("[Stream Scan] Starting episode availability scan...")
-	
+
 	// Get episodes that need checking, joined with series to get IMDB ID
 	episodeQuery := `
 		SELECT e.id, e.series_id, e.season_number, e.episode_number, e.title, s.imdb_id, s.title as series_title
@@ -687,14 +691,14 @@ func (h *Handler) scanStreamAvailability(ctx context.Context) error {
 		ORDER BY e.air_date DESC
 		LIMIT 200
 	`
-	
+
 	episodeRows, err := h.movieStore.GetDB().QueryContext(ctx, episodeQuery)
 	if err != nil {
 		fmt.Printf("[Stream Scan] Failed to query episodes: %v\n", err)
 		return err
 	}
 	defer episodeRows.Close()
-	
+
 	type episodeToScan struct {
 		ID            int64
 		SeriesID      int64
@@ -704,7 +708,7 @@ func (h *Handler) scanStreamAvailability(ctx context.Context) error {
 		SeriesIMDBID  string
 		SeriesTitle   string
 	}
-	
+
 	var episodes []episodeToScan
 	for episodeRows.Next() {
 		var ep episodeToScan
@@ -719,71 +723,71 @@ func (h *Handler) scanStreamAvailability(ctx context.Context) error {
 			episodes = append(episodes, ep)
 		}
 	}
-	
+
 	episodeTotal := len(episodes)
 	if episodeTotal == 0 {
 		fmt.Println("[Stream Scan] No episodes to scan")
 		return nil
 	}
-	
+
 	fmt.Printf("[Stream Scan] Found %d episodes to check\n", episodeTotal)
-	services.GlobalScheduler.UpdateProgress(services.ServiceStreamSearch, 0, episodeTotal, 
+	services.GlobalScheduler.UpdateProgress(services.ServiceStreamSearch, 0, episodeTotal,
 		fmt.Sprintf("Checking %d episodes...", episodeTotal))
-	
+
 	epAvailable := 0
 	epUnavailable := 0
-	
+
 	for i, ep := range episodes {
 		displayTitle := fmt.Sprintf("%s S%02dE%02d", ep.SeriesTitle, ep.SeasonNumber, ep.EpisodeNumber)
-		services.GlobalScheduler.UpdateProgress(services.ServiceStreamSearch, i+1, episodeTotal, 
+		services.GlobalScheduler.UpdateProgress(services.ServiceStreamSearch, i+1, episodeTotal,
 			fmt.Sprintf("Checking: %s", displayTitle))
-		
+
 		hasStreams := false
-		
+
 		// Build the episode stream ID format: tt1234567:1:5 (imdb:season:episode)
 		episodeStreamID := fmt.Sprintf("%s:%d:%d", ep.SeriesIMDBID, ep.SeasonNumber, ep.EpisodeNumber)
-		
-	// Check each enabled addon for streams
-	for _, addon := range stremioAddons {
-		if !addon.Enabled {
-			continue
-		}
-		
-		url := fmt.Sprintf("%s/stream/series/%s.json", addon.URL, episodeStreamID)
-		resp, err := http.Get(url)
-		if err == nil {
-			var result struct {
-				Streams []interface{} `json:"streams"`
+
+		// Check each enabled addon for streams
+		for _, addon := range stremioAddons {
+			if !addon.Enabled {
+				continue
 			}
-			if json.NewDecoder(resp.Body).Decode(&result) == nil && len(result.Streams) > 0 {
-				hasStreams = true
-			}
-			resp.Body.Close()
+
+			url := fmt.Sprintf("%s/stream/series/%s.json", addon.URL, episodeStreamID)
+			resp, err := http.Get(url)
+			if err == nil {
+				var result struct {
+					Streams []interface{} `json:"streams"`
+				}
+				if json.NewDecoder(resp.Body).Decode(&result) == nil && len(result.Streams) > 0 {
+					hasStreams = true
+				}
+				resp.Body.Close()
 				break
 			}
 		}
-		
+
 		// Update the episode
 		updateEpisodeQuery := `UPDATE library_episodes SET available = $1, last_checked = NOW() WHERE id = $2 AND series_id = $3`
 		h.movieStore.GetDB().ExecContext(ctx, updateEpisodeQuery, hasStreams, ep.ID, ep.SeriesID)
-		
+
 		if hasStreams {
 			epAvailable++
 		} else {
 			epUnavailable++
 			fmt.Printf("[Stream Scan] No streams for: %s (%s)\n", displayTitle, episodeStreamID)
 		}
-		
+
 		// Rate limit
 		time.Sleep(300 * time.Millisecond)
 	}
-	
-	services.GlobalScheduler.UpdateProgress(services.ServiceStreamSearch, episodeTotal, episodeTotal, 
+
+	services.GlobalScheduler.UpdateProgress(services.ServiceStreamSearch, episodeTotal, episodeTotal,
 		fmt.Sprintf("Episodes: %d available, %d unavailable", epAvailable, epUnavailable))
-	
-	fmt.Printf("[Stream Scan] Episodes complete: %d available, %d unavailable out of %d\n", 
+
+	fmt.Printf("[Stream Scan] Episodes complete: %d available, %d unavailable out of %d\n",
 		epAvailable, epUnavailable, episodeTotal)
-	
+
 	return nil
 }
 
@@ -918,6 +922,14 @@ func (h *Handler) GetMovieStreams(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// If this movie came from IPTV VOD import, expose only VOD playlist links
+	if isIPTVVODMovie(movie) {
+		apiStreams := buildIPTVVODStreams(movie)
+		log.Printf("Returning %d IPTV VOD streams for movie %d (%s)", len(apiStreams), id, movie.Title)
+		respondJSON(w, http.StatusOK, apiStreams)
+		return
+	}
+
 	// Apply release filters from settings
 	providerStreams = h.applyReleaseFilters(providerStreams)
 
@@ -926,8 +938,9 @@ func (h *Handler) GetMovieStreams(w http.ResponseWriter, r *http.Request) {
 
 	log.Printf("Found %d streams for movie %d (%s) after filtering", len(providerStreams), id, movie.Title)
 
-	// Convert provider streams to API response format
 	apiStreams := make([]map[string]interface{}, 0, len(providerStreams))
+
+	// Convert provider streams to API response format
 	for _, ps := range providerStreams {
 		// Extract codec from stream name if available (e.g., "x265", "x264", "HEVC")
 		codec := ""
@@ -937,7 +950,7 @@ func (h *Handler) GetMovieStreams(w http.ResponseWriter, r *http.Request) {
 		} else if strings.Contains(name, "X264") || strings.Contains(name, "H264") {
 			codec = "H.264"
 		}
-		
+
 		stream := map[string]interface{}{
 			"source":   ps.Source,
 			"quality":  ps.Quality,
@@ -961,7 +974,7 @@ func (h *Handler) GetEpisodeStreams(w http.ResponseWriter, r *http.Request) {
 	// Parse the stream ID from URL path (format: imdbId:season:episode)
 	vars := mux.Vars(r)
 	streamID := vars["stream_id"]
-	
+
 	// Parse stream ID format: tt1234567:1:1
 	parts := strings.Split(streamID, ":")
 	if len(parts) != 3 {
@@ -975,7 +988,7 @@ func (h *Handler) GetEpisodeStreams(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusBadRequest, "invalid season number")
 		return
 	}
-	
+
 	episode, err := strconv.Atoi(parts[2])
 	if err != nil {
 		respondError(w, http.StatusBadRequest, "invalid episode number")
@@ -1016,7 +1029,7 @@ func (h *Handler) GetEpisodeStreams(w http.ResponseWriter, r *http.Request) {
 		} else if strings.Contains(name, "X264") || strings.Contains(name, "H264") {
 			codec = "H.264"
 		}
-		
+
 		stream := map[string]interface{}{
 			"source":   ps.Source,
 			"quality":  ps.Quality,
@@ -1256,7 +1269,7 @@ func (h *Handler) GetSeriesEpisodes(w http.ResponseWriter, r *http.Request) {
 
 	// Check for optional season filter
 	seasonParam := r.URL.Query().Get("season")
-	
+
 	episodes, err := h.episodeStore.ListBySeries(ctx, id)
 	if err != nil {
 		log.Printf("Error fetching episodes for series %d: %v", id, err)
@@ -1280,7 +1293,7 @@ func (h *Handler) GetSeriesEpisodes(w http.ResponseWriter, r *http.Request) {
 			if err == nil && externalIDs.IMDBID != "" {
 				series.Metadata["imdb_id"] = externalIDs.IMDBID
 				log.Printf("Fetched IMDB ID %s for series %d (%s)", externalIDs.IMDBID, id, series.Title)
-				
+
 				// Update the series in database to store IMDB ID
 				if err := h.seriesStore.Update(ctx, series); err != nil {
 					log.Printf("Error updating series %d with IMDB ID: %v", id, err)
@@ -1339,7 +1352,7 @@ func (h *Handler) GetSeriesEpisodes(w http.ResponseWriter, r *http.Request) {
 	}
 
 	log.Printf("Returning %d episodes for series %d", len(episodes), id)
-	
+
 	// Always try to get series IMDB ID and add it to each episode's metadata
 	if series, err := h.seriesStore.Get(ctx, id); err == nil {
 		var seriesImdbID string
@@ -1351,14 +1364,14 @@ func (h *Handler) GetSeriesEpisodes(w http.ResponseWriter, r *http.Request) {
 				seriesImdbID = externalIDs.IMDBID
 				series.Metadata["imdb_id"] = externalIDs.IMDBID
 				log.Printf("Fetched IMDB ID %s for series %d (%s)", externalIDs.IMDBID, id, series.Title)
-				
+
 				// Update the series in database to store IMDB ID
 				if err := h.seriesStore.Update(ctx, series); err != nil {
 					log.Printf("Error updating series %d with IMDB ID: %v", id, err)
 				}
 			}
 		}
-		
+
 		// Add series IMDB ID to each episode's metadata
 		if seriesImdbID != "" {
 			for _, ep := range episodes {
@@ -1369,7 +1382,7 @@ func (h *Handler) GetSeriesEpisodes(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	
+
 	respondJSON(w, http.StatusOK, episodes)
 }
 
@@ -1444,7 +1457,7 @@ func (h *Handler) PlayEpisode(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) RootHandler(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, map[string]interface{}{
 		"name":    "StreamArr API",
-		"version": "1.0.0 Beta",
+		"version": "1.1.0",
 		"status":  "running",
 		"endpoints": map[string]string{
 			"health":   "/api/v1/health",
@@ -1509,14 +1522,14 @@ func (h *Handler) ListChannels(w http.ResponseWriter, r *http.Request) {
 	// Apply source and category filters from settings
 	if h.settingsManager != nil {
 		settings := h.settingsManager.Get()
-		
+
 		// Filter by enabled sources (if any are specified)
 		if len(settings.LiveTVEnabledSources) > 0 {
 			enabledSourcesMap := make(map[string]bool)
 			for _, s := range settings.LiveTVEnabledSources {
 				enabledSourcesMap[s] = true
 			}
-			
+
 			filtered := make([]*livetv.Channel, 0, len(channels))
 			for _, ch := range channels {
 				if enabledSourcesMap[ch.Source] {
@@ -1525,14 +1538,14 @@ func (h *Handler) ListChannels(w http.ResponseWriter, r *http.Request) {
 			}
 			channels = filtered
 		}
-		
+
 		// Filter by enabled categories (if any are specified)
 		if len(settings.LiveTVEnabledCategories) > 0 {
 			enabledCategoriesMap := make(map[string]bool)
 			for _, c := range settings.LiveTVEnabledCategories {
 				enabledCategoriesMap[c] = true
 			}
-			
+
 			filtered := make([]*livetv.Channel, 0, len(channels))
 			for _, ch := range channels {
 				if enabledCategoriesMap[ch.Category] {
@@ -1581,11 +1594,11 @@ func (h *Handler) GetChannelStats(w http.ResponseWriter, r *http.Request) {
 	}
 
 	channels := h.channelManager.GetAllChannels()
-	
+
 	// Collect unique categories and sources
 	categoryMap := make(map[string]int)
 	sourceMap := make(map[string]int)
-	
+
 	for _, ch := range channels {
 		if ch.Category != "" {
 			categoryMap[ch.Category]++
@@ -1594,7 +1607,7 @@ func (h *Handler) GetChannelStats(w http.ResponseWriter, r *http.Request) {
 			sourceMap[ch.Source]++
 		}
 	}
-	
+
 	// Convert to arrays with counts
 	categories := make([]map[string]interface{}, 0, len(categoryMap))
 	for name, count := range categoryMap {
@@ -1603,7 +1616,7 @@ func (h *Handler) GetChannelStats(w http.ResponseWriter, r *http.Request) {
 			"count": count,
 		})
 	}
-	
+
 	sources := make([]map[string]interface{}, 0, len(sourceMap))
 	for name, count := range sourceMap {
 		sources = append(sources, map[string]interface{}{
@@ -1611,7 +1624,7 @@ func (h *Handler) GetChannelStats(w http.ResponseWriter, r *http.Request) {
 			"count": count,
 		})
 	}
-	
+
 	respondJSON(w, http.StatusOK, map[string]interface{}{
 		"total_channels": len(channels),
 		"categories":     categories,
@@ -1624,22 +1637,22 @@ func (h *Handler) CheckM3USourceStatus(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		URL string `json:"url"`
 	}
-	
+
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		respondError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	
+
 	if req.URL == "" {
 		respondError(w, http.StatusBadRequest, "URL is required")
 		return
 	}
-	
+
 	// Check if the URL is accessible
 	client := &http.Client{
 		Timeout: 10 * time.Second,
 	}
-	
+
 	httpReq, err := http.NewRequest("HEAD", req.URL, nil)
 	if err != nil {
 		respondJSON(w, http.StatusOK, map[string]interface{}{
@@ -1650,9 +1663,9 @@ func (h *Handler) CheckM3USourceStatus(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	
+
 	httpReq.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
-	
+
 	resp, err := client.Do(httpReq)
 	if err != nil {
 		// Try GET if HEAD fails
@@ -1669,13 +1682,13 @@ func (h *Handler) CheckM3USourceStatus(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	defer resp.Body.Close()
-	
+
 	online := resp.StatusCode >= 200 && resp.StatusCode < 400
 	status := "online"
 	if !online {
 		status = "offline"
 	}
-	
+
 	respondJSON(w, http.StatusOK, map[string]interface{}{
 		"url":         req.URL,
 		"status":      status,
@@ -1799,7 +1812,7 @@ func (h *Handler) UpdateSettings(w http.ResponseWriter, r *http.Request) {
 		}
 
 		log.Printf("[Settings] UpdateSettings: StremioAddon.Enabled=%v", newSettings.StremioAddon.Enabled)
-		
+
 		if err := h.settingsManager.Update(&newSettings); err != nil {
 			respondError(w, http.StatusInternalServerError, "failed to update settings")
 			return
@@ -1807,8 +1820,9 @@ func (h *Handler) UpdateSettings(w http.ResponseWriter, r *http.Request) {
 
 		// Apply M3U source changes to channel manager immediately
 		if h.channelManager != nil && len(newSettings.M3USources) >= 0 {
-			// Also update Live TV enabled flag
+			// Update Live TV enabled flag and IPTV import mode
 			h.channelManager.SetIncludeLiveTV(newSettings.IncludeLiveTV)
+			h.channelManager.SetIPTVImportMode(newSettings.IPTVImportMode)
 			m3uSources := make([]livetv.M3USource, len(newSettings.M3USources))
 			var customEPGURLs []string
 			for i, s := range newSettings.M3USources {
@@ -1825,7 +1839,7 @@ func (h *Handler) UpdateSettings(w http.ResponseWriter, r *http.Request) {
 			}
 			h.channelManager.SetM3USources(m3uSources)
 			log.Printf("Live TV: Updated M3U sources (%d configured)", len(m3uSources))
-			
+
 			// Add custom EPG URLs to EPG manager
 			if h.epgManager != nil && len(customEPGURLs) > 0 {
 				h.epgManager.AddCustomEPGURLs(customEPGURLs)
@@ -1870,12 +1884,12 @@ func (h *Handler) UpdateSettings(w http.ResponseWriter, r *http.Request) {
 				Categories: newSettings.IPTVOrgCategories,
 			})
 			if newSettings.IPTVOrgEnabled {
-				log.Printf("Live TV: IPTV-org enabled (countries: %v, languages: %v, categories: %v)", 
+				log.Printf("Live TV: IPTV-org enabled (countries: %v, languages: %v, categories: %v)",
 					newSettings.IPTVOrgCountries, newSettings.IPTVOrgLanguages, newSettings.IPTVOrgCategories)
 			} else {
 				log.Println("Live TV: IPTV-org disabled")
 			}
-			
+
 			// Reload channels to apply IPTV-org changes
 			if err := h.channelManager.LoadChannels(); err != nil {
 				log.Printf("Warning: Failed to reload channels after IPTV-org update: %v", err)
@@ -1883,6 +1897,26 @@ func (h *Handler) UpdateSettings(w http.ResponseWriter, r *http.Request) {
 				log.Printf("Live TV: Reloaded %d channels after settings update", len(h.channelManager.GetAllChannels()))
 			}
 		}
+
+		// Trigger IPTV VOD import/cleanup in background if mode includes VOD or sources changed
+		go func(ns settings.Settings) {
+			if h.tmdbClient == nil || h.movieStore == nil || h.seriesStore == nil || h.settingsManager == nil {
+				return
+			}
+			mode := strings.ToLower(ns.IPTVImportMode)
+			includesVOD := mode == "vod_only" || mode == "both"
+			if includesVOD {
+				ctx := context.Background()
+				summary, err := services.ImportIPTVVOD(ctx, &ns, h.tmdbClient, h.movieStore, h.seriesStore)
+				if err != nil {
+					log.Printf("[Settings] IPTV VOD import error: %v", err)
+				} else if summary != nil {
+					log.Printf("[Settings] IPTV VOD import: sources=%d items=%d movies=%d series=%d skipped=%d errors=%d",
+						summary.SourcesChecked, summary.ItemsFound, summary.MoviesImported, summary.SeriesImported, summary.Skipped, summary.Errors)
+				}
+				_ = services.CleanupIPTVVOD(ctx, &ns, h.movieStore, h.seriesStore)
+			}
+		}(newSettings)
 
 		respondJSON(w, http.StatusOK, newSettings)
 		return
@@ -1934,7 +1968,7 @@ func (h *Handler) GetCalendar(w http.ResponseWriter, r *http.Request) {
 
 	// Combine into calendar entries
 	var entries []models.CalendarEntry
-	
+
 	for _, movie := range movies {
 		year := 0
 		if movie.ReleaseDate != nil {
@@ -1955,7 +1989,7 @@ func (h *Handler) GetCalendar(w http.ResponseWriter, r *http.Request) {
 			Year:        year,
 		})
 	}
-	
+
 	for _, episode := range episodes {
 		series, _ := h.seriesStore.Get(ctx, episode.SeriesID)
 		seriesTitle := ""
@@ -1966,7 +2000,7 @@ func (h *Handler) GetCalendar(w http.ResponseWriter, r *http.Request) {
 				voteAverage = v
 			}
 		}
-		
+
 		entries = append(entries, models.CalendarEntry{
 			ID:            episode.ID,
 			Type:          "episode",
@@ -1989,7 +2023,7 @@ func (h *Handler) GetCalendar(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) GetMDBListUserLists(w http.ResponseWriter, r *http.Request) {
 	// Get API key from query parameter first, fall back to settings
 	apiKey := r.URL.Query().Get("apiKey")
-	
+
 	if apiKey == "" {
 		ctx := r.Context()
 		setting, err := h.settingsStore.Get(ctx, "mdblist_api_key")
@@ -1997,7 +2031,7 @@ func (h *Handler) GetMDBListUserLists(w http.ResponseWriter, r *http.Request) {
 			apiKey = setting.Value
 		}
 	}
-	
+
 	if apiKey == "" {
 		respondJSON(w, http.StatusOK, map[string]interface{}{
 			"success": false,
@@ -2005,7 +2039,7 @@ func (h *Handler) GetMDBListUserLists(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	
+
 	// Create MDBList client and fetch user lists
 	mdbClient := services.NewMDBListClient(apiKey, "./cache/mdblist")
 	result, err := mdbClient.GetUserLists()
@@ -2016,66 +2050,66 @@ func (h *Handler) GetMDBListUserLists(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	
+
 	respondJSON(w, http.StatusOK, result)
 }
 
 // GetTrending handles GET /api/discover/trending
 func (h *Handler) GetTrending(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	
+
 	mediaType := r.URL.Query().Get("media_type")
 	if mediaType == "" {
 		mediaType = "all"
 	}
-	
+
 	timeWindow := r.URL.Query().Get("time_window")
 	if timeWindow == "" {
 		timeWindow = "day"
 	}
-	
+
 	items, err := h.tmdbClient.GetTrending(ctx, mediaType, timeWindow)
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, "Failed to get trending: "+err.Error())
 		return
 	}
-	
+
 	respondJSON(w, http.StatusOK, items)
 }
 
 // GetPopular handles GET /api/discover/popular
 func (h *Handler) GetPopular(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	
+
 	mediaType := r.URL.Query().Get("media_type")
 	if mediaType == "" {
 		mediaType = "movie"
 	}
-	
+
 	items, err := h.tmdbClient.GetPopular(ctx, mediaType)
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, "Failed to get popular: "+err.Error())
 		return
 	}
-	
+
 	respondJSON(w, http.StatusOK, items)
 }
 
 // GetNowPlaying handles GET /api/discover/now-playing
 func (h *Handler) GetNowPlaying(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	
+
 	mediaType := r.URL.Query().Get("media_type")
 	if mediaType == "" {
 		mediaType = "movie"
 	}
-	
+
 	items, err := h.tmdbClient.GetNowPlaying(ctx, mediaType)
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, "Failed to get now playing: "+err.Error())
 		return
 	}
-	
+
 	respondJSON(w, http.StatusOK, items)
 }
 
@@ -2163,7 +2197,7 @@ func (h *Handler) SyncCollection(w http.ResponseWriter, r *http.Request) {
 		Monitored      bool   `json:"monitored"`
 		QualityProfile string `json:"quality_profile"`
 	}
-	
+
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		req.Monitored = true
 		req.QualityProfile = "default"
@@ -2263,7 +2297,7 @@ func (h *Handler) TriggerService(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) runService(serviceName string) {
 	ctx := context.Background()
 	services.GlobalScheduler.MarkRunning(serviceName)
-	
+
 	var err error
 	var interval time.Duration
 
@@ -2278,28 +2312,28 @@ func (h *Handler) runService(serviceName string) {
 			}
 			err = h.epgManager.UpdateEPG(channelList)
 		}
-	
+
 	case services.ServiceChannelRefresh:
 		interval = 1 * time.Hour
 		if h.channelManager != nil {
 			err = h.channelManager.LoadChannels()
 		}
-	
+
 	case services.ServiceCacheCleanup:
 		interval = 1 * time.Hour
 		// Cache cleanup would be handled by cache manager
 		// For now just mark as complete
-	
+
 	case services.ServicePlaylist:
 		interval = 12 * time.Hour
 		// Playlist generation requires the playlist generator
 		// For now just mark as complete
-	
+
 	case services.ServiceMDBListSync:
 		interval = 6 * time.Hour
 		// MDBList sync requires the sync service
 		// For now just mark as complete
-	
+
 	case services.ServiceCollectionSync:
 		interval = 24 * time.Hour
 		// Phase 1: Scan existing movies for collections and link them
@@ -2312,10 +2346,10 @@ func (h *Handler) runService(serviceName string) {
 			if settings.AutoAddCollections {
 				fmt.Println("[Collection Sync] Phase 2: Adding missing movies from incomplete collections...")
 				services.GlobalScheduler.UpdateProgress(services.ServiceCollectionSync, 0, 0, "Phase 2: Checking incomplete collections...")
-				
+
 				collections, _, _ := h.collectionStore.GetCollectionsWithProgress(ctx, 1000, 0)
 				fmt.Printf("[Collection Sync] Found %d collections to check\n", len(collections))
-				
+
 				// Find incomplete collections
 				var incompleteColls []*models.Collection
 				for _, coll := range collections {
@@ -2323,25 +2357,35 @@ func (h *Handler) runService(serviceName string) {
 						incompleteColls = append(incompleteColls, coll)
 					}
 				}
-				
+
 				totalIncomplete := len(incompleteColls)
 				if totalIncomplete == 0 {
 					fmt.Println("[Collection Sync] Phase 2: All collections are complete!")
 					services.GlobalScheduler.UpdateProgress(services.ServiceCollectionSync, 0, 0, "All collections complete!")
 				} else {
 					fmt.Printf("[Collection Sync] Found %d incomplete collections\n", totalIncomplete)
-					
+
 					for i, coll := range incompleteColls {
-						services.GlobalScheduler.UpdateProgress(services.ServiceCollectionSync, i+1, totalIncomplete, 
+						services.GlobalScheduler.UpdateProgress(services.ServiceCollectionSync, i+1, totalIncomplete,
 							fmt.Sprintf("Adding movies to: %s (%d/%d)", coll.Name, coll.MoviesInLibrary, coll.TotalMovies))
-						
-						fmt.Printf("[Collection Sync] '%s' is incomplete (%d/%d), adding missing movies...\n", 
+
+						// Skip auto-adding collections that are seeded only by IPTV VOD imports
+						if h.collectionStore != nil {
+							if movies, err := h.collectionStore.GetMoviesInCollection(ctx, coll.ID); err == nil {
+								if !collectionHasNonIPTVVOD(movies) {
+									fmt.Printf("[Collection Sync] Skipping collection '%s' (only IPTV VOD items)\n", coll.Name)
+									continue
+								}
+							}
+						}
+
+						fmt.Printf("[Collection Sync] '%s' is incomplete (%d/%d), adding missing movies...\n",
 							coll.Name, coll.MoviesInLibrary, coll.TotalMovies)
 						h.addCollectionMovies(ctx, coll.TMDBID, true, "default")
 						time.Sleep(500 * time.Millisecond) // Rate limit
 					}
-					
-					services.GlobalScheduler.UpdateProgress(services.ServiceCollectionSync, totalIncomplete, totalIncomplete, 
+
+					services.GlobalScheduler.UpdateProgress(services.ServiceCollectionSync, totalIncomplete, totalIncomplete,
 						fmt.Sprintf("Phase 2 complete: %d collections updated", totalIncomplete))
 					fmt.Printf("[Collection Sync] Phase 2 complete: processed %d incomplete collections\n", totalIncomplete)
 				}
@@ -2352,7 +2396,7 @@ func (h *Handler) runService(serviceName string) {
 		} else {
 			fmt.Println("[Collection Sync] Phase 2 skipped: collectionStore or settingsManager is nil")
 		}
-	
+
 	case services.ServiceEpisodeScan:
 		interval = 24 * time.Hour
 		if h.seriesStore != nil && h.episodeStore != nil && h.tmdbClient != nil {
@@ -2360,11 +2404,26 @@ func (h *Handler) runService(serviceName string) {
 		} else {
 			fmt.Println("[Episode Scan] Skipped: required stores not initialized")
 		}
-	
+
 	case services.ServiceStreamSearch:
 		interval = 6 * time.Hour
 		err = h.scanStreamAvailability(ctx)
-	
+
+	case services.ServiceIPTVVODSync:
+		interval = 12 * time.Hour
+		// Only run when VOD mode is enabled and TMDB key is present
+		if h.settingsManager != nil && h.tmdbClient != nil && h.movieStore != nil && h.seriesStore != nil {
+			current := h.settingsManager.Get()
+			mode := strings.ToLower(current.IPTVImportMode)
+			includesVOD := mode == "vod_only" || mode == "both"
+			if includesVOD && current.TMDBAPIKey != "" {
+				_, err = services.ImportIPTVVOD(ctx, current, h.tmdbClient, h.movieStore, h.seriesStore)
+				_ = services.CleanupIPTVVOD(ctx, current, h.movieStore, h.seriesStore)
+			} else {
+				err = nil
+			}
+		}
+
 	default:
 		interval = 1 * time.Hour
 	}
@@ -2400,37 +2459,37 @@ func (h *Handler) UpdateServiceEnabled(w http.ResponseWriter, r *http.Request) {
 // GetDatabaseStats handles GET /api/database/stats
 func (h *Handler) GetDatabaseStats(w http.ResponseWriter, r *http.Request) {
 	ctx := context.Background()
-	
+
 	var movieCount, seriesCount, episodeCount, streamCount, collectionCount int64
-	
+
 	// Count movies using Count method
 	if h.movieStore != nil {
 		if count, err := h.movieStore.Count(ctx); err == nil {
 			movieCount = count
 		}
 	}
-	
+
 	// Count series using Count method
 	if h.seriesStore != nil {
 		if count, err := h.seriesStore.Count(ctx, nil); err == nil {
 			seriesCount = int64(count)
 		}
 	}
-	
+
 	// Count episodes using CountAll method
 	if h.episodeStore != nil {
 		if count, err := h.episodeStore.CountAll(ctx); err == nil {
 			episodeCount = int64(count)
 		}
 	}
-	
+
 	// Count streams using CountAll method
 	if h.streamStore != nil {
 		if count, err := h.streamStore.CountAll(ctx); err == nil {
 			streamCount = int64(count)
 		}
 	}
-	
+
 	// Count collections
 	if h.collectionStore != nil {
 		collections, err := h.collectionStore.ListAll(ctx)
@@ -2438,7 +2497,7 @@ func (h *Handler) GetDatabaseStats(w http.ResponseWriter, r *http.Request) {
 			collectionCount = int64(len(collections))
 		}
 	}
-	
+
 	respondJSON(w, http.StatusOK, map[string]interface{}{
 		"movies":      movieCount,
 		"series":      seriesCount,
@@ -2451,13 +2510,13 @@ func (h *Handler) GetDatabaseStats(w http.ResponseWriter, r *http.Request) {
 // GetStats handles GET /api/stats - dashboard stats
 func (h *Handler) GetStats(w http.ResponseWriter, r *http.Request) {
 	ctx := context.Background()
-	
+
 	var totalMovies, monitoredMovies, availableMovies int64
 	var totalSeries, monitoredSeries int64
 	var totalEpisodes int
 	var totalChannels, activeChannels int
 	var totalCollections int
-	
+
 	// Movie counts
 	if h.movieStore != nil {
 		if count, err := h.movieStore.Count(ctx); err == nil {
@@ -2470,7 +2529,7 @@ func (h *Handler) GetStats(w http.ResponseWriter, r *http.Request) {
 			availableMovies = count
 		}
 	}
-	
+
 	// Series counts
 	if h.seriesStore != nil {
 		if count, err := h.seriesStore.Count(ctx, nil); err == nil {
@@ -2484,7 +2543,7 @@ func (h *Handler) GetStats(w http.ResponseWriter, r *http.Request) {
 			totalEpisodes = count
 		}
 	}
-	
+
 	// Channel counts
 	if h.channelManager != nil {
 		channels := h.channelManager.GetAllChannels()
@@ -2495,14 +2554,14 @@ func (h *Handler) GetStats(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	
+
 	// Collection counts
 	if h.collectionStore != nil {
 		if count, err := h.collectionStore.Count(ctx); err == nil {
 			totalCollections = count
 		}
 	}
-	
+
 	respondJSON(w, http.StatusOK, map[string]interface{}{
 		"total_movies":      totalMovies,
 		"monitored_movies":  monitoredMovies,
@@ -2521,17 +2580,17 @@ func (h *Handler) ExecuteDatabaseAction(w http.ResponseWriter, r *http.Request) 
 	vars := mux.Vars(r)
 	action := vars["action"]
 	ctx := context.Background()
-	
+
 	var message string
 	var err error
-	
+
 	switch action {
 	case "clear-movies":
 		if h.movieStore != nil {
 			err = h.movieStore.DeleteAll(ctx)
 			message = "All movies have been cleared from the library"
 		}
-		
+
 	case "clear-series":
 		if h.seriesStore != nil && h.episodeStore != nil {
 			// First clear episodes
@@ -2541,25 +2600,25 @@ func (h *Handler) ExecuteDatabaseAction(w http.ResponseWriter, r *http.Request) 
 			}
 			message = "All series and episodes have been cleared from the library"
 		}
-		
+
 	case "clear-streams":
 		if h.streamStore != nil {
 			err = h.streamStore.DeleteAll(ctx)
 			message = "All cached streams have been cleared"
 		}
-		
+
 	case "clear-stale-streams":
 		if h.streamStore != nil {
 			err = h.streamStore.DeleteStale(ctx, 7) // 7 days
 			message = "Stale streams (older than 7 days) have been cleared"
 		}
-		
+
 	case "clear-collections":
 		if h.collectionStore != nil {
 			err = h.collectionStore.DeleteAll(ctx)
 			message = "All collections have been cleared"
 		}
-		
+
 	case "resync-collections":
 		if h.collectionStore != nil {
 			err = h.collectionStore.DeleteAll(ctx)
@@ -2573,19 +2632,19 @@ func (h *Handler) ExecuteDatabaseAction(w http.ResponseWriter, r *http.Request) 
 				message = "Collections cleared and re-sync triggered"
 			}
 		}
-		
+
 	case "reset-movie-status":
 		if h.movieStore != nil {
 			err = h.movieStore.ResetStatus(ctx)
 			message = "Movie status and collection_checked flags have been reset"
 		}
-		
+
 	case "reset-series-status":
 		if h.seriesStore != nil {
 			err = h.seriesStore.ResetStatus(ctx)
 			message = "Series status has been reset"
 		}
-		
+
 	case "reload-livetv":
 		if h.channelManager != nil {
 			err = h.channelManager.LoadChannels()
@@ -2594,13 +2653,13 @@ func (h *Handler) ExecuteDatabaseAction(w http.ResponseWriter, r *http.Request) 
 			}
 			message = "Live TV channels and EPG have been reloaded"
 		}
-		
+
 	case "clear-epg":
 		if h.epgManager != nil {
 			h.epgManager.Clear()
 			message = "EPG cache has been cleared"
 		}
-		
+
 	case "clear-all-vod":
 		// Clear everything VOD-related
 		if h.streamStore != nil {
@@ -2619,7 +2678,7 @@ func (h *Handler) ExecuteDatabaseAction(w http.ResponseWriter, r *http.Request) 
 			h.collectionStore.DeleteAll(ctx)
 		}
 		message = "All VOD content (movies, series, episodes, streams, collections) has been cleared"
-		
+
 	case "factory-reset":
 		// Clear everything
 		if h.streamStore != nil {
@@ -2644,17 +2703,17 @@ func (h *Handler) ExecuteDatabaseAction(w http.ResponseWriter, r *http.Request) 
 			h.channelManager.LoadChannels()
 		}
 		message = "Database has been reset to factory defaults"
-		
+
 	default:
 		respondError(w, http.StatusBadRequest, fmt.Sprintf("Unknown action: %s", action))
 		return
 	}
-	
+
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	
+
 	respondJSON(w, http.StatusOK, map[string]interface{}{
 		"success": true,
 		"message": message,
@@ -2663,7 +2722,7 @@ func (h *Handler) ExecuteDatabaseAction(w http.ResponseWriter, r *http.Request) 
 
 // Version info - set at build time via ldflags
 var (
-	Version   = "1.0.0 Beta"
+	Version   = "1.1.0"
 	Commit    = "unknown"
 	BuildDate = "unknown"
 )
@@ -2687,7 +2746,7 @@ func (h *Handler) CheckForUpdates(w http.ResponseWriter, r *http.Request) {
 			branch = settings.UpdateBranch
 		}
 	}
-	
+
 	// Fetch latest commit from GitHub API
 	resp, err := http.Get(fmt.Sprintf("https://api.github.com/repos/Zerr0-C00L/StreamArr_Pro/commits/%s", branch))
 	if err != nil {
@@ -2726,7 +2785,7 @@ func (h *Handler) CheckForUpdates(w http.ResponseWriter, r *http.Request) {
 	if len(latestCommitShort) > 7 {
 		latestCommitShort = latestCommitShort[:7]
 	}
-	
+
 	updateAvailable := false
 	if Commit != "unknown" && len(Commit) >= 7 {
 		// Compare short commit hashes
@@ -2783,14 +2842,14 @@ func (h *Handler) InstallUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	log.Println("[Update] Starting update process...")
-	
+
 	// Check if running in Docker
 	isDocker := false
 	if _, err := os.Stat("/.dockerenv"); err == nil {
 		isDocker = true
 		log.Println("[Update] Detected Docker environment")
 	}
-	
+
 	if isDocker {
 		// In Docker, check prerequisites
 		hostDir := "/app/host"
@@ -2798,20 +2857,20 @@ func (h *Handler) InstallUpdate(w http.ResponseWriter, r *http.Request) {
 			respondError(w, http.StatusInternalServerError, "Host directory not mounted at /app/host. Add '- .:/app/host' to docker-compose volumes.")
 			return
 		}
-		
+
 		dockerSocket := "/var/run/docker.sock"
 		if _, err := os.Stat(dockerSocket); os.IsNotExist(err) {
 			respondError(w, http.StatusInternalServerError, "Docker socket not mounted. Add '- /var/run/docker.sock:/var/run/docker.sock' to docker-compose volumes.")
 			return
 		}
-		
+
 		// Check for git in host directory
 		gitDir := hostDir + "/.git"
 		if _, err := os.Stat(gitDir); os.IsNotExist(err) {
 			respondError(w, http.StatusInternalServerError, "Git repository not found in host directory. Ensure the project was cloned with git.")
 			return
 		}
-		
+
 		// Check if update.sh is in scripts/ folder (new location) or root (old location)
 		scriptPath := hostDir + "/scripts/update.sh"
 		if _, err := os.Stat(scriptPath); os.IsNotExist(err) {
@@ -2821,54 +2880,54 @@ func (h *Handler) InstallUpdate(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
-		
+
 		log.Printf("[Update] Using script: %s", scriptPath)
 		log.Printf("[Update] Branch: %s", branch)
 		log.Printf("[Update] Host directory: %s", hostDir)
-		
+
 		// Ensure logs directory exists in host
 		os.MkdirAll(hostDir+"/logs", 0755)
-		
+
 		// Make sure script is executable
 		exec.Command("chmod", "+x", scriptPath).Run()
-		
+
 		// Run update script in background (detached) so it survives container stop
 		// We use nohup and & to fully detach
 		log.Println("[Update] Executing update script in background...")
-		cmd := exec.Command("/bin/sh", "-c", 
+		cmd := exec.Command("/bin/sh", "-c",
 			fmt.Sprintf("cd %s && nohup /bin/sh %s %s >> %s/logs/update.log 2>&1 &", hostDir, scriptPath, branch, hostDir))
-		
+
 		// Set environment
 		cmd.Env = append(os.Environ(),
 			"HOME=/root",
 			"PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
 		)
-		
+
 		err := cmd.Start()
 		if err != nil {
 			log.Printf("[Update] Failed to start update: %v", err)
 			respondError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to start update: %v", err))
 			return
 		}
-		
+
 		// Don't wait - let it run in background
 		go func() {
 			cmd.Wait()
 		}()
-		
+
 		log.Println("[Update] Script started in background")
 	} else {
 		// Non-Docker environment
-		cmd := exec.Command("/bin/bash", "-c", 
+		cmd := exec.Command("/bin/bash", "-c",
 			fmt.Sprintf("nohup setsid /bin/bash %s %s > logs/update.log 2>&1 &", updateScript, branch))
 		cmd.Dir = "."
-		
+
 		if err := cmd.Start(); err != nil {
 			log.Printf("[Update] Failed to start update: %v", err)
 			respondError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to start update: %v", err))
 			return
 		}
-		
+
 		// Detach from the process immediately
 		go cmd.Wait()
 	}
@@ -2881,125 +2940,21 @@ func (h *Handler) InstallUpdate(w http.ResponseWriter, r *http.Request) {
 
 // ImportAdultVOD handles POST /api/v1/adult-vod/import
 func (h *Handler) ImportAdultVOD(w http.ResponseWriter, r *http.Request) {
+	if h.settingsManager == nil || h.movieStore == nil {
+		respondError(w, http.StatusInternalServerError, "Importer not available")
+		return
+	}
 	ctx := r.Context()
-	
-	// Check if feature is enabled in settings
-	if h.settingsManager != nil {
-		settings := h.settingsManager.Get()
-		if !settings.ImportAdultVODFromGitHub {
-			respondError(w, http.StatusForbidden, "Adult VOD import from GitHub is disabled in settings")
-			return
-		}
-	}
-	
-	log.Println("[Adult VOD Import] Starting import from GitHub...")
-	
-	// Fetch adult-movies.json from GitHub
-	adultMoviesURL := "https://raw.githubusercontent.com/Zerr0-C00L/public-files/main/adult-movies.json"
-	
-	resp, err := http.Get(adultMoviesURL)
+	imported, skipped, errs, err := services.ImportAdultMoviesFromGitHub(ctx, h.movieStore)
 	if err != nil {
-		log.Printf("[Adult VOD Import] Failed to fetch: %v", err)
-		respondError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to fetch adult movies: %v", err))
+		respondError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	defer resp.Body.Close()
-	
-	if resp.StatusCode != http.StatusOK {
-		log.Printf("[Adult VOD Import] HTTP %d from GitHub", resp.StatusCode)
-		respondError(w, http.StatusInternalServerError, fmt.Sprintf("GitHub returned status %d", resp.StatusCode))
-		return
-	}
-	
-	// Parse JSON response
-	var adultMovies []map[string]interface{}
-	if err := json.NewDecoder(resp.Body).Decode(&adultMovies); err != nil {
-		log.Printf("[Adult VOD Import] Failed to parse JSON: %v", err)
-		respondError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to parse adult movies: %v", err))
-		return
-	}
-	
-	log.Printf("[Adult VOD Import] Fetched %d adult movies from GitHub", len(adultMovies))
-	
-	// Import movies into database
-	imported := 0
-	skipped := 0
-	errors := 0
-	
-	for _, movieData := range adultMovies {
-		// Extract movie data
-		tmdbID, _ := movieData["num"].(float64)
-		if tmdbID == 0 {
-			continue
-		}
-		
-		title, _ := movieData["name"].(string)
-		posterPath, _ := movieData["stream_icon"].(string)
-		plot, _ := movieData["plot"].(string)
-		genresStr, _ := movieData["genres"].(string)
-		director, _ := movieData["director"].(string)
-		cast, _ := movieData["cast"].(string)
-		rating, _ := movieData["rating"].(float64)
-		addedTimestamp, _ := movieData["added"].(float64)
-		
-		// Parse genres
-		genres := []string{}
-		if genresStr != "" {
-			genres = strings.Split(genresStr, ",")
-			for i := range genres {
-				genres[i] = strings.TrimSpace(genres[i])
-			}
-		}
-		
-		// Create movie object
-		movie := &models.Movie{
-			TMDBID:         int(tmdbID),
-			Title:          title,
-			OriginalTitle:  title,
-			Overview:       plot,
-			PosterPath:     posterPath,
-			Genres:         genres,
-			Monitored:      true,
-			Available:      true,
-			QualityProfile: "1080p",
-			Metadata: models.Metadata{
-				"stream_type":  "adult",
-				"category_id":  "999993",
-				"director":     director,
-				"cast":         cast,
-				"rating":       rating,
-				"source":       "github_public_files",
-				"imported_at":  time.Now().Format(time.RFC3339),
-			},
-		}
-		
-		// Set added_at from timestamp if available
-		if addedTimestamp > 0 {
-			addedTime := time.Unix(int64(addedTimestamp), 0)
-			movie.AddedAt = addedTime
-		}
-		
-		// Try to add to database
-		if err := h.movieStore.Add(ctx, movie); err != nil {
-			if strings.Contains(err.Error(), "already exists") {
-				skipped++
-			} else {
-				errors++
-				log.Printf("[Adult VOD Import] Error adding movie %s: %v", title, err)
-			}
-		} else {
-			imported++
-		}
-	}
-	
-	log.Printf("[Adult VOD Import] Complete: %d imported, %d skipped, %d errors", imported, skipped, errors)
-	
 	respondJSON(w, http.StatusOK, map[string]interface{}{
 		"success":  true,
 		"imported": imported,
 		"skipped":  skipped,
-		"errors":   errors,
-		"total":    len(adultMovies),
+		"errors":   errs,
 		"message":  fmt.Sprintf("Imported %d adult movies from GitHub", imported),
 	})
 }
@@ -3007,14 +2962,14 @@ func (h *Handler) ImportAdultVOD(w http.ResponseWriter, r *http.Request) {
 // GetAdultVODStats handles GET /api/v1/adult-vod/stats
 func (h *Handler) GetAdultVODStats(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	
+
 	// Count adult movies in database (by metadata stream_type = adult)
 	query := `
 		SELECT COUNT(*) 
 		FROM library_movies 
 		WHERE metadata->>'stream_type' = 'adult'
 	`
-	
+
 	var count int
 	err := h.movieStore.GetDB().QueryRowContext(ctx, query).Scan(&count)
 	if err != nil {
@@ -3022,9 +2977,109 @@ func (h *Handler) GetAdultVODStats(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusInternalServerError, "Failed to get adult VOD stats")
 		return
 	}
-	
+
 	respondJSON(w, http.StatusOK, map[string]interface{}{
 		"total_adult_movies": count,
 		"source":             "github_public_files",
 	})
+}
+
+// ImportIPTVVOD handles POST /api/v1/iptv-vod/import
+func (h *Handler) ImportIPTVVOD(w http.ResponseWriter, r *http.Request) {
+	if h.settingsManager == nil || h.tmdbClient == nil || h.movieStore == nil || h.seriesStore == nil {
+		respondError(w, http.StatusInternalServerError, "Importer not available")
+		return
+	}
+
+	// Optional: ensure TMDB key exists
+	if h.settingsManager.GetTMDBAPIKey() == "" {
+		respondError(w, http.StatusBadRequest, "TMDB API key is required (Settings → API)")
+		return
+	}
+
+	cfg := h.settingsManager.Get()
+	ctx := r.Context()
+
+	summary, err := services.ImportIPTVVOD(ctx, cfg, h.tmdbClient, h.movieStore, h.seriesStore)
+	if err != nil {
+		log.Printf("[IPTV VOD Import] error: %v", err)
+	}
+	respondJSON(w, http.StatusOK, map[string]interface{}{
+		"success":         err == nil,
+		"error":           errorString(err),
+		"sources_checked": summary.SourcesChecked,
+		"items_found":     summary.ItemsFound,
+		"movies_imported": summary.MoviesImported,
+		"series_imported": summary.SeriesImported,
+		"skipped":         summary.Skipped,
+		"errors":          summary.Errors,
+	})
+}
+
+func errorString(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
+}
+
+// buildIPTVVODStreams converts metadata.iptv_vod_sources into API stream entries
+func buildIPTVVODStreams(movie *models.Movie) []map[string]interface{} {
+	streams := []map[string]interface{}{}
+	if movie == nil || movie.Metadata == nil {
+		return streams
+	}
+
+	if sources, ok := movie.Metadata["iptv_vod_sources"].([]interface{}); ok {
+		for _, s := range sources {
+			m, ok := s.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			name, _ := m["name"].(string)
+			url, _ := m["url"].(string)
+			name = strings.TrimSpace(name)
+			url = strings.TrimSpace(url)
+			if name == "" {
+				name = "IPTV VOD"
+			}
+			if url == "" {
+				continue
+			}
+
+			streams = append(streams, map[string]interface{}{
+				"source":   name,
+				"quality":  "VOD",
+				"codec":    "",
+				"url":      url,
+				"cached":   false,
+				"seeds":    0,
+				"size_gb":  0.0,
+				"title":    fmt.Sprintf("%s (%s)", movie.Title, name),
+				"name":     name,
+				"filename": name,
+			})
+		}
+	}
+
+	return streams
+}
+
+func isIPTVVODMovie(movie *models.Movie) bool {
+	if movie == nil || movie.Metadata == nil {
+		return false
+	}
+	if src, ok := movie.Metadata["source"].(string); ok {
+		return strings.EqualFold(src, "iptv_vod")
+	}
+	return false
+}
+
+func collectionHasNonIPTVVOD(movies []*models.Movie) bool {
+	for _, m := range movies {
+		if !isIPTVVODMovie(m) {
+			return true
+		}
+	}
+	return false
 }
