@@ -31,6 +31,25 @@ type StremioAddon struct {
 	Enabled bool   `json:"enabled"` // Whether this addon is active
 }
 
+// StremioCatalogConfig represents configuration for a single catalog
+type StremioCatalogConfig struct {
+	ID      string `json:"id"`      // Catalog ID (movies, series, etc.)
+	Type    string `json:"type"`    // Content type (movie, series)
+	Name    string `json:"name"`    // Display name
+	Enabled bool   `json:"enabled"` // Whether this catalog is shown
+}
+
+// StremioAddonConfig represents the built-in Stremio addon settings
+type StremioAddonConfig struct {
+	Enabled          bool                   `json:"enabled"`           // Enable the built-in Stremio addon
+	PublicServerURL  string                 `json:"public_server_url"` // Public URL for Stremio to reach (auto-detected)
+	AddonName        string                 `json:"addon_name"`        // Display name in Stremio
+	SharedToken      string                 `json:"shared_token"`      // Shared authentication token for addon access
+	PerUserTokens    bool                   `json:"per_user_tokens"`   // Use per-user tokens instead of shared
+	Catalogs         []StremioCatalogConfig `json:"catalogs"`          // Configured catalogs
+	CatalogPlacement string                 `json:"catalog_placement"` // "home", "discovery", or "both"
+}
+
 type Settings struct {
 	// Database Configuration (required, set via DATABASE_URL env var as fallback)
 	DatabaseURL string `json:"database_url"`
@@ -87,6 +106,9 @@ type Settings struct {
 	UseRealDebrid      bool            `json:"use_realdebrid"`
 	UsePremiumize      bool            `json:"use_premiumize"`
 	StremioAddons      []StremioAddon  `json:"stremio_addons"` // Custom Stremio addons for content providers
+	
+	// Built-in Stremio Addon Settings
+	StremioAddon       StremioAddonConfig `json:"stremio_addon"`
 	
 	// Proxy Settings
 	HTTPProxy    string `json:"http_proxy"`
@@ -169,6 +191,26 @@ func getDefaultSettings() *Settings {
 		UseRealDebrid:          true,
 		UsePremiumize:          false,
 		StremioAddons:          []StremioAddon{}, // Empty by default - users should configure their own addons
+		StremioAddon: StremioAddonConfig{
+			Enabled:         true, // Enabled by default for built-in addon
+			PublicServerURL: "",
+			AddonName:       "StreamArr Pro",
+			SharedToken:     "",
+			PerUserTokens:   false,
+			Catalogs: []StremioCatalogConfig{
+				{ID: "streamarr_recent", Type: "movie", Name: "Recently Added", Enabled: true},
+				{ID: "streamarr_recent_movies", Type: "movie", Name: "Recently Added Movies", Enabled: true},
+				{ID: "streamarr_recent_series", Type: "series", Name: "Recently Added Series", Enabled: true},
+				{ID: "streamarr_trending", Type: "movie", Name: "Trending Now", Enabled: true},
+				{ID: "streamarr_trending_movies", Type: "movie", Name: "Trending Now Movies", Enabled: true},
+				{ID: "streamarr_trending_series", Type: "series", Name: "Trending Now Series", Enabled: true},
+				{ID: "streamarr_popular", Type: "movie", Name: "Popular Now", Enabled: true},
+				{ID: "streamarr_popular_movies", Type: "movie", Name: "Popular Movies", Enabled: true},
+				{ID: "streamarr_popular_series", Type: "series", Name: "Popular TV Shows", Enabled: true},
+				{ID: "streamarr_coming_soon", Type: "movie", Name: "Coming Soon", Enabled: true},
+			},
+			CatalogPlacement: "both",
+		},
 		UseHTTPProxy:           false,
 		HeadlessVidXAddress:    "localhost:3202",
 		UpdateBranch:           "main",

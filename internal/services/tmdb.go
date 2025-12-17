@@ -435,7 +435,11 @@ func (c *TMDBClient) DiscoverMovies(ctx context.Context, page int, year *int, ge
 
 // makeRequest performs an HTTP GET request to TMDB API
 func (c *TMDBClient) makeRequest(ctx context.Context, endpoint string, params url.Values) ([]byte, error) {
-	reqURL := fmt.Sprintf("%s?%s", endpoint, params.Encode())
+	// Add API key to params
+	params.Set("api_key", c.apiKey)
+	
+	// Build full URL
+	reqURL := fmt.Sprintf("%s%s?%s", tmdbBaseURL, endpoint, params.Encode())
 
 	req, err := http.NewRequestWithContext(ctx, "GET", reqURL, nil)
 	if err != nil {

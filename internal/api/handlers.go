@@ -157,7 +157,7 @@ func (h *Handler) applyReleaseFilters(streams []providers.TorrentioStream) []pro
 	return filtered
 }
 
-// sortStreams sorts streams by quality (4K > 1080 > 720 > 480 > Unknown), cached first, then by size
+// sortStreams sorts streams by cached status first, then by size (larger first)
 func sortStreams(streams []providers.TorrentioStream) {
 	sort.Slice(streams, func(i, j int) bool {
 		// First: sort by cached status (cached first)
@@ -165,14 +165,7 @@ func sortStreams(streams []providers.TorrentioStream) {
 			return streams[i].Cached
 		}
 		
-		// Second: sort by quality
-		qi := qualityToInt(streams[i].Quality)
-		qj := qualityToInt(streams[j].Quality)
-		if qi != qj {
-			return qi > qj // Higher quality first
-		}
-		
-		// Third: sort by size (larger usually better quality)
+		// Second: sort by size (larger files = better quality)
 		return streams[i].Size > streams[j].Size
 	})
 }
@@ -1805,6 +1798,8 @@ func (h *Handler) UpdateSettings(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		log.Printf("[Settings] UpdateSettings: StremioAddon.Enabled=%v", newSettings.StremioAddon.Enabled)
+		
 		if err := h.settingsManager.Update(&newSettings); err != nil {
 			respondError(w, http.StatusInternalServerError, "failed to update settings")
 			return

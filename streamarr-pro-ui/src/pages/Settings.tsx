@@ -94,6 +94,21 @@ interface SettingsData {
   // Xtream API settings
   xtream_username: string;
   xtream_password: string;
+  // Stremio Addon settings
+  stremio_addon: {
+    enabled: boolean;
+    public_server_url: string;
+    addon_name: string;
+    shared_token: string;
+    per_user_tokens: boolean;
+    catalogs: Array<{
+      id: string;
+      type: string;
+      name: string;
+      enabled: boolean;
+    }>;
+    catalog_placement: string;
+  };
 }
 
 interface MDBListEntry {
@@ -147,7 +162,7 @@ interface ServiceStatus {
   items_total: number;
 }
 
-type TabType = 'account' | 'api' | 'addons' | 'quality' | 'content' | 'livetv' | 'filters' | 'services' | 'xtream' | 'notifications' | 'database' | 'about';
+type TabType = 'account' | 'api' | 'addons' | 'quality' | 'content' | 'livetv' | 'stremio' | 'filters' | 'services' | 'xtream' | 'notifications' | 'database' | 'about';
 
 interface VersionInfo {
   current_version: string;
@@ -827,6 +842,7 @@ export default function Settings() {
     { id: 'quality' as TabType, label: 'Quality', icon: SettingsIcon },
     { id: 'content' as TabType, label: 'Content', icon: Film },
     { id: 'livetv' as TabType, label: 'Live TV', icon: Tv },
+    { id: 'stremio' as TabType, label: 'Stremio', icon: Play },
     { id: 'filters' as TabType, label: 'Filters', icon: Filter },
     { id: 'services' as TabType, label: 'Services', icon: Activity },
     { id: 'xtream' as TabType, label: 'Xtream', icon: Server },
@@ -2103,6 +2119,228 @@ export default function Settings() {
                   <li>Duplicate channels (same name) are automatically merged</li>
                 </ul>
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* Stremio Tab */}
+        {activeTab === 'stremio' && (
+          <div className="bg-[#1e1e1e] rounded-xl p-6 border border-white/10">
+            <div className="space-y-6">
+              <div className="mb-4 p-4 bg-purple-900/30 border border-purple-800 rounded-lg">
+                <h3 className="text-purple-400 font-medium mb-2 flex items-center gap-2">
+                  <Play className="w-5 h-5" />
+                  Stremio Addon
+                </h3>
+                <p className="text-sm text-slate-300">
+                  Enable the built-in Stremio addon to stream your library directly in Stremio. Configure which catalogs to show and customize their names.
+                </p>
+                <p className="text-sm text-yellow-400 mt-2">
+                  💡 Installation: In Stremio go to Add-ons → Community → Add-on Repository → Install from URL, then paste the Manifest URL from this page (use "Copy Manifest URL"). For remote access, set "Server Host/IP" below to your public domain/IP and open the server port.
+                </p>
+              </div>
+
+              {/* Enable Addon */}
+              <div>
+                <label className="flex items-center gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={settings.stremio_addon?.enabled || false}
+                    onChange={async (e) => {
+                      if (!settings) return;
+                      const currentAddon = settings.stremio_addon || {};
+                      const newAddon = { ...currentAddon, enabled: e.target.checked };
+                      updateSetting('stremio_addon', newAddon);
+                      // Auto-save when enabling/disabling
+                      try {
+                        // Make sure to send ALL current settings with the updated addon
+                        const settingsToSave = { ...settings, stremio_addon: newAddon };
+                        await api.put('/settings', settingsToSave);
+                        setMessage(e.target.checked ? 'Stremio addon enabled' : 'Stremio addon disabled');
+                        setTimeout(() => setMessage(''), 2000);
+                      } catch (error) {
+                        console.error('Failed to save:', error);
+                        setMessage('Failed to save setting');
+                      }
+                    }}
+                    className="w-5 h-5 text-red-600 bg-gray-700 border-gray-600 rounded focus:ring-red-500"
+                  />
+                  <span className="text-white font-medium">Enable Stremio Addon</span>
+                </label>
+              </div>
+
+              {settings.stremio_addon?.enabled && (
+                <>
+                  {/* Addon Name */}
+                  <div>
+                    <label className="block text-sm text-slate-300 mb-2">Addon Name</label>
+                    <input
+                      type="text"
+                      value={settings.stremio_addon?.addon_name || 'StreamArr Pro'}
+                      onChange={(e) => updateSetting('stremio_addon', { ...settings.stremio_addon, addon_name: e.target.value })}
+                      placeholder="StreamArr Pro"
+                      className="w-full p-3 bg-gray-700 border border-gray-600 rounded-lg text-white"
+                    />
+                    <p className="text-xs text-slate-500 mt-1">The name shown in Stremio's addon list</p>
+                  </div>
+
+                  {/* Server Host/IP */}
+                  <div>
+                    <label className="block text-sm text-slate-300 mb-2">Server Host/IP</label>
+                    <input
+                      type="text"
+                      value={settings.stremio_addon?.public_server_url || ''}
+                      onChange={(e) => updateSetting('stremio_addon', { ...settings.stremio_addon, public_server_url: e.target.value })}
+                      placeholder="e.g., streamarr.mydomain.com:8080 or 123.45.67.89:8080"
+                      className="w-full p-3 bg-gray-700 border border-gray-600 rounded-lg text-white font-mono text-sm"
+                    />
+                    <p className="text-xs text-slate-500 mt-1">
+                      Your public domain or IP with port if needed. Leave empty to auto-detect. Required for using the addon outside your home network.
+                    </p>
+                  </div>
+
+                  {/* Authentication Token */}
+                  <div>
+                    <label className="block text-sm text-slate-300 mb-2">Shared Access Token</label>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={settings.stremio_addon?.shared_token || ''}
+                        readOnly
+                        placeholder="Click 'Generate Token' to create"
+                        className="flex-1 p-3 bg-gray-700 border border-gray-600 rounded-lg text-white font-mono text-sm"
+                      />
+                      <button
+                        onClick={async () => {
+                          try {
+                            const response = await api.post('/stremio/generate-token');
+                            if (!settings) return;
+                            const currentAddon = settings.stremio_addon || {};
+                            // Ensure addon is enabled when token is generated
+                            const newAddon = { ...currentAddon, enabled: true, shared_token: response.data.token };
+                            updateSetting('stremio_addon', newAddon);
+                            // Auto-save the token and ensure enabled flag is set
+                            const settingsToSave = { ...settings, stremio_addon: newAddon };
+                            await api.put('/settings', settingsToSave);
+                            setMessage('Token generated successfully');
+                            setTimeout(() => setMessage(''), 2000);
+                          } catch (error: any) {
+                            console.error('Failed to generate token:', error);
+                            const errorMsg = error?.response?.data?.error || error?.message || 'Failed to generate token';
+                            setMessage(errorMsg);
+                          }
+                        }}
+                        className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 whitespace-nowrap"
+                      >
+                        Generate Token
+                      </button>
+                    </div>
+                    <p className="text-xs text-slate-500 mt-1">
+                      Secure token for addon authentication. Keep this private!
+                    </p>
+                  </div>
+
+                  {/* Catalog Configuration */}
+                  <div>
+                    <h4 className="text-white font-medium mb-3">Library Catalogs</h4>
+                    <div className="space-y-3">
+                      {(settings.stremio_addon?.catalogs || []).map((catalog, index) => (
+                        <div key={catalog.id} className="bg-[#2a2a2a] rounded-lg p-4 border border-gray-700">
+                          <div className="flex items-start gap-4">
+                            <label className="flex items-center gap-3 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={catalog.enabled}
+                                onChange={(e) => {
+                                  const currentAddon = settings.stremio_addon || {};
+                                  const newCatalogs = [...(currentAddon.catalogs || [])];
+                                  newCatalogs[index] = { ...catalog, enabled: e.target.checked };
+                                  updateSetting('stremio_addon', { ...currentAddon, catalogs: newCatalogs });
+                                }}
+                                className="w-5 h-5 text-red-600 bg-gray-700 border-gray-600 rounded focus:ring-red-500"
+                              />
+                            </label>
+                            <div className="flex-1">
+                              <div className="mb-2">
+                                <span className="text-sm text-slate-400 uppercase">{catalog.type}</span>
+                              </div>
+                              <input
+                                type="text"
+                                value={catalog.name}
+                                onChange={(e) => {
+                                  const currentAddon = settings.stremio_addon || {};
+                                  const newCatalogs = [...(currentAddon.catalogs || [])];
+                                  newCatalogs[index] = { ...catalog, name: e.target.value };
+                                  updateSetting('stremio_addon', { ...currentAddon, catalogs: newCatalogs });
+                                }}
+                                placeholder="Catalog Name"
+                                className="w-full p-2 bg-gray-700 border border-gray-600 rounded-lg text-white text-sm"
+                              />
+                              <p className="text-xs text-slate-500 mt-1">
+                                Catalog ID: {catalog.id}
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    <p className="text-xs text-slate-500 mt-2">
+                      Enable/disable catalogs and customize their names as shown in Stremio
+                    </p>
+                  </div>
+
+                  {/* Catalog Placement removed per request */}
+
+                  {/* Manifest URL */}
+                  {settings.stremio_addon?.shared_token && (
+                    <div className="bg-[#2a2a2a] rounded-lg p-4 border border-green-800">
+                      <h4 className="text-green-400 font-medium mb-3 flex items-center gap-2">
+                        <CheckCircle className="w-5 h-5" />
+                        Addon Ready to Install
+                      </h4>
+                      <div className="space-y-3">
+                        <button
+                          onClick={async () => {
+                            try {
+                              const response = await api.get('/stremio/manifest-url');
+                              const url = response.data.manifest_url;
+                              navigator.clipboard.writeText(url);
+                              setMessage('Manifest URL copied! Paste it in Stremio');
+                              setTimeout(() => setMessage(''), 3000);
+                            } catch (error: any) {
+                              console.error('Failed to get manifest URL:', error);
+                              const errorMsg = error?.response?.data?.error || error?.message || 'Failed to get manifest URL';
+                              setMessage(errorMsg);
+                            }
+                          }}
+                          className="w-full px-4 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 font-medium"
+                        >
+                          Copy Manifest URL
+                        </button>
+                        <div className="bg-blue-900/30 border border-blue-800 rounded p-3">
+                          <p className="text-sm text-blue-200 font-medium mb-2">📋 Installation Steps:</p>
+                          <ol className="text-xs text-slate-300 space-y-1 list-decimal list-inside">
+                            <li>Click "Copy Manifest URL" above</li>
+                            <li>Open Stremio → Add-ons (puzzle icon)</li>
+                            <li>Scroll to bottom → Click "+ Add-on Repository"</li>
+                            <li>Paste the URL and click OK</li>
+                            <li>Your addon will appear—streams show when playing titles!</li>
+                          </ol>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {!settings.stremio_addon?.shared_token && (
+                    <div className="bg-yellow-900/30 border border-yellow-800 rounded-lg p-4">
+                      <p className="text-yellow-400 text-sm flex items-center gap-2">
+                        <AlertCircle className="w-4 h-4" />
+                        Generate a token to get your manifest URL
+                      </p>
+                    </div>
+                  )}
+                </>
+              )}
             </div>
           </div>
         )}

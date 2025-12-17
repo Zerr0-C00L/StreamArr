@@ -50,7 +50,7 @@ func NewGenericStremioProvider(name, baseURL, rdAPIKey string) *GenericStremioPr
 		BaseURL:          baseURL,
 		RealDebridAPIKey: rdAPIKey,
 		Client: &http.Client{
-			Timeout: 15 * time.Second,
+			Timeout: 120 * time.Second,
 		},
 		Cache: make(map[string]*GenericStreamCachedResponse),
 	}
@@ -194,7 +194,12 @@ func (g *GenericStremioProvider) convertToTorrentioStreams(genericStreams []Gene
 		// Use videoSize from behaviorHints if available
 		size := gs.BehaviorHints.VideoSize
 		
-		// If no size from behaviorHints, try to parse from description
+		// If no size from behaviorHints, try to parse from title first (Torrentio format)
+		if size == 0 && gs.Title != "" {
+			size = parseSizeFromDescription(gs.Title)
+		}
+		
+		// Then try description
 		if size == 0 && gs.Description != "" {
 			size = parseSizeFromDescription(gs.Description)
 		}

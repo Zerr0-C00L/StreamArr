@@ -1,6 +1,7 @@
 package api
 
 import (
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -112,6 +113,16 @@ func SetupRoutes(handler *Handler) http.Handler {
 	api.HandleFunc("/adult-vod/import", handler.ImportAdultVOD).Methods("POST")
 	api.HandleFunc("/adult-vod/stats", handler.GetAdultVODStats).Methods("GET")
 
+	// Stremio Addon Management
+	api.HandleFunc("/stremio/generate-token", handler.GenerateStremioToken).Methods("POST")
+	api.HandleFunc("/stremio/manifest-url", handler.GetStremioManifestURL).Methods("GET")
+
+	// Stremio Addon Endpoints (public with token auth)
+	r.HandleFunc("/stremio/manifest.json", handler.StremioManifestHandler).Methods("GET")
+	r.HandleFunc("/stremio/catalog/{type}/{id}.json", handler.StremioCatalogHandler).Methods("GET")
+	r.HandleFunc("/stremio/stream/{type}/{id}.json", handler.StremioStreamHandler).Methods("GET")
+	r.HandleFunc("/stremio/poster/{path:.+}", handler.StremioPostersProxyHandler).Methods("GET", "HEAD")
+
 	// Serve static UI files (SPA)
 	uiPath := getUIPath()
 	if uiPath != "" {
@@ -206,7 +217,7 @@ func corsMiddleware(next http.Handler) http.Handler {
 // loggingMiddleware logs all HTTP requests
 func loggingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// You can add proper logging here
+		log.Printf("[HTTP] %s %s", r.Method, r.URL.Path)
 		next.ServeHTTP(w, r)
 	})
 }
@@ -220,7 +231,11 @@ func SetupRoutesWithXtream(handler *Handler, xtreamHandler interface{ RegisterRo
 	r.Use(auth.SessionMiddleware)
 	r.Use(loggingMiddleware)
 
-	// Register Xtream Codes API routes first
+	// Register Stremio poster proxy FIRST (before Xtream generic routes)
+	// This prevents it from matching Xtream's /{username}/{password}/{id}.{ext} pattern
+	r.HandleFunc("/stremio/poster/{path:.+}", handler.StremioPostersProxyHandler).Methods("GET", "HEAD")
+
+	// Register Xtream Codes API routes
 	xtreamHandler.RegisterRoutes(r)
 
 	// API v1 routes
@@ -315,6 +330,16 @@ func SetupRoutesWithXtream(handler *Handler, xtreamHandler interface{ RegisterRo
 	// Adult VOD Import
 	api.HandleFunc("/adult-vod/import", handler.ImportAdultVOD).Methods("POST")
 	api.HandleFunc("/adult-vod/stats", handler.GetAdultVODStats).Methods("GET")
+
+	// Stremio Addon Management
+	api.HandleFunc("/stremio/generate-token", handler.GenerateStremioToken).Methods("POST")
+	api.HandleFunc("/stremio/manifest-url", handler.GetStremioManifestURL).Methods("GET")
+
+	// Stremio Addon Endpoints (public with token auth)
+	r.HandleFunc("/stremio/manifest.json", handler.StremioManifestHandler).Methods("GET")
+	r.HandleFunc("/stremio/catalog/{type}/{id}.json", handler.StremioCatalogHandler).Methods("GET")
+	r.HandleFunc("/stremio/stream/{type}/{id}.json", handler.StremioStreamHandler).Methods("GET")
+	r.HandleFunc("/stremio/poster/{path:.+}", handler.StremioPostersProxyHandler).Methods("GET", "HEAD")
 
 	// Serve static UI files (SPA)
 	uiPath := getUIPath()

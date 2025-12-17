@@ -79,9 +79,36 @@ func NewMultiProvider(rdAPIKey string, addons []StremioAddon, tmdbClient *servic
 		log.Printf("Loaded Stremio addon: %s (%s)", addon.Name, addon.URL)
 	}
 	
-	// No fallback - users must configure their own addons
+	// Add default Torrentio addon if Real-Debrid is configured
+	if len(mp.Providers) == 0 && rdAPIKey != "" {
+		log.Println("⚠️  No Stremio addons configured - using Torrentio with Real-Debrid")
+		
+		// Torrentio is a popular public Stremio addon that works with Real-Debrid
+		torrentioProvider := NewGenericStremioProvider("Torrentio", "https://torrentio.stremio.space/manifest.json", rdAPIKey)
+		mp.Providers = append(mp.Providers, torrentioProvider)
+		mp.ProviderNames = append(mp.ProviderNames, "Torrentio (Real-Debrid)")
+		log.Println("✓ Torrentio addon loaded with Real-Debrid")
+	}
+	
+	// Add fallback free providers if no addons and no Real-Debrid
 	if len(mp.Providers) == 0 {
-		log.Println("⚠️  No Stremio addons configured - please add addons in Settings")
+		log.Println("⚠️  No Stremio addons configured and no Real-Debrid - using fallback free providers")
+		
+		// Add AutoEmbed provider
+		if tmdbClient != nil {
+			autoEmbedProvider := NewAutoEmbedAdapter(tmdbClient)
+			mp.Providers = append(mp.Providers, autoEmbedProvider)
+			mp.ProviderNames = append(mp.ProviderNames, "AutoEmbed")
+			log.Println("✓ AutoEmbed fallback provider loaded")
+		}
+		
+		// Add VidSrc provider
+		if tmdbClient != nil {
+			vidSrcProvider := NewVidSrcAdapter(tmdbClient)
+			mp.Providers = append(mp.Providers, vidSrcProvider)
+			mp.ProviderNames = append(mp.ProviderNames, "VidSrc")
+			log.Println("✓ VidSrc fallback provider loaded")
+		}
 	}
 	
 	return mp
