@@ -765,17 +765,6 @@ func fetchXtreamSeries(ctx context.Context, client *http.Client, server, usernam
     return items, nil
 }
 
-                        _ = seriesStore.Delete(ctx, id)
-                    } else {
-                        _ = seriesStore.Update(ctx, s)
-                    }
-                }
-            }
-        }
-    }
-    return nil
-}
-
 func yearFromMovie(m *models.Movie) int {
     if m.ReleaseDate != nil {
         return m.ReleaseDate.Year()
