@@ -642,6 +642,10 @@ func runStreamSearch(ctx context.Context, movieStore *database.MovieStore, setti
 func balkanVODSyncWorker(ctx context.Context, movieStore *database.MovieStore, seriesStore *database.SeriesStore, tmdbClient *services.TMDBClient, settingsManager *settings.Manager, interval time.Duration) {
 	log.Printf("🇧🇦 Balkan VOD Sync Worker: Starting (interval: %v)", interval)
 	
+	// Run initial sync
+	log.Println("🇧🇦 Balkan VOD Sync Worker: Running initial sync...")
+	runBalkanVODSync(ctx, movieStore, seriesStore, tmdbClient, settingsManager)
+	
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	
