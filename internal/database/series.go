@@ -117,8 +117,9 @@ func (s *SeriesStore) Get(ctx context.Context, id int64) (*models.Series, error)
 		return nil, fmt.Errorf("failed to unmarshal metadata: %w", err)
 	}
 
-	// Add IMDB ID to metadata if it exists
+	// Set IMDB ID field from database column
 	if imdbID.Valid && imdbID.String != "" {
+		series.IMDBID = imdbID.String
 		series.Metadata["imdb_id"] = imdbID.String
 	}
 
@@ -219,6 +220,11 @@ func (s *SeriesStore) GetByIMDBID(ctx context.Context, imdbID string) (*models.S
 		return nil, fmt.Errorf("failed to unmarshal metadata: %w", err)
 	}
 
+	// Set IMDB ID field from database column
+	if dbImdbID.Valid && dbImdbID.String != "" {
+		series.IMDBID = dbImdbID.String
+	}
+
 	// Parse metadata fields
 	if series.Metadata != nil {
 		if ot, ok := series.Metadata["original_title"].(string); ok {
@@ -293,6 +299,11 @@ func (s *SeriesStore) List(ctx context.Context, offset, limit int, monitored *bo
 
 		if err := json.Unmarshal(metadataJSON, &series.Metadata); err != nil {
 			return nil, fmt.Errorf("failed to unmarshal metadata: %w", err)
+		}
+
+		// Set IMDB ID field from database column
+		if imdbID.Valid && imdbID.String != "" {
+			series.IMDBID = imdbID.String
 		}
 
 		// Extract fields from metadata if present
