@@ -303,10 +303,31 @@ func (m *Manager) Get() *Settings {
 
 func (m *Manager) Update(newSettings *Settings) error {
 	m.mu.Lock()
-	defer m.mu.Unlock()
+	
+	// Check if Balkan VOD is being disabled
+	isDisablingBalkan := false
+	if m.settings.BalkanVODEnabled && !newSettings.BalkanVODEnabled {
+		isDisablingBalkan = true
+	}
 	
 	m.settings = newSettings
-	return m.saveToDBLocked()
+	if err := m.saveToDBLocked(); err != nil {
+		m.mu.Unlock()
+		return err
+	}
+	
+	// Save callback reference before unlocking
+	callback := m.onBalkanVODDisabled
+	m.mu.Unlock()
+	
+	// Call cleanup callback if Balkan VOD was disabled
+	if isDisablingBalkan && callback != nil {
+		if err := callback(); err != nil {
+			return fmt.Errorf("failed to cleanup Balkan VOD content: %w", err)
+		}
+	}
+	
+	return nil
 }
 
 func (m *Manager) UpdatePartial(updates map[string]interface{}) error {
