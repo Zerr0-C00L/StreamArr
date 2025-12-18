@@ -59,14 +59,14 @@ func (s *MovieStore) Add(ctx context.Context, movie *models.Movie) error {
 
 	query := `
 		INSERT INTO library_movies (
-			tmdb_id, title, year, monitored, clean_title, metadata, added_at, preferred_quality, collection_id
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+			tmdb_id, title, year, monitored, available, clean_title, metadata, added_at, preferred_quality, collection_id
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 		RETURNING id, added_at
 	`
 
 	err = s.db.QueryRowContext(
 		ctx, query,
-		movie.TMDBID, movie.Title, year, movie.Monitored,
+		movie.TMDBID, movie.Title, year, movie.Monitored, movie.Available,
 		cleanTitle, metadataJSON, time.Now(), movie.QualityProfile, movie.CollectionID,
 	).Scan(&movie.ID, &movie.AddedAt)
 
