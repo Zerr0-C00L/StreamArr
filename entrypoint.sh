@@ -34,12 +34,12 @@ echo "   Logs: /app/logs/worker.log"
 echo ""
 
 # Determine which server binary to use
-# Prefer host binary (hot reload) over container binary
-if [ -x /app/host/bin/server-linux ]; then
+# Always prefer container binary for stability, unless host binary is explicitly marked for hot reload
+SERVER_BIN=/app/bin/server
+if [ -x /app/host/bin/server-linux ] && [ -f /app/host/.hotreload ]; then
     SERVER_BIN=/app/host/bin/server-linux
-    echo "🔄 Using host server binary (hot reload enabled)"
+    echo "🔄 Using host server binary (hot reload mode)"
 else
-    SERVER_BIN=/app/bin/server
     echo "📦 Using container server binary"
 fi
 
