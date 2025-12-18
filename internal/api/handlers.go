@@ -902,6 +902,14 @@ func (h *Handler) GetMovieStreams(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// If this movie came from IPTV VOD import, expose only VOD playlist links
+	if isIPTVVODMovie(movie) {
+		apiStreams := buildIPTVVODStreams(movie)
+		log.Printf("Returning %d IPTV VOD streams for movie %d (%s)", len(apiStreams), id, movie.Title)
+		respondJSON(w, http.StatusOK, apiStreams)
+		return
+	}
+
 	if imdbID == "" {
 		log.Printf("Movie %d (%s) has no IMDB ID in metadata", id, movie.Title)
 		respondError(w, http.StatusBadRequest, "movie has no IMDB ID")
@@ -920,14 +928,6 @@ func (h *Handler) GetMovieStreams(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.Printf("Failed to get streams for movie %d (%s): %v", id, imdbID, err)
 		respondJSON(w, http.StatusOK, []interface{}{}) // Return empty array instead of error
-		return
-	}
-
-	// If this movie came from IPTV VOD import, expose only VOD playlist links
-	if isIPTVVODMovie(movie) {
-		apiStreams := buildIPTVVODStreams(movie)
-		log.Printf("Returning %d IPTV VOD streams for movie %d (%s)", len(apiStreams), id, movie.Title)
-		respondJSON(w, http.StatusOK, apiStreams)
 		return
 	}
 
@@ -993,6 +993,16 @@ func (h *Handler) GetEpisodeStreams(w http.ResponseWriter, r *http.Request) {
 	episode, err := strconv.Atoi(parts[2])
 	if err != nil {
 		respondError(w, http.StatusBadRequest, "invalid episode number")
+		return
+	}
+
+	// Check if this is IPTV VOD series and return IPTV streams
+	ctx := r.Context()
+	series, err := h.seriesStore.GetByIMDBID(ctx, imdbID)
+	if err == nil && series != nil && isIPTVVODSeries(series) {
+		apiStreams := buildIPTVVODSeriesStreams(series, season, episode)
+		log.Printf("Returning %d IPTV VOD streams for series %s S%02dE%02d", len(apiStreams), imdbID, season, episode)
+		respondJSON(w, http.StatusOK, apiStreams)
 		return
 	}
 
@@ -3442,4 +3452,55 @@ func collectionHasNonIPTVVOD(movies []*models.Movie) bool {
 		}
 	}
 	return false
+}
+
+func isIPTVVODSeries(series *models.Series) bool {
+	if series == nil || series.Metadata == nil {
+		return false
+	}
+	if src, ok := series.Metadata["source"].(string); ok {
+		return strings.EqualFold(src, "iptv_vod")
+	}
+	return false
+}
+
+func buildIPTVVODSeriesStreams(series *models.Series, season, episode int) []map[string]interface{} {
+	streams := []map[string]interface{}{}
+	if series == nil || series.Metadata == nil {
+		return streams
+	}
+
+	if sources, ok := series.Metadata["iptv_vod_sources"].([]interface{}); ok {
+		for _, s := range sources {
+			m, ok := s.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			name, _ := m["name"].(string)
+			url, _ := m["url"].(string)
+			name = strings.TrimSpace(name)
+			url = strings.TrimSpace(url)
+			if name == "" {
+				name = "IPTV VOD"
+			}
+			if url == "" {
+				continue
+			}
+
+			streams = append(streams, map[string]interface{}{
+				"source":   name,
+				"quality":  "VOD",
+				"codec":    "",
+				"url":      url,
+				"cached":   false,
+				"seeds":    0,
+				"size_gb":  0.0,
+				"title":    fmt.Sprintf("%s S%02dE%02d (%s)", series.Title, season, episode, name),
+				"name":     name,
+				"filename": name,
+			})
+		}
+	}
+
+	return streams
 }

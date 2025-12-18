@@ -180,6 +180,79 @@ func (s *SeriesStore) GetByTMDBID(ctx context.Context, tmdbID int) (*models.Seri
 	return &series, nil
 }
 
+// GetByIMDBID retrieves a series by IMDB ID
+func (s *SeriesStore) GetByIMDBID(ctx context.Context, imdbID string) (*models.Series, error) {
+	query := `
+		SELECT id, tmdb_id, imdb_id, title, year, monitored, clean_title,
+			metadata, added_at, last_checked, preferred_quality
+		FROM library_series
+		WHERE imdb_id = $1
+	`
+
+	var series models.Series
+	var metadataJSON []byte
+	var dbImdbID sql.NullString
+	var year sql.NullInt32
+	var lastChecked sql.NullTime
+	var preferredQuality sql.NullString
+
+	err := s.db.QueryRowContext(ctx, query, imdbID).Scan(
+		&series.ID, &series.TMDBID, &dbImdbID, &series.Title, &year,
+		&series.Monitored, &series.CleanTitle, &metadataJSON,
+		&series.AddedAt, &lastChecked, &preferredQuality,
+	)
+
+	if err == sql.ErrNoRows {
+		return nil, fmt.Errorf("series not found")
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get series: %w", err)
+	}
+
+	if err := json.Unmarshal(metadataJSON, &series.Metadata); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal metadata: %w", err)
+	}
+
+	// Parse metadata fields
+	if series.Metadata != nil {
+		if ot, ok := series.Metadata["original_title"].(string); ok {
+			series.OriginalTitle = ot
+		}
+		if ov, ok := series.Metadata["overview"].(string); ok {
+			series.Overview = ov
+		}
+		if pp, ok := series.Metadata["poster_path"].(string); ok {
+			series.PosterPath = pp
+		}
+		if bp, ok := series.Metadata["backdrop_path"].(string); ok {
+			series.BackdropPath = bp
+		}
+		if st, ok := series.Metadata["status"].(string); ok {
+			series.Status = st
+		}
+		if pq, ok := series.Metadata["quality_profile"].(string); ok {
+			series.QualityProfile = pq
+		}
+	}
+
+	if dbImdbID.Valid {
+		imdbStr := dbImdbID.String
+		series.Metadata["imdb_id"] = imdbStr
+	}
+	if year.Valid {
+		series.Metadata["year"] = int(year.Int32)
+	}
+	if lastChecked.Valid {
+		series.LastChecked = &lastChecked.Time
+	}
+	if preferredQuality.Valid {
+		series.QualityProfile = preferredQuality.String
+	}
+
+	return &series, nil
+}
+
+
 // List returns paginated series with optional filtering
 func (s *SeriesStore) List(ctx context.Context, offset, limit int, monitored *bool) ([]*models.Series, error) {
 	query := `
