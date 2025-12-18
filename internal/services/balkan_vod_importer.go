@@ -290,7 +290,9 @@ func (b *BalkanVODImporter) ImportBalkanVOD(ctx context.Context) error {
 	}
 
 	// Import series (all series are domestic)
+	log.Printf("[BalkanVOD] Starting series import: %d series to process", len(content.Series))
 	for _, series := range content.Series {
+		log.Printf("[BalkanVOD] Processing series: %s (ID: %s, Seasons: %d)", series.Name, series.ID, len(series.Seasons))
 		result := b.importSeries(ctx, series)
 		if result.Error != nil {
 			log.Printf("[BalkanVOD] Failed to import series %s: %v", series.Name, result.Error)
@@ -420,8 +422,11 @@ func (b *BalkanVODImporter) importMovie(ctx context.Context, entry BalkanMovieEn
 }
 
 func (b *BalkanVODImporter) importSeries(ctx context.Context, entry BalkanSeriesEntry) ImportResult {
+	log.Printf("[BalkanVOD] importSeries called for: %s (Seasons: %d)", entry.Name, len(entry.Seasons))
+	
 	// Check if we have seasons with episodes
 	if len(entry.Seasons) == 0 {
+		log.Printf("[BalkanVOD] Series %s rejected: no seasons available", entry.Name)
 		return ImportResult{Error: fmt.Errorf("no seasons available")}
 	}
 
@@ -431,8 +436,11 @@ func (b *BalkanVODImporter) importSeries(ctx context.Context, entry BalkanSeries
 		totalEpisodes += len(season.Episodes)
 	}
 	if totalEpisodes == 0 {
+		log.Printf("[BalkanVOD] Series %s rejected: no episodes available (has %d seasons)", entry.Name, len(entry.Seasons))
 		return ImportResult{Error: fmt.Errorf("no episodes available")}
 	}
+	
+	log.Printf("[BalkanVOD] Series %s validation passed: %d seasons, %d episodes", entry.Name, len(entry.Seasons), totalEpisodes)
 
 	// Generate a unique TMDB ID based on Balkan ID to avoid constraint violations
 	// Use negative IDs to distinguish from real TMDB IDs
