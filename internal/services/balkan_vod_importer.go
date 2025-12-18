@@ -471,17 +471,17 @@ func extractTMDBFromPoster(posterURL string) int {
 
 // generateUniqueTMDBID creates a unique negative TMDB ID from a Balkan ID
 // Negative IDs distinguish Balkan content from real TMDB content
+// Must fit in PostgreSQL integer type (32-bit signed: -2147483648 to 2147483647)
 func generateUniqueTMDBID(balkanID string) int {
-	// Simple hash: sum of character codes
-	hash := 0
+	// Simple hash: sum of character codes modulo to fit in 31 bits
+	hash := uint32(0)
 	for _, char := range balkanID {
-		hash = hash*31 + int(char)
+		hash = hash*31 + uint32(char)
 	}
-	// Return negative to distinguish from real TMDB IDs, ensure non-zero
-	if hash == 0 {
-		hash = 1
-	}
-	return -abs(hash)
+	// Keep in range for 32-bit signed int, use modulo to ensure it fits
+	// Range: -2147483647 to -1
+	positiveHash := int(hash%2147483647) + 1
+	return -positiveHash
 }
 
 
