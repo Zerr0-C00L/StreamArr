@@ -3011,7 +3011,7 @@ func (h *Handler) PreviewM3UCategories(w http.ResponseWriter, r *http.Request) {
 	defer resp.Body.Close()
 	
 	if resp.StatusCode != http.StatusOK {
-		respondError(w, http.StatusBadRequest, fmt.Sprintf("Failed to fetch M3U: HTTP %d", resp.StatusCode))
+		respondError(w, http.StatusBadRequest, fmt.Sprintf("Server returned HTTP %d. Please verify the M3U URL is correct and accessible.", resp.StatusCode))
 		return
 	}
 	
