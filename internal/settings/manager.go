@@ -92,6 +92,12 @@ type Settings struct {
 	OnlyReleasedContent    bool   `json:"only_released_content"` // Only include movies/series released on streaming/digital/bluray
 	ImportAdultVODFromGitHub bool `json:"import_adult_vod_from_github"` // Import adult VOD content from public-files repo
 	
+	// Balkan VOD Settings (GitHub Repos: Balkan-On-Demand + DomaciFlix)
+	BalkanVODEnabled              bool     `json:"balkan_vod_enabled"`              // Enable Balkan VOD import from GitHub
+	BalkanVODAutoSync             bool     `json:"balkan_vod_auto_sync"`            // Automatically sync new content
+	BalkanVODSyncIntervalHours    int      `json:"balkan_vod_sync_interval_hours"`  // Sync interval (default: 24 hours)
+	BalkanVODSelectedCategories   []string `json:"balkan_vod_selected_categories"`  // Selected categories (empty = all)
+	
 	// Live TV / M3U Sources
 	M3USources            []M3USource    `json:"m3u_sources"`
 	XtreamSources         []XtreamSource `json:"xtream_sources"`
@@ -197,6 +203,10 @@ func getDefaultSettings() *Settings {
 		DuplicateVODPerProvider: false,
 		IPTVVODFastImport:      false,
 		ImportAdultVODFromGitHub: false,
+		BalkanVODEnabled:             false,    // Disabled by default - users need to enable
+		BalkanVODAutoSync:            true,     // Auto-sync when enabled
+		BalkanVODSyncIntervalHours:   24,       // Check for updates daily
+		BalkanVODSelectedCategories:  []string{}, // Empty = import all categories
 		AutoCacheIntervalHours: 6,
 		UseRealDebrid:          true,
 		UsePremiumize:          false,

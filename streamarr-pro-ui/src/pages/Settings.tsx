@@ -49,6 +49,10 @@ interface SettingsData {
   include_live_tv: boolean;
   include_adult_vod: boolean;
   import_adult_vod_from_github: boolean;
+  balkan_vod_enabled: boolean;
+  balkan_vod_auto_sync: boolean;
+  balkan_vod_sync_interval_hours: number;
+  balkan_vod_selected_categories: string[];
   iptv_import_mode: 'live_only' | 'vod_only' | 'both';
   iptv_vod_sync_interval_hours: number;
   duplicate_vod_per_provider: boolean;
@@ -211,6 +215,10 @@ export default function Settings() {
   const [availableXtreamCategories, setAvailableXtreamCategories] = useState<Array<{name: string; count: number}>>([]);
   const [loadingXtreamCategories, setLoadingXtreamCategories] = useState(false);
   const [showXtreamCategoryModal, setShowXtreamCategoryModal] = useState(false);
+  const [newBalkanCategories, setNewBalkanCategories] = useState<string[]>([]);
+  const [availableBalkanCategories, setAvailableBalkanCategories] = useState<Array<{name: string; count: number}>>([]);
+  const [loadingBalkanCategories, setLoadingBalkanCategories] = useState(false);
+  const [showBalkanCategoryModal, setShowBalkanCategoryModal] = useState(false);
   const [channelStats, setChannelStats] = useState<ChannelStats | null>(null);
   const [enabledCategories, setEnabledCategories] = useState<Set<string>>(new Set());
   const [enabledSources, setEnabledSources] = useState<Set<string>>(new Set());
@@ -867,6 +875,55 @@ export default function Settings() {
 
   const deselectAllXtreamCategories = () => {
     setNewXtreamCategories([]);
+  };
+
+  // Balkan VOD category functions
+  const previewBalkanCategories = async () => {
+    if (!settings || !settings.balkan_vod_enabled) {
+      setMessage('⚠️ Enable Balkan VOD first');
+      setTimeout(() => setMessage(''), 3000);
+      return;
+    }
+
+    setLoadingBalkanCategories(true);
+    try {
+      const response = await api.post('/balkan-vod/preview-categories');
+      if (response.data.categories) {
+        setAvailableBalkanCategories(response.data.categories);
+        setNewBalkanCategories(settings?.balkan_vod_selected_categories || []);
+        setShowBalkanCategoryModal(true);
+      }
+    } catch (error: any) {
+      setMessage(`❌ Failed to fetch categories: ${error.response?.data?.error || error.message}`);
+      setTimeout(() => setMessage(''), 5000);
+    } finally {
+      setLoadingBalkanCategories(false);
+    }
+  };
+
+  const toggleBalkanCategory = (categoryName: string) => {
+    setNewBalkanCategories(prev => {
+      if (prev.includes(categoryName)) {
+        return prev.filter(c => c !== categoryName);
+      } else {
+        return [...prev, categoryName];
+      }
+    });
+  };
+
+  const selectAllBalkanCategories = () => {
+    setNewBalkanCategories(availableBalkanCategories.map(c => c.name));
+  };
+
+  const deselectAllBalkanCategories = () => {
+    setNewBalkanCategories([]);
+  };
+
+  const saveBalkanCategories = () => {
+    updateSetting('balkan_vod_selected_categories', newBalkanCategories);
+    setShowBalkanCategoryModal(false);
+    setMessage('✅ Balkan VOD categories updated');
+    setTimeout(() => setMessage(''), 3000);
   };
 
   // Xtream Source management functions
@@ -2123,6 +2180,103 @@ export default function Settings() {
                 </div>
               </div>
 
+              {/* Balkan VOD Import Section */}
+              <div className="p-4 bg-blue-900/20 border border-blue-800 rounded-lg">
+                <div className="flex items-center justify-between mb-2">
+                  <div>
+                    <h4 className="text-white font-medium flex items-center gap-2">
+                      <span>🇧🇦</span> Balkan/Ex-Yu VOD from GitHub
+                    </h4>
+                    <p className="text-sm text-slate-400 mt-1">
+                      Import domestic movies and series from Ex-Yugoslavia region (Serbian, Croatian, Bosnian content).
+                    </p>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={settings.balkan_vod_enabled || false}
+                      onChange={(e) => updateSetting('balkan_vod_enabled', e.target.checked)}
+                      className="sr-only peer"
+                    />
+                    <div className="w-11 h-6 bg-gray-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                  </label>
+                </div>
+
+                {settings.balkan_vod_enabled && (
+                  <div className="mt-4 space-y-3">
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        id="balkan_vod_auto_sync"
+                        checked={settings.balkan_vod_auto_sync || false}
+                        onChange={(e) => updateSetting('balkan_vod_auto_sync', e.target.checked)}
+                        className="w-4 h-4 bg-[#2a2a2a] border-white/10 rounded"
+                      />
+                      <label htmlFor="balkan_vod_auto_sync" className="text-sm text-slate-300">
+                        Auto-sync new content
+                      </label>
+                    </div>
+
+                    <div className="flex items-center gap-3">
+                      <label htmlFor="balkan_vod_sync_interval" className="text-sm text-slate-300">
+                        Sync interval:
+                      </label>
+                      <select
+                        id="balkan_vod_sync_interval"
+                        value={settings.balkan_vod_sync_interval_hours || 24}
+                        onChange={(e) => updateSetting('balkan_vod_sync_interval_hours', parseInt(e.target.value))}
+                        className="px-3 py-1.5 bg-[#2a2a2a] border border-white/10 rounded-lg text-sm"
+                      >
+                        <option value="6">Every 6 hours</option>
+                        <option value="12">Every 12 hours</option>
+                        <option value="24">Every 24 hours</option>
+                        <option value="48">Every 2 days</option>
+                        <option value="72">Every 3 days</option>
+                        <option value="168">Weekly</option>
+                      </select>
+                    </div>
+
+                    <div className="mt-3 p-3 bg-[#2a2a2a] rounded-lg">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-sm text-slate-300 font-medium">Category Selection</p>
+                          <p className="text-xs text-slate-500 mt-1">
+                            {settings.balkan_vod_selected_categories && settings.balkan_vod_selected_categories.length > 0
+                              ? `${settings.balkan_vod_selected_categories.length} categories selected`
+                              : 'All categories (default)'}
+                          </p>
+                        </div>
+                        <button
+                          onClick={previewBalkanCategories}
+                          disabled={loadingBalkanCategories}
+                          className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-sm disabled:opacity-50"
+                        >
+                          {loadingBalkanCategories ? (
+                            <Loader className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <Filter className="w-4 h-4" />
+                          )}
+                          {loadingBalkanCategories ? 'Loading...' : 'Select Categories'}
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between gap-4 pt-2">
+                      <span className="text-xs text-slate-500">Controls auto-import cadence (default 24h)</span>
+                      <button
+                        onClick={() => triggerService('balkan_vod_sync')}
+                        disabled={triggeringService === 'balkan_vod_sync'}
+                        className={`inline-flex items-center gap-2 px-3 py-2 rounded-md text-sm ${triggeringService === 'balkan_vod_sync' ? 'bg-gray-700 text-gray-300 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700 text-white'}`}
+                        title="Run Balkan VOD sync now"
+                      >
+                        <RefreshCw className={`w-4 h-4 ${triggeringService === 'balkan_vod_sync' ? 'animate-spin-slow' : ''}`} />
+                        {triggeringService === 'balkan_vod_sync' ? 'Running…' : 'Run now'}
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
               {/* Custom M3U Sources */}
               <div className="p-4 bg-purple-900/20 border border-purple-800 rounded-lg">
                 <h4 className="text-white font-medium mb-4 flex items-center gap-2">
@@ -2362,6 +2516,86 @@ export default function Settings() {
                         className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700"
                       >
                         Done ({newXtreamCategories.length} selected)
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Balkan Category Selection Modal */}
+              {showBalkanCategoryModal && (
+                <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+                  <div className="bg-[#1a1a1a] border border-white/10 rounded-lg max-w-2xl w-full max-h-[80vh] overflow-hidden flex flex-col">
+                    <div className="p-6 border-b border-white/10">
+                      <div className="flex items-center justify-between">
+                        <h3 className="text-xl font-semibold text-white">🇧🇦 Select Balkan VOD Categories</h3>
+                        <button
+                          onClick={() => setShowBalkanCategoryModal(false)}
+                          className="text-slate-400 hover:text-white"
+                        >
+                          <X className="w-6 h-6" />
+                        </button>
+                      </div>
+                      <p className="text-sm text-slate-400 mt-2">
+                        Choose which categories you want to import from Balkan GitHub repos. Leave all unchecked to import everything.
+                      </p>
+                      <div className="flex gap-2 mt-4">
+                        <button
+                          onClick={selectAllBalkanCategories}
+                          className="px-3 py-1 bg-green-600 text-white text-sm rounded hover:bg-green-700"
+                        >
+                          Select All
+                        </button>
+                        <button
+                          onClick={deselectAllBalkanCategories}
+                          className="px-3 py-1 bg-red-600 text-white text-sm rounded hover:bg-red-700"
+                        >
+                          Deselect All
+                        </button>
+                      </div>
+                    </div>
+                    
+                    <div className="flex-1 overflow-y-auto p-6">
+                      {availableBalkanCategories.length === 0 ? (
+                        <p className="text-slate-400 text-center py-8">No categories found</p>
+                      ) : (
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                          {availableBalkanCategories.map((cat) => (
+                            <label
+                              key={cat.name}
+                              className="flex items-center gap-3 p-3 bg-[#2a2a2a] border border-white/10 rounded-lg cursor-pointer hover:bg-[#333333] transition-colors"
+                            >
+                              <input
+                                type="checkbox"
+                                checked={newBalkanCategories.includes(cat.name)}
+                                onChange={() => toggleBalkanCategory(cat.name)}
+                                className="w-4 h-4 bg-[#1a1a1a] border-white/10 rounded"
+                              />
+                              <div className="flex-1 min-w-0">
+                                <div className="font-medium text-white truncate">{cat.name}</div>
+                                {cat.count > 0 && <div className="text-xs text-slate-500">{cat.count} items</div>}
+                              </div>
+                            </label>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    
+                    <div className="p-6 border-t border-white/10 flex justify-end gap-3">
+                      <button
+                        onClick={() => {
+                          setShowBalkanCategoryModal(false);
+                          setNewBalkanCategories([]);
+                        }}
+                        className="px-4 py-2 bg-[#2a2a2a] text-white rounded-lg hover:bg-[#333333]"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        onClick={saveBalkanCategories}
+                        className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                      >
+                        Save ({newBalkanCategories.length} selected)
                       </button>
                     </div>
                   </div>

@@ -47,6 +47,12 @@ type SettingsResponse struct {
 	// Collection Settings
 	AutoAddCollections     bool `json:"auto_add_collections"`
 
+	// Balkan VOD (GitHub Repos)
+	BalkanVODEnabled              bool     `json:"balkan_vod_enabled"`
+	BalkanVODAutoSync             bool     `json:"balkan_vod_auto_sync"`
+	BalkanVODSyncIntervalHours    int      `json:"balkan_vod_sync_interval_hours"`
+	BalkanVODSelectedCategories   []string `json:"balkan_vod_selected_categories"`
+
 	// Providers
 	UseRealDebrid       bool   `json:"use_realdebrid"`
 	UsePremiumize       bool   `json:"use_premiumize"`

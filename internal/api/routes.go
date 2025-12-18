@@ -113,6 +113,9 @@ func SetupRoutes(handler *Handler) http.Handler {
 	api.HandleFunc("/adult-vod/import", handler.ImportAdultVOD).Methods("POST")
 	api.HandleFunc("/adult-vod/stats", handler.GetAdultVODStats).Methods("GET")
 
+
+	// Balkan VOD Import
+	api.HandleFunc("/balkan-vod/preview-categories", handler.PreviewBalkanCategories).Methods("POST")
 	// IPTV VOD Import (from configured M3U/Xtream)
 	api.HandleFunc("/iptv-vod/preview-categories", handler.PreviewM3UCategories).Methods("POST")
 	api.HandleFunc("/iptv-vod/preview-xtream-categories", handler.PreviewXtreamCategories).Methods("POST")
@@ -336,6 +339,9 @@ func SetupRoutesWithXtream(handler *Handler, xtreamHandler interface{ RegisterRo
 	api.HandleFunc("/update/install", handler.InstallUpdate).Methods("POST")
 
 	// Adult VOD Import
+
+	// Balkan VOD Import
+	api.HandleFunc("/balkan-vod/preview-categories", handler.PreviewBalkanCategories).Methods("POST")
 	api.HandleFunc("/adult-vod/import", handler.ImportAdultVOD).Methods("POST")
 	api.HandleFunc("/adult-vod/stats", handler.GetAdultVODStats).Methods("GET")
 

@@ -3354,6 +3354,24 @@ func (h *Handler) PreviewXtreamCategories(w http.ResponseWriter, r *http.Request
 	})
 }
 
+// PreviewBalkanCategories handles POST /api/v1/balkan-vod/preview-categories
+func (h *Handler) PreviewBalkanCategories(w http.ResponseWriter, r *http.Request) {
+	categories, err := services.FetchBalkanCategories()
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to fetch categories: %v", err))
+		return
+	}
+	
+	// Sort by name
+	sort.Slice(categories, func(i, j int) bool {
+		return categories[i].Name < categories[j].Name
+	})
+	
+	respondJSON(w, http.StatusOK, map[string]interface{}{
+		"categories": categories,
+	})
+}
+
 // ImportIPTVVOD handles POST /api/v1/iptv-vod/import
 func (h *Handler) ImportIPTVVOD(w http.ResponseWriter, r *http.Request) {
 	if h.settingsManager == nil || h.tmdbClient == nil || h.movieStore == nil || h.seriesStore == nil {

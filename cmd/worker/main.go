@@ -171,6 +171,9 @@ func main() {
 	// Worker 8: Stream Search (every 6 hours)
 	go streamSearchWorker(ctx, movieStore, settingsManager, 6*time.Hour)
 
+	// Worker 9: Balkan VOD Sync (every 24 hours)
+	go balkanVODSyncWorker(ctx, movieStore, seriesStore, tmdbClient, settingsManager, 24*time.Hour)
+
 	log.Println("✅ All workers started successfully")
 	log.Println("========================================")
 
@@ -635,3 +638,55 @@ func runStreamSearch(ctx context.Context, movieStore *database.MovieStore, setti
 	
 	log.Printf("✅ Stream Search complete: %d/%d movies have available streams\n", foundStreams, total)
 }
+
+func balkanVODSyncWorker(ctx context.Context, movieStore *database.MovieStore, seriesStore *database.SeriesStore, tmdbClient *services.TMDBClient, settingsManager *settings.Manager, interval time.Duration) {
+	log.Printf("🇧🇦 Balkan VOD Sync Worker: Starting (interval: %v)", interval)
+	
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	
+	for {
+		select {
+		case <-ctx.Done():
+			log.Println("🇧🇦 Balkan VOD Sync Worker: Stopping")
+			return
+		case <-ticker.C:
+			runBalkanVODSync(ctx, movieStore, seriesStore, tmdbClient, settingsManager)
+		}
+	}
+}
+
+func runBalkanVODSync(ctx context.Context, movieStore *database.MovieStore, seriesStore *database.SeriesStore, tmdbClient *services.TMDBClient, settingsManager *settings.Manager) {
+	appSettings := settingsManager.Get()
+	
+	if !appSettings.BalkanVODEnabled {
+		log.Println("🇧🇦 Balkan VOD Sync: Disabled in settings")
+		return
+	}
+	
+	if !appSettings.BalkanVODAutoSync {
+		log.Println("🇧🇦 Balkan VOD Sync: Auto-sync disabled")
+		return
+	}
+	
+	log.Println("🇧🇦 Balkan VOD Sync: Starting import from GitHub repos...")
+	services.GlobalScheduler.MarkRunning(services.ServiceBalkanVODSync)
+	
+	importer := services.NewBalkanVODImporter(movieStore, seriesStore, tmdbClient, appSettings)
+	err := importer.ImportBalkanVOD(ctx)
+	
+	// Get configured interval from settings
+	syncInterval := time.Duration(appSettings.BalkanVODSyncIntervalHours) * time.Hour
+	if syncInterval < 1*time.Hour {
+		syncInterval = 24 * time.Hour // Default to 24 hours if invalid
+	}
+	
+	services.GlobalScheduler.MarkComplete(services.ServiceBalkanVODSync, err, syncInterval)
+	
+	if err != nil {
+		log.Printf("❌ Balkan VOD Sync error: %v", err)
+	} else {
+		log.Println("✅ Balkan VOD Sync complete")
+	}
+}
+
