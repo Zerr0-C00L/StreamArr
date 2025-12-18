@@ -283,8 +283,9 @@ func (b *BalkanVODImporter) importMovie(ctx context.Context, entry BalkanMovieEn
 		return ImportResult{Error: fmt.Errorf("no streams available")}
 	}
 
-	// Extract TMDB ID from poster URL if available
-	tmdbID := extractTMDBFromPoster(entry.Poster)
+	// Generate a unique TMDB ID based on Balkan ID to avoid constraint violations
+	// Use negative IDs to distinguish from real TMDB IDs
+	tmdbID := generateUniqueTMDBID(entry.ID)
 	
 	// Parse release date
 	var releaseDate *time.Time
@@ -314,7 +315,6 @@ func (b *BalkanVODImporter) importMovie(ctx context.Context, entry BalkanMovieEn
 	}
 
 	movie.Metadata["source"] = "balkan_vod"
-	movie.Metadata["balkan_id"] = entry.ID
 	movie.Metadata["imported_at"] = time.Now().Format(time.RFC3339)
 	movie.Metadata["category"] = entry.Category
 	
@@ -329,17 +329,16 @@ func (b *BalkanVODImporter) importMovie(ctx context.Context, entry BalkanMovieEn
 	}
 	movie.Metadata["balkan_vod_streams"] = streams
 
-	// Check if movie already exists by Balkan ID or title+year
-	existing := b.findExistingMovie(ctx, entry.ID, entry.Name, entry.Year)
-	if existing != nil {
+	// Try to add movie (will skip if already exists)
+	if existing, err := b.movieStore.GetByTMDBID(ctx, tmdbID); err == nil && existing != nil {
 		// Movie already exists, merge streams and update metadata
-		log.Printf("[BalkanVOD] Movie '%s' already exists, merging streams", entry.Name)
+		log.Printf("[BalkanVOD] Movie '%s' already exists (TMDB: %d), merging streams", entry.Name, tmdbID)
 		existing.Metadata = mergeMetadata(existing.Metadata, movie.Metadata)
 		existing.Metadata["balkan_vod_streams"] = mergeStreams(existing.Metadata["balkan_vod_streams"], streams)
 		return ImportResult{Updated: true, Error: b.movieStore.Update(ctx, existing)}
 	}
 
-	log.Printf("[BalkanVOD] Adding new movie '%s' (Category: %s)", entry.Name, entry.Category)
+	log.Printf("[BalkanVOD] Adding new movie '%s' (TMDB: %d, Category: %s)", entry.Name, tmdbID, entry.Category)
 	return ImportResult{Updated: false, Error: b.movieStore.Add(ctx, movie)}
 }
 
@@ -348,8 +347,9 @@ func (b *BalkanVODImporter) importSeries(ctx context.Context, entry BalkanSeries
 		return ImportResult{Error: fmt.Errorf("no streams available")}
 	}
 
-	// Extract TMDB ID from poster URL if available
-	tmdbID := extractTMDBFromPoster(entry.Poster)
+	// Generate a unique TMDB ID based on Balkan ID to avoid constraint violations
+	// Use negative IDs to distinguish from real TMDB IDs
+	tmdbID := generateUniqueTMDBID(entry.ID)
 	
 	// Parse first air date
 	var firstAirDate *time.Time
@@ -376,7 +376,6 @@ func (b *BalkanVODImporter) importSeries(ctx context.Context, entry BalkanSeries
 	}
 
 	series.Metadata["source"] = "balkan_vod"
-	series.Metadata["balkan_id"] = entry.ID
 	series.Metadata["imported_at"] = time.Now().Format(time.RFC3339)
 	series.Metadata["category"] = entry.Category
 	
@@ -391,62 +390,17 @@ func (b *BalkanVODImporter) importSeries(ctx context.Context, entry BalkanSeries
 	}
 	series.Metadata["balkan_vod_streams"] = streams
 
-	// Check if series already exists by Balkan ID or title+year
-	existing := b.findExistingSeries(ctx, entry.ID, entry.Name, entry.Year)
-	if existing != nil {
+	// Try to add series (will skip if already exists)
+	if existing, err := b.seriesStore.GetByTMDBID(ctx, tmdbID); err == nil && existing != nil {
 		// Series already exists, merge streams and update metadata
-		log.Printf("[BalkanVOD] Series '%s' already exists, merging streams", entry.Name)
+		log.Printf("[BalkanVOD] Series '%s' already exists (TMDB: %d), merging streams", entry.Name, tmdbID)
 		existing.Metadata = mergeMetadata(existing.Metadata, series.Metadata)
 		existing.Metadata["balkan_vod_streams"] = mergeStreams(existing.Metadata["balkan_vod_streams"], streams)
 		return ImportResult{Updated: true, Error: b.seriesStore.Update(ctx, existing)}
 	}
 
-	log.Printf("[BalkanVOD] Adding new series '%s' (Category: %s)", entry.Name, entry.Category)
+	log.Printf("[BalkanVOD] Adding new series '%s' (TMDB: %d, Category: %s)", entry.Name, tmdbID, entry.Category)
 	return ImportResult{Updated: false, Error: b.seriesStore.Add(ctx, series)}
-}
-
-// findExistingMovie checks if a movie already exists by Balkan ID or title+year
-func (b *BalkanVODImporter) findExistingMovie(ctx context.Context, balkanID, title string, year int) *models.Movie {
-	// Get all movies and check metadata for balkan_id
-	movies, err := b.movieStore.List(ctx, 10000, 0, nil)
-	if err != nil {
-		return nil
-	}
-	
-	for _, movie := range movies {
-		if movie.Metadata != nil {
-			if existingID, ok := movie.Metadata["balkan_id"].(string); ok && existingID == balkanID {
-				return movie
-			}
-		}
-		// Fallback: match by title and year
-		if movie.Title == title && movie.ReleaseDate != nil && movie.ReleaseDate.Year() == year {
-			return movie
-		}
-	}
-	return nil
-}
-
-// findExistingSeries checks if a series already exists by Balkan ID or title+year
-func (b *BalkanVODImporter) findExistingSeries(ctx context.Context, balkanID, title string, year int) *models.Series {
-	// Get all series and check metadata for balkan_id
-	series, err := b.seriesStore.List(ctx, 10000, 0, nil)
-	if err != nil {
-		return nil
-	}
-	
-	for _, s := range series {
-		if s.Metadata != nil {
-			if existingID, ok := s.Metadata["balkan_id"].(string); ok && existingID == balkanID {
-				return s
-			}
-		}
-		// Fallback: match by title and year
-		if s.Title == title && s.FirstAirDate != nil && s.FirstAirDate.Year() == year {
-			return s
-		}
-	}
-	return nil
 }
 
 func isDomesticCategory(category string) bool {
@@ -521,6 +475,21 @@ func extractTMDBFromPoster(posterURL string) int {
 	// For now, return 0 - the poster URL doesn't contain TMDB ID
 	// We'll rely on title matching via TMDB API
 	return 0
+}
+
+// generateUniqueTMDBID creates a unique negative TMDB ID from a Balkan ID
+// Negative IDs distinguish Balkan content from real TMDB content
+func generateUniqueTMDBID(balkanID string) int {
+	// Simple hash: sum of character codes
+	hash := 0
+	for _, char := range balkanID {
+		hash = hash*31 + int(char)
+	}
+	// Return negative to distinguish from real TMDB IDs, ensure non-zero
+	if hash == 0 {
+		hash = 1
+	}
+	return -abs(hash)
 }
 
 
