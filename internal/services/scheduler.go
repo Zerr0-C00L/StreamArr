@@ -188,5 +188,5 @@ func InitializeDefaultServices() {
 	GlobalScheduler.Register(ServiceCollectionSync, "Syncs incomplete movie collections", 24*time.Hour, true)
 	GlobalScheduler.Register(ServiceEpisodeScan, "Fetches episode metadata from TMDB for all series", 24*time.Hour, true)
 	GlobalScheduler.Register(ServiceIPTVVODSync, "Imports and cleans up IPTV VOD items", 12*time.Hour, true)
-	GlobalScheduler.Register(ServiceBalkanVODSync, "Imports Ex-Yu VOD content from Balkan GitHub repos", 24*time.Hour, false)
+	GlobalScheduler.Register(ServiceBalkanVODSync, "Imports Ex-Yu VOD content from Balkan GitHub repos", 24*time.Hour, true)
 }
