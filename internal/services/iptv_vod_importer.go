@@ -622,6 +622,42 @@ func CleanupIPTVVOD(ctx context.Context, cfg *isettings.Settings, movieStore *da
 func fetchXtreamVODMovies(ctx context.Context, client *http.Client, server, username, password, sourceName string, selectedCategories []string) ([]vodItem, error) {
     items := make([]vodItem, 0)
     
+    // First, fetch category mappings if we have selected categories
+    categoryIDToName := make(map[string]string)
+    if len(selectedCategories) > 0 {
+        catURL := fmt.Sprintf("%s/player_api.php?username=%s&password=%s&action=get_vod_categories", server, username, password)
+        catReq, err := http.NewRequestWithContext(ctx, "GET", catURL, nil)
+        if err != nil {
+            return nil, err
+        }
+        
+        catResp, err := client.Do(catReq)
+        if err != nil {
+            return nil, err
+        }
+        defer catResp.Body.Close()
+        
+        if catResp.StatusCode == http.StatusOK {
+            var categories []struct {
+                CategoryID   string `json:"category_id"`
+                CategoryName string `json:"category_name"`
+            }
+            
+            if err := json.NewDecoder(catResp.Body).Decode(&categories); err == nil {
+                for _, cat := range categories {
+                    categoryIDToName[cat.CategoryID] = cat.CategoryName
+                }
+                fmt.Printf("Xtream VOD: Loaded %d category mappings\n", len(categoryIDToName))
+            }
+        }
+    }
+    
+    // Build selected category name map for quick lookup
+    selectedCategoryMap := make(map[string]bool)
+    for _, cat := range selectedCategories {
+        selectedCategoryMap[cat] = true
+    }
+    
     // Fetch VOD streams
     url := fmt.Sprintf("%s/player_api.php?username=%s&password=%s&action=get_vod_streams", server, username, password)
     req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
@@ -645,8 +681,7 @@ func fetchXtreamVODMovies(ctx context.Context, client *http.Client, server, user
         Title         string      `json:"title"`
         ContainerExt  string      `json:"container_extension"`
         CategoryID    string      `json:"category_id"`
-        CategoryName  string      `json:"category_name"`
-        Year          string      `json:"releaseDate"`
+        Year          string      `json:"added"`
     }
     
     if err := json.NewDecoder(resp.Body).Decode(&streams); err != nil {
@@ -654,19 +689,19 @@ func fetchXtreamVODMovies(ctx context.Context, client *http.Client, server, user
     }
     
     fmt.Printf("Xtream VOD: Fetched %d total movies from %s\n", len(streams), sourceName)
-    
-    // Filter by selected categories if specified
-    categoryMap := make(map[string]bool)
-    for _, cat := range selectedCategories {
-        categoryMap[cat] = true
+    if len(selectedCategories) > 0 {
+        fmt.Printf("Xtream VOD: Selected categories: %v\n", selectedCategories)
     }
     
-    fmt.Printf("Xtream VOD: Selected categories: %v\n", selectedCategories)
-    
+    matchedCount := 0
     for _, stream := range streams {
-        // Skip if categories are selected and this stream's category isn't in the list
-        if len(selectedCategories) > 0 && !categoryMap[stream.CategoryName] {
-            continue
+        // If categories are selected, filter by category name
+        if len(selectedCategories) > 0 {
+            categoryName := categoryIDToName[stream.CategoryID]
+            if !selectedCategoryMap[categoryName] {
+                continue
+            }
+            matchedCount++
         }
         
         title := stream.Name
@@ -691,12 +726,52 @@ func fetchXtreamVODMovies(ctx context.Context, client *http.Client, server, user
         })
     }
     
+    if len(selectedCategories) > 0 {
+        fmt.Printf("Xtream VOD: Matched %d movies after category filtering\n", matchedCount)
+    }
+    
     return items, nil
 }
 
 // fetchXtreamSeries fetches series from Xtream API
 func fetchXtreamSeries(ctx context.Context, client *http.Client, server, username, password, sourceName string, selectedCategories []string) ([]vodItem, error) {
     items := make([]vodItem, 0)
+    
+    // First, fetch category mappings if we have selected categories
+    categoryIDToName := make(map[string]string)
+    if len(selectedCategories) > 0 {
+        catURL := fmt.Sprintf("%s/player_api.php?username=%s&password=%s&action=get_series_categories", server, username, password)
+        catReq, err := http.NewRequestWithContext(ctx, "GET", catURL, nil)
+        if err != nil {
+            return nil, err
+        }
+        
+        catResp, err := client.Do(catReq)
+        if err != nil {
+            return nil, err
+        }
+        defer catResp.Body.Close()
+        
+        if catResp.StatusCode == http.StatusOK {
+            var categories []struct {
+                CategoryID   string `json:"category_id"`
+                CategoryName string `json:"category_name"`
+            }
+            
+            if err := json.NewDecoder(catResp.Body).Decode(&categories); err == nil {
+                for _, cat := range categories {
+                    categoryIDToName[cat.CategoryID] = cat.CategoryName
+                }
+                fmt.Printf("Xtream Series: Loaded %d category mappings\n", len(categoryIDToName))
+            }
+        }
+    }
+    
+    // Build selected category name map for quick lookup
+    selectedCategoryMap := make(map[string]bool)
+    for _, cat := range selectedCategories {
+        selectedCategoryMap[cat] = true
+    }
     
     // Fetch series
     url := fmt.Sprintf("%s/player_api.php?username=%s&password=%s&action=get_series", server, username, password)
@@ -716,13 +791,12 @@ func fetchXtreamSeries(ctx context.Context, client *http.Client, server, usernam
     }
     
     var series []struct {
-        SeriesID      interface{} `json:"series_id"`
-        Name          string      `json:"name"`
-        Title         string      `json:"title"`
-        CategoryID    string      `json:"category_id"`
-        CategoryName  string      `json:"category_name"`
-        ReleaseDate   string      `json:"releaseDate"`
-        Year          string      `json:"year"`
+        SeriesID     interface{} `json:"series_id"`
+        Name         string      `json:"name"`
+        Title        string      `json:"title"`
+        CategoryID   string      `json:"category_id"`
+        ReleaseDate  string      `json:"releaseDate"`
+        Year         string      `json:"year"`
     }
     
     if err := json.NewDecoder(resp.Body).Decode(&series); err != nil {
@@ -730,19 +804,19 @@ func fetchXtreamSeries(ctx context.Context, client *http.Client, server, usernam
     }
     
     fmt.Printf("Xtream Series: Fetched %d total series from %s\n", len(series), sourceName)
-    
-    // Filter by selected categories if specified
-    categoryMap := make(map[string]bool)
-    for _, cat := range selectedCategories {
-        categoryMap[cat] = true
+    if len(selectedCategories) > 0 {
+        fmt.Printf("Xtream Series: Selected categories: %v\n", selectedCategories)
     }
     
-    fmt.Printf("Xtream Series: Selected categories: %v\n", selectedCategories)
-    
+    matchedCount := 0
     for _, s := range series {
-        // Skip if categories are selected and this series's category isn't in the list
-        if len(selectedCategories) > 0 && !categoryMap[s.CategoryName] {
-            continue
+        // If categories are selected, filter by category name
+        if len(selectedCategories) > 0 {
+            categoryName := categoryIDToName[s.CategoryID]
+            if !selectedCategoryMap[categoryName] {
+                continue
+            }
+            matchedCount++
         }
         
         title := s.Name
@@ -768,6 +842,10 @@ func fetchXtreamSeries(ctx context.Context, client *http.Client, server, usernam
             URL:        seriesURL,
             SourceName: sourceName,
         })
+    }
+    
+    if len(selectedCategories) > 0 {
+        fmt.Printf("Xtream Series: Matched %d series after category filtering\n", matchedCount)
     }
     
     return items, nil
