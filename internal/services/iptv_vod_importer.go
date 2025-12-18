@@ -162,15 +162,38 @@ func extractVODItems(r io.Reader, sourceName string) []vodItem {
         } else if currentTitle != "" && !strings.HasPrefix(line, "#") && line != "" {
             // URL line – decide if VOD
             lowerURL := strings.ToLower(line)
+            lowerTitle := strings.ToLower(currentTitle)
             currentURL = line
-            isVOD := strings.Contains(lowerURL, "/movie/") || strings.Contains(lowerURL, "/series/") || strings.HasSuffix(lowerURL, ".mp4") || strings.HasSuffix(lowerURL, ".mkv")
-            isVOD = isVOD || strings.Contains(currentGroup, "vod") || strings.Contains(currentGroup, "movie") || strings.Contains(currentGroup, "series") || strings.Contains(currentGroup, "film")
+            
+            // Check if it's VOD content (movies or series)
+            isVOD := strings.Contains(lowerURL, "/movie/") || strings.Contains(lowerURL, "/series/") || strings.Contains(lowerURL, "/serije/") ||
+                strings.HasSuffix(lowerURL, ".mp4") || strings.HasSuffix(lowerURL, ".mkv") || strings.HasSuffix(lowerURL, ".avi")
+            isVOD = isVOD || strings.Contains(currentGroup, "vod") || strings.Contains(currentGroup, "movie") || 
+                strings.Contains(currentGroup, "series") || strings.Contains(currentGroup, "film")
+            
             if isVOD {
                 kind := "movie"
-                if strings.Contains(lowerURL, "/series/") || strings.Contains(currentGroup, "series") {
+                var title string
+                var year int
+                
+                // Detect series by multiple indicators
+                isSeries := strings.Contains(lowerURL, "/series/") || strings.Contains(lowerURL, "/serije/") ||
+                    strings.Contains(currentGroup, "series") || strings.Contains(currentGroup, "tv shows") ||
+                    // Check for season/episode patterns in title: S01 E01, S01E01, Season 1, etc.
+                    regexp.MustCompile(`(?i)s\d{1,2}\s*e\d{1,2}`).MatchString(lowerTitle) ||
+                    regexp.MustCompile(`(?i)season\s*\d+`).MatchString(lowerTitle) ||
+                    regexp.MustCompile(`(?i)episode\s*\d+`).MatchString(lowerTitle) ||
+                    regexp.MustCompile(`(?i)epizoda\s*\d+`).MatchString(lowerTitle)
+                
+                if isSeries {
                     kind = "series"
+                    // Extract series name without season/episode info
+                    title = extractSeriesName(currentTitle)
+                    title, year = splitTitleYear(title)
+                } else {
+                    title, year = splitTitleYear(currentTitle)
                 }
-                title, year := splitTitleYear(currentTitle)
+                
                 items = append(items, vodItem{Kind: kind, Title: title, Year: year, URL: currentURL, SourceName: sourceName})
             }
             currentTitle = ""
@@ -227,6 +250,20 @@ func normalizeTitle(s string) string {
     s = strings.NewReplacer(":", " ", "-", " ", ".", " ", "_", " ", "(", " ", ")", " ").Replace(s)
     fields := strings.Fields(s)
     return strings.Join(fields, " ")
+}
+
+// extractSeriesName removes season/episode information from series titles
+func extractSeriesName(title string) string {
+    // Remove patterns like "S01 E01", "Season 1", "Episode 1", "Epizoda 1", etc.
+    re := regexp.MustCompile(`(?i)\s*s\d{1,2}\s*e\d{1,2}.*$`)
+    title = re.ReplaceAllString(title, "")
+    re = regexp.MustCompile(`(?i)\s*season\s*\d+.*$`)
+    title = re.ReplaceAllString(title, "")
+    re = regexp.MustCompile(`(?i)\s*episode\s*\d+.*$`)
+    title = re.ReplaceAllString(title, "")
+    re = regexp.MustCompile(`(?i)\s*epizoda\s*\d+.*$`)
+    title = re.ReplaceAllString(title, "")
+    return strings.TrimSpace(title)
 }
 
 // --- Fast import (no TMDB) helpers ---
