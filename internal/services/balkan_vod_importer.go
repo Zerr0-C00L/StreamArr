@@ -67,7 +67,21 @@ type BalkanSeriesEntry struct {
 	Background string         `json:"background"`
 	Genres     []string       `json:"genres"`
 	Category   string         `json:"category"`
-	Streams    []BalkanStream `json:"streams"`
+	Seasons    []BalkanSeason `json:"seasons"`
+}
+
+// BalkanSeason represents a season with episodes
+type BalkanSeason struct {
+	Number   int              `json:"number"`
+	Episodes []BalkanEpisode `json:"episodes"`
+}
+
+// BalkanEpisode represents an episode
+type BalkanEpisode struct {
+	Episode   int    `json:"episode"`
+	Title     string `json:"title"`
+	URL       string `json:"url"`
+	Thumbnail string `json:"thumbnail"`
 }
 
 // BalkanStream represents a stream URL
@@ -339,8 +353,18 @@ func (b *BalkanVODImporter) importMovie(ctx context.Context, entry BalkanMovieEn
 }
 
 func (b *BalkanVODImporter) importSeries(ctx context.Context, entry BalkanSeriesEntry) ImportResult {
-	if len(entry.Streams) == 0 {
-		return ImportResult{Error: fmt.Errorf("no streams available")}
+	// Check if we have seasons with episodes
+	if len(entry.Seasons) == 0 {
+		return ImportResult{Error: fmt.Errorf("no seasons available")}
+	}
+
+	// Count total episodes
+	totalEpisodes := 0
+	for _, season := range entry.Seasons {
+		totalEpisodes += len(season.Episodes)
+	}
+	if totalEpisodes == 0 {
+		return ImportResult{Error: fmt.Errorf("no episodes available")}
 	}
 
 	// Generate a unique TMDB ID based on Balkan ID to avoid constraint violations
@@ -374,17 +398,27 @@ func (b *BalkanVODImporter) importSeries(ctx context.Context, entry BalkanSeries
 	series.Metadata["source"] = "balkan_vod"
 	series.Metadata["imported_at"] = time.Now().Format(time.RFC3339)
 	series.Metadata["category"] = entry.Category
+	series.Metadata["total_seasons"] = len(entry.Seasons)
+	series.Metadata["total_episodes"] = totalEpisodes
 	
-	// Add streams
-	streams := make([]map[string]interface{}, len(entry.Streams))
-	for i, stream := range entry.Streams {
-		streams[i] = map[string]interface{}{
-			"name":    "Balkan VOD",
-			"url":     stream.URL,
-			"quality": stream.Quality,
+	// Store season and episode structure
+	seasons := make([]map[string]interface{}, len(entry.Seasons))
+	for i, season := range entry.Seasons {
+		episodes := make([]map[string]interface{}, len(season.Episodes))
+		for j, ep := range season.Episodes {
+			episodes[j] = map[string]interface{}{
+				"episode":   ep.Episode,
+				"title":     ep.Title,
+				"url":       ep.URL,
+				"thumbnail": ep.Thumbnail,
+			}
+		}
+		seasons[i] = map[string]interface{}{
+			"number":   season.Number,
+			"episodes": episodes,
 		}
 	}
-	series.Metadata["balkan_vod_streams"] = streams
+	series.Metadata["balkan_vod_seasons"] = seasons
 
 	// Add series directly - no duplicate checking
 	log.Printf("[BalkanVOD] Adding series '%s' (TMDB: %d, Category: %s)", entry.Name, tmdbID, entry.Category)
