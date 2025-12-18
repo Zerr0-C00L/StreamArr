@@ -879,12 +879,6 @@ export default function Settings() {
 
   // Balkan VOD category functions
   const previewBalkanCategories = async () => {
-    if (!settings || !settings.balkan_vod_enabled) {
-      setMessage('⚠️ Enable Balkan VOD first');
-      setTimeout(() => setMessage(''), 3000);
-      return;
-    }
-
     setLoadingBalkanCategories(true);
     try {
       const response = await api.post('/balkan-vod/preview-categories');
@@ -892,8 +886,12 @@ export default function Settings() {
         setAvailableBalkanCategories(response.data.categories);
         setNewBalkanCategories(settings?.balkan_vod_selected_categories || []);
         setShowBalkanCategoryModal(true);
+      } else {
+        setMessage('⚠️ No categories found');
+        setTimeout(() => setMessage(''), 3000);
       }
     } catch (error: any) {
+      console.error('Balkan categories error:', error);
       setMessage(`❌ Failed to fetch categories: ${error.response?.data?.error || error.message}`);
       setTimeout(() => setMessage(''), 5000);
     } finally {

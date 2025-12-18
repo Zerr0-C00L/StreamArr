@@ -3356,11 +3356,16 @@ func (h *Handler) PreviewXtreamCategories(w http.ResponseWriter, r *http.Request
 
 // PreviewBalkanCategories handles POST /api/v1/balkan-vod/preview-categories
 func (h *Handler) PreviewBalkanCategories(w http.ResponseWriter, r *http.Request) {
+	log.Println("[API] PreviewBalkanCategories: Starting request")
+	
 	categories, err := services.FetchBalkanCategories()
 	if err != nil {
+		log.Printf("[API] PreviewBalkanCategories: Error fetching categories: %v", err)
 		respondError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to fetch categories: %v", err))
 		return
 	}
+	
+	log.Printf("[API] PreviewBalkanCategories: Fetched %d categories", len(categories))
 	
 	// Sort by name
 	sort.Slice(categories, func(i, j int) bool {

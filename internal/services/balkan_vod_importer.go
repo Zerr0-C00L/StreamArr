@@ -93,25 +93,35 @@ func NewBalkanVODImporter(movieStore *database.MovieStore, seriesStore *database
 
 // FetchBalkanCategories fetches all available categories with counts from GitHub repo
 func FetchBalkanCategories() ([]CategoryWithCount, error) {
+	log.Println("[BalkanVOD] Fetching categories from GitHub...")
+	
 	resp, err := http.Get(balkanRepoURL)
 	if err != nil {
+		log.Printf("[BalkanVOD] Error fetching from GitHub: %v", err)
 		return nil, fmt.Errorf("fetch balkan content: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
+		log.Printf("[BalkanVOD] GitHub returned status code: %d", resp.StatusCode)
 		return nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
 	}
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
+		log.Printf("[BalkanVOD] Error reading response body: %v", err)
 		return nil, fmt.Errorf("read response body: %w", err)
 	}
 
+	log.Printf("[BalkanVOD] Downloaded %d bytes from GitHub", len(body))
+
 	var content BalkanContentDatabase
 	if err := json.Unmarshal(body, &content); err != nil {
+		log.Printf("[BalkanVOD] Error parsing JSON: %v", err)
 		return nil, fmt.Errorf("parse content database: %w", err)
 	}
+
+	log.Printf("[BalkanVOD] Parsed %d movies and %d series", len(content.Movies), len(content.Series))
 
 	// Count items per category
 	categoryCounts := make(map[string]int)
@@ -142,6 +152,7 @@ func FetchBalkanCategories() ([]CategoryWithCount, error) {
 		})
 	}
 	
+	log.Printf("[BalkanVOD] Returning %d categories", len(categories))
 	return categories, nil
 }
 
