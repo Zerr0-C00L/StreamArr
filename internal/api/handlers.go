@@ -3091,7 +3091,62 @@ func (h *Handler) PreviewXtreamCategories(w http.ResponseWriter, r *http.Request
 	defer resp.Body.Close()
 	
 	if resp.StatusCode != http.StatusOK {
-		respondError(w, http.StatusBadRequest, fmt.Sprintf("Failed to fetch categories: HTTP %d", resp.StatusCode))
+		// Try parsing M3U format instead (some providers don't support player_api.php)
+		m3uURL := fmt.Sprintf("%s/get.php?username=%s&password=%s&type=m3u_plus&output=ts", server, req.Username, req.Password)
+		m3uResp, err := client.Get(m3uURL)
+		if err != nil {
+			respondError(w, http.StatusBadRequest, fmt.Sprintf("Failed to fetch M3U: %v", err))
+			return
+		}
+		defer m3uResp.Body.Close()
+		
+		if m3uResp.StatusCode != http.StatusOK {
+			respondError(w, http.StatusBadRequest, fmt.Sprintf("Server returned HTTP %d. Please verify your credentials and server URL.", resp.StatusCode))
+			return
+		}
+		
+		// Parse M3U categories
+		categories := make(map[string]int)
+		scanner := bufio.NewScanner(m3uResp.Body)
+		
+		for scanner.Scan() {
+			line := scanner.Text()
+			if strings.HasPrefix(line, "#EXTINF:") {
+				if idx := strings.Index(line, "group-title=\""); idx != -1 {
+					start := idx + 13
+					if end := strings.Index(line[start:], "\""); end != -1 {
+						category := line[start : start+end]
+						if category != "" {
+							categories[category]++
+						}
+					}
+				}
+			}
+		}
+		
+		if err := scanner.Err(); err != nil {
+			respondError(w, http.StatusInternalServerError, fmt.Sprintf("Error parsing M3U: %v", err))
+			return
+		}
+		
+		// Convert to sorted list
+		type Category struct {
+			Name  string `json:"name"`
+			Count int    `json:"count"`
+		}
+		
+		result := make([]Category, 0, len(categories))
+		for name, count := range categories {
+			result = append(result, Category{Name: name, Count: count})
+		}
+		
+		sort.Slice(result, func(i, j int) bool {
+			return result[i].Name < result[j].Name
+		})
+		
+		respondJSON(w, http.StatusOK, map[string]interface{}{
+			"categories": result,
+		})
 		return
 	}
 	
