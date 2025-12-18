@@ -1297,6 +1297,37 @@ func (h *Handler) GetSeriesEpisodes(w http.ResponseWriter, r *http.Request) {
 	// Check for optional season filter
 	seasonParam := r.URL.Query().Get("season")
 
+	// Get series details first to check if it's Balkan VOD
+	series, err := h.seriesStore.Get(ctx, id)
+	if err != nil {
+		log.Printf("Error fetching series %d: %v", id, err)
+		respondJSON(w, http.StatusOK, []*models.Episode{})
+		return
+	}
+
+	// Check if this is a Balkan VOD series - if so, build episodes from metadata
+	if isBalkanVODSeries(series) {
+		episodes := buildBalkanVODEpisodes(series)
+		
+		// Filter by season if provided
+		if seasonParam != "" {
+			season, err := strconv.Atoi(seasonParam)
+			if err == nil {
+				filtered := make([]*models.Episode, 0)
+				for _, ep := range episodes {
+					if ep.SeasonNumber == season {
+						filtered = append(filtered, ep)
+					}
+				}
+				episodes = filtered
+			}
+		}
+		
+		log.Printf("Returning %d Balkan VOD episodes for series %d", len(episodes), id)
+		respondJSON(w, http.StatusOK, episodes)
+		return
+	}
+
 	episodes, err := h.episodeStore.ListBySeries(ctx, id)
 	if err != nil {
 		log.Printf("Error fetching episodes for series %d: %v", id, err)
@@ -1306,13 +1337,6 @@ func (h *Handler) GetSeriesEpisodes(w http.ResponseWriter, r *http.Request) {
 
 	// If no episodes in database, fetch from TMDB
 	if len(episodes) == 0 {
-		// Get series details to get TMDB ID and number of seasons
-		series, err := h.seriesStore.Get(ctx, id)
-		if err != nil {
-			log.Printf("Error fetching series %d: %v", id, err)
-			respondJSON(w, http.StatusOK, []*models.Episode{})
-			return
-		}
 
 		// Fetch IMDB ID if not present in metadata
 		if series.Metadata["imdb_id"] == nil || series.Metadata["imdb_id"] == "" {
@@ -3632,6 +3656,76 @@ func isBalkanVODSeries(series *models.Series) bool {
 		return strings.EqualFold(src, "balkan_vod")
 	}
 	return false
+}
+
+// buildBalkanVODEpisodes constructs episode objects from metadata.balkan_vod_seasons
+func buildBalkanVODEpisodes(series *models.Series) []*models.Episode {
+	episodes := []*models.Episode{}
+	if series == nil || series.Metadata == nil {
+		return episodes
+	}
+
+	seasons, ok := series.Metadata["balkan_vod_seasons"].([]interface{})
+	if !ok {
+		return episodes
+	}
+
+	for _, s := range seasons {
+		seasonMap, ok := s.(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		seasonNum, ok := seasonMap["number"].(float64)
+		if !ok {
+			continue
+		}
+
+		episodeList, ok := seasonMap["episodes"].([]interface{})
+		if !ok {
+			continue
+		}
+
+		for _, e := range episodeList {
+			episodeMap, ok := e.(map[string]interface{})
+			if !ok {
+				continue
+			}
+
+			episodeNum, ok := episodeMap["episode"].(float64)
+			if !ok {
+				continue
+			}
+
+			title, _ := episodeMap["title"].(string)
+			url, _ := episodeMap["url"].(string)
+			thumbnail, _ := episodeMap["thumbnail"].(string)
+
+			if title == "" {
+				title = fmt.Sprintf("Episode %d", int(episodeNum))
+			}
+
+			episode := &models.Episode{
+				SeriesID:      series.ID,
+				SeasonNumber:  int(seasonNum),
+				EpisodeNumber: int(episodeNum),
+				Title:         title,
+				StillPath:     thumbnail,
+				Monitored:     true,
+				Available:     url != "",
+				StreamURL:     url,
+				Metadata:      make(map[string]interface{}),
+			}
+
+			episode.Metadata["source"] = "balkan_vod"
+			episode.Metadata["url"] = url
+			episode.Metadata["thumbnail"] = thumbnail
+
+			episodes = append(episodes, episode)
+		}
+	}
+
+	return episodes
 }
 
 // buildBalkanVODSeriesStreams converts metadata.balkan_vod_seasons into API stream entries for specific episode
