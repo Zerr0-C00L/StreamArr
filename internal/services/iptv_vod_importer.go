@@ -32,6 +32,75 @@ func ImportIPTVVOD(ctx context.Context, cfg *isettings.Settings, tmdb *TMDBClien
     client := &http.Client{Timeout: 30 * time.Second}
     summary := &IPTVVODImportSummary{}
 
+    // Dedup map: key = kind:title:year
+    seen := make(map[string]bool)
+
+    // Process Xtream sources using API
+    for _, xs := range cfg.XtreamSources {
+        if !xs.Enabled || strings.TrimSpace(xs.ServerURL) == "" || strings.TrimSpace(xs.Username) == "" || strings.TrimSpace(xs.Password) == "" {
+            continue
+        }
+        server := strings.TrimSuffix(xs.ServerURL, "/")
+        
+        // Import VOD movies from Xtream
+        items, err := fetchXtreamVODMovies(ctx, client, server, xs.Username, xs.Password, xs.Name, xs.SelectedCategories)
+        if err == nil {
+            summary.ItemsFound += len(items)
+            for _, it := range items {
+                key := fmt.Sprintf("%s:%s:%d", it.Kind, normalizeTitle(it.Title), it.Year)
+                if seen[key] {
+                    summary.Skipped++
+                    continue
+                }
+                seen[key] = true
+                
+                var importErr error
+                if cfg.IPTVVODFastImport {
+                    importErr = importMovieBasic(ctx, movieStore, it)
+                } else {
+                    importErr = importMovie(ctx, tmdb, movieStore, it)
+                }
+                if importErr != nil {
+                    summary.Errors++
+                } else {
+                    summary.MoviesImported++
+                }
+            }
+        } else {
+            summary.Errors++
+        }
+        
+        // Import series from Xtream
+        seriesItems, err := fetchXtreamSeries(ctx, client, server, xs.Username, xs.Password, xs.Name, xs.SelectedCategories)
+        if err == nil {
+            summary.ItemsFound += len(seriesItems)
+            for _, it := range seriesItems {
+                key := fmt.Sprintf("%s:%s:%d", it.Kind, normalizeTitle(it.Title), it.Year)
+                if seen[key] {
+                    summary.Skipped++
+                    continue
+                }
+                seen[key] = true
+                
+                var importErr error
+                if cfg.IPTVVODFastImport {
+                    importErr = importSeriesBasic(ctx, seriesStore, it)
+                } else {
+                    importErr = importSeries(ctx, tmdb, seriesStore, it)
+                }
+                if importErr != nil {
+                    summary.Errors++
+                } else {
+                    summary.SeriesImported++
+                }
+            }
+        } else {
+            summary.Errors++
+        }
+        
+        summary.SourcesChecked++
+    }
+
     // Build list of M3U URLs to scan with selected categories
     type src struct { 
         url, name string
@@ -43,17 +112,6 @@ func ImportIPTVVOD(ctx context.Context, cfg *isettings.Settings, tmdb *TMDBClien
             m3uURLs = append(m3uURLs, src{url: s.URL, name: s.Name, selectedCategories: s.SelectedCategories})
         }
     }
-    for _, xs := range cfg.XtreamSources {
-        if !xs.Enabled || strings.TrimSpace(xs.ServerURL) == "" || strings.TrimSpace(xs.Username) == "" || strings.TrimSpace(xs.Password) == "" {
-            continue
-        }
-        server := strings.TrimSuffix(xs.ServerURL, "/")
-        url := fmt.Sprintf("%s/get.php?username=%s&password=%s&type=m3u_plus&output=ts", server, xs.Username, xs.Password)
-        m3uURLs = append(m3uURLs, src{url: url, name: xs.Name, selectedCategories: xs.SelectedCategories})
-    }
-
-    // Dedup map: key = kind:title:year
-    seen := make(map[string]bool)
 
     for _, s := range m3uURLs {
         req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.url, nil)
@@ -548,6 +606,165 @@ func CleanupIPTVVOD(ctx context.Context, cfg *isettings.Settings, movieStore *da
                 if s != nil {
                     s.Metadata = meta
                     if len(filtered) == 0 && meta["source"] == "iptv_vod" {
+                        _ = seriesStore.Delete(ctx, id)
+                    } else {
+                        _ = seriesStore.Update(ctx, s)
+                    }
+                }
+            }
+        }
+    }
+
+    return nil
+}
+
+// fetchXtreamVODMovies fetches movies from Xtream API
+func fetchXtreamVODMovies(ctx context.Context, client *http.Client, server, username, password, sourceName string, selectedCategories []string) ([]vodItem, error) {
+    items := make([]vodItem, 0)
+    
+    // Fetch VOD streams
+    url := fmt.Sprintf("%s/player_api.php?username=%s&password=%s&action=get_vod_streams", server, username, password)
+    req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+    if err != nil {
+        return nil, err
+    }
+    
+    resp, err := client.Do(req)
+    if err != nil {
+        return nil, err
+    }
+    defer resp.Body.Close()
+    
+    if resp.StatusCode != http.StatusOK {
+        return nil, fmt.Errorf("xtream API returned status %d", resp.StatusCode)
+    }
+    
+    var streams []struct {
+        StreamID      interface{} `json:"stream_id"`
+        Name          string      `json:"name"`
+        Title         string      `json:"title"`
+        ContainerExt  string      `json:"container_extension"`
+        CategoryID    string      `json:"category_id"`
+        CategoryName  string      `json:"category_name"`
+        Year          string      `json:"releaseDate"`
+    }
+    
+    if err := json.NewDecoder(resp.Body).Decode(&streams); err != nil {
+        return nil, err
+    }
+    
+    // Filter by selected categories if specified
+    categoryMap := make(map[string]bool)
+    for _, cat := range selectedCategories {
+        categoryMap[cat] = true
+    }
+    
+    for _, stream := range streams {
+        // Skip if categories are selected and this stream's category isn't in the list
+        if len(selectedCategories) > 0 && !categoryMap[stream.CategoryName] {
+            continue
+        }
+        
+        title := stream.Name
+        if title == "" {
+            title = stream.Title
+        }
+        
+        year := 0
+        if stream.Year != "" {
+            fmt.Sscanf(stream.Year, "%d", &year)
+        }
+        
+        streamID := fmt.Sprintf("%v", stream.StreamID)
+        streamURL := fmt.Sprintf("%s/movie/%s/%s/%s.%s", server, username, password, streamID, stream.ContainerExt)
+        
+        items = append(items, vodItem{
+            Kind:       "movie",
+            Title:      title,
+            Year:       year,
+            URL:        streamURL,
+            SourceName: sourceName,
+        })
+    }
+    
+    return items, nil
+}
+
+// fetchXtreamSeries fetches series from Xtream API
+func fetchXtreamSeries(ctx context.Context, client *http.Client, server, username, password, sourceName string, selectedCategories []string) ([]vodItem, error) {
+    items := make([]vodItem, 0)
+    
+    // Fetch series
+    url := fmt.Sprintf("%s/player_api.php?username=%s&password=%s&action=get_series", server, username, password)
+    req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+    if err != nil {
+        return nil, err
+    }
+    
+    resp, err := client.Do(req)
+    if err != nil {
+        return nil, err
+    }
+    defer resp.Body.Close()
+    
+    if resp.StatusCode != http.StatusOK {
+        return nil, fmt.Errorf("xtream API returned status %d", resp.StatusCode)
+    }
+    
+    var series []struct {
+        SeriesID      interface{} `json:"series_id"`
+        Name          string      `json:"name"`
+        Title         string      `json:"title"`
+        CategoryID    string      `json:"category_id"`
+        CategoryName  string      `json:"category_name"`
+        ReleaseDate   string      `json:"releaseDate"`
+        Year          string      `json:"year"`
+    }
+    
+    if err := json.NewDecoder(resp.Body).Decode(&series); err != nil {
+        return nil, err
+    }
+    
+    // Filter by selected categories if specified
+    categoryMap := make(map[string]bool)
+    for _, cat := range selectedCategories {
+        categoryMap[cat] = true
+    }
+    
+    for _, s := range series {
+        // Skip if categories are selected and this series's category isn't in the list
+        if len(selectedCategories) > 0 && !categoryMap[s.CategoryName] {
+            continue
+        }
+        
+        title := s.Name
+        if title == "" {
+            title = s.Title
+        }
+        
+        year := 0
+        if s.Year != "" {
+            fmt.Sscanf(s.Year, "%d", &year)
+        } else if s.ReleaseDate != "" {
+            fmt.Sscanf(s.ReleaseDate, "%d", &year)
+        }
+        
+        seriesID := fmt.Sprintf("%v", s.SeriesID)
+        // For series, we store a generic URL - actual episode URLs will be fetched when needed
+        seriesURL := fmt.Sprintf("%s/series/%s/%s/%s.m3u8", server, username, password, seriesID)
+        
+        items = append(items, vodItem{
+            Kind:       "series",
+            Title:      title,
+            Year:       year,
+            URL:        seriesURL,
+            SourceName: sourceName,
+        })
+    }
+    
+    return items, nil
+}
+
                         _ = seriesStore.Delete(ctx, id)
                     } else {
                         _ = seriesStore.Update(ctx, s)
