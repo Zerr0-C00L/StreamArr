@@ -358,7 +358,7 @@ func (b *BalkanVODImporter) importMovie(ctx context.Context, entry BalkanMovieEn
 	}
 	
 	// Check if movie already exists by TMDB ID
-	existingMovie, err := b.movieStore.Get(ctx, tmdbID)
+	existingMovie, err := b.movieStore.Get(ctx, int64(tmdbID))
 	if err == nil && existingMovie != nil {
 		// Movie exists - merge streams
 		log.Printf("[BalkanVOD] Movie '%s' already exists - merging streams", entry.Name)
@@ -467,7 +467,7 @@ func (b *BalkanVODImporter) importSeries(ctx context.Context, entry BalkanSeries
 	}
 	
 	// Check if series already exists by TMDB ID
-	existingSeries, err := b.seriesStore.Get(ctx, tmdbID)
+	existingSeries, err := b.seriesStore.Get(ctx, int64(tmdbID))
 	if err == nil && existingSeries != nil {
 		// Series exists - merge seasons/episodes
 		log.Printf("[BalkanVOD] Series '%s' already exists - merging episodes", entry.Name)
