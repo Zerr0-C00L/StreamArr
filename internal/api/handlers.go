@@ -902,6 +902,14 @@ func (h *Handler) GetMovieStreams(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// If this movie came from Balkan VOD import, expose only Balkan VOD streams
+	if isBalkanVODMovie(movie) {
+		apiStreams := buildBalkanVODStreams(movie)
+		log.Printf("Returning %d Balkan VOD streams for movie %d (%s)", len(apiStreams), id, movie.Title)
+		respondJSON(w, http.StatusOK, apiStreams)
+		return
+	}
+
 	// If this movie came from IPTV VOD import, expose only VOD playlist links
 	if isIPTVVODMovie(movie) {
 		apiStreams := buildIPTVVODStreams(movie)
@@ -996,9 +1004,17 @@ func (h *Handler) GetEpisodeStreams(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Check if this is IPTV VOD series and return IPTV streams
+	// Check if this is Balkan VOD series and return Balkan VOD streams
 	ctx := r.Context()
 	series, err := h.seriesStore.GetByIMDBID(ctx, imdbID)
+	if err == nil && series != nil && isBalkanVODSeries(series) {
+		apiStreams := buildBalkanVODSeriesStreams(series, season, episode)
+		log.Printf("Returning %d Balkan VOD streams for series %s S%02dE%02d", len(apiStreams), imdbID, season, episode)
+		respondJSON(w, http.StatusOK, apiStreams)
+		return
+	}
+
+	// Check if this is IPTV VOD series and return IPTV streams
 	if err == nil && series != nil && isIPTVVODSeries(series) {
 		apiStreams := buildIPTVVODSeriesStreams(series, season, episode)
 		log.Printf("Returning %d IPTV VOD streams for series %s S%02dE%02d", len(apiStreams), imdbID, season, episode)
@@ -3541,6 +3557,149 @@ func buildIPTVVODSeriesStreams(series *models.Series, season, episode int) []map
 				"name":     name,
 				"filename": name,
 			})
+		}
+	}
+
+	return streams
+}
+
+// isBalkanVODMovie checks if a movie is from Balkan VOD source
+func isBalkanVODMovie(movie *models.Movie) bool {
+	if movie == nil || movie.Metadata == nil {
+		return false
+	}
+	if src, ok := movie.Metadata["source"].(string); ok {
+		return strings.EqualFold(src, "balkan_vod")
+	}
+	return false
+}
+
+// buildBalkanVODStreams converts metadata.balkan_vod_streams into API stream entries
+func buildBalkanVODStreams(movie *models.Movie) []map[string]interface{} {
+	streams := []map[string]interface{}{}
+	if movie == nil || movie.Metadata == nil {
+		return streams
+	}
+
+	if balkanStreams, ok := movie.Metadata["balkan_vod_streams"].([]interface{}); ok {
+		for _, s := range balkanStreams {
+			m, ok := s.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			name, _ := m["name"].(string)
+			url, _ := m["url"].(string)
+			quality, _ := m["quality"].(string)
+			
+			name = strings.TrimSpace(name)
+			url = strings.TrimSpace(url)
+			quality = strings.TrimSpace(quality)
+			
+			if name == "" {
+				name = "Balkan VOD"
+			}
+			if quality == "" {
+				quality = "HD"
+			}
+			if url == "" {
+				continue
+			}
+
+			streams = append(streams, map[string]interface{}{
+				"source":   name,
+				"quality":  quality,
+				"codec":    "",
+				"url":      url,
+				"cached":   false,
+				"seeds":    0,
+				"size_gb":  0.0,
+				"title":    fmt.Sprintf("%s (%s)", movie.Title, name),
+				"name":     name,
+				"filename": name,
+			})
+		}
+	}
+
+	return streams
+}
+
+// isBalkanVODSeries checks if a series is from Balkan VOD source
+func isBalkanVODSeries(series *models.Series) bool {
+	if series == nil || series.Metadata == nil {
+		return false
+	}
+	if src, ok := series.Metadata["source"].(string); ok {
+		return strings.EqualFold(src, "balkan_vod")
+	}
+	return false
+}
+
+// buildBalkanVODSeriesStreams converts metadata.balkan_vod_seasons into API stream entries for specific episode
+func buildBalkanVODSeriesStreams(series *models.Series, season, episode int) []map[string]interface{} {
+	streams := []map[string]interface{}{}
+	if series == nil || series.Metadata == nil {
+		return streams
+	}
+
+	if seasons, ok := series.Metadata["balkan_vod_seasons"].([]interface{}); ok {
+		for _, s := range seasons {
+			seasonMap, ok := s.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			
+			// Check if this is the season we're looking for
+			seasonNum, ok := seasonMap["number"].(float64) // JSON numbers are float64
+			if !ok || int(seasonNum) != season {
+				continue
+			}
+			
+			// Find the episode in this season
+			episodes, ok := seasonMap["episodes"].([]interface{})
+			if !ok {
+				continue
+			}
+			
+			for _, e := range episodes {
+				episodeMap, ok := e.(map[string]interface{})
+				if !ok {
+					continue
+				}
+				
+				episodeNum, ok := episodeMap["episode"].(float64)
+				if !ok || int(episodeNum) != episode {
+					continue
+				}
+				
+				// Found the episode! Extract stream info
+				url, _ := episodeMap["url"].(string)
+				title, _ := episodeMap["title"].(string)
+				url = strings.TrimSpace(url)
+				
+				if url == "" {
+					continue
+				}
+				
+				if title == "" {
+					title = fmt.Sprintf("%s S%02dE%02d", series.Title, season, episode)
+				}
+				
+				streams = append(streams, map[string]interface{}{
+					"source":   "Balkan VOD",
+					"quality":  "HD",
+					"codec":    "",
+					"url":      url,
+					"cached":   false,
+					"seeds":    0,
+					"size_gb":  0.0,
+					"title":    title,
+					"name":     "Balkan VOD",
+					"filename": "Balkan VOD",
+				})
+				
+				// Found the episode, no need to continue
+				return streams
+			}
 		}
 	}
 
