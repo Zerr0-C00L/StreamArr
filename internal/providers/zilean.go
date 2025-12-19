@@ -64,13 +64,14 @@ func (z *ZileanProvider) SearchByIMDB(ctx context.Context, imdbID string) ([]Zil
 		}
 	}
 
-	// Build search URL - Zilean uses /imdb/search endpoint
+	// Build search URL - Zilean uses /imdb/search endpoint with POST
 	searchURL := fmt.Sprintf("%s/imdb/search?query=%s", z.BaseURL, imdbID)
 
-	req, err := http.NewRequestWithContext(ctx, "GET", searchURL, nil)
+	req, err := http.NewRequestWithContext(ctx, "POST", searchURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
+	req.Header.Set("Content-Type", "application/json")
 
 	// Add API key if provided
 	if z.APIKey != "" {
@@ -116,10 +117,11 @@ func (z *ZileanProvider) SearchByQuery(ctx context.Context, query string) ([]Zil
 	encodedQuery := url.QueryEscape(query)
 	searchURL := fmt.Sprintf("%s/dmm/search?query=%s", z.BaseURL, encodedQuery)
 
-	req, err := http.NewRequestWithContext(ctx, "GET", searchURL, nil)
+	req, err := http.NewRequestWithContext(ctx, "POST", searchURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
+	req.Header.Set("Content-Type", "application/json")
 
 	if z.APIKey != "" {
 		req.Header.Set("X-Api-Key", z.APIKey)
