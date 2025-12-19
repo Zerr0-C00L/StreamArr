@@ -426,7 +426,7 @@ func (s *MovieStore) CountAvailable(ctx context.Context) (int64, error) {
 func (s *MovieStore) ListUncheckedForCollection(ctx context.Context) ([]*models.Movie, error) {
 	query := `
 		SELECT id, tmdb_id, title, year, monitored, available,
-			preferred_quality, metadata, added_at, last_checked
+			preferred_quality, metadata, added_at, last_checked, collection_id
 		FROM library_movies
 		WHERE (collection_checked = false OR collection_checked IS NULL)
 		  AND collection_id IS NULL
