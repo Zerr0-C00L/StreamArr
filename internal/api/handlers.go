@@ -646,11 +646,37 @@ func (h *Handler) scanStreamAvailability(ctx context.Context) error {
 			if err == nil {
 				defer resp.Body.Close()
 				var result struct {
-					Streams []interface{} `json:"streams"`
+					Streams []struct {
+						URL      string `json:"url"`
+						InfoHash string `json:"infoHash"`
+						Name     string `json:"name"`
+					} `json:"streams"`
 				}
 				if json.NewDecoder(resp.Body).Decode(&result) == nil && len(result.Streams) > 0 {
-					hasStreams = true
-					break
+					// Validate that at least one stream has a valid URL
+					validStreams := 0
+					for _, stream := range result.Streams {
+						// Skip empty URLs
+						if stream.URL == "" && stream.InfoHash == "" {
+							continue
+						}
+						// Skip invalid URL schemes
+						if stream.URL != "" && !strings.HasPrefix(stream.URL, "http://") && 
+						   !strings.HasPrefix(stream.URL, "https://") && 
+						   !strings.HasPrefix(stream.URL, "magnet:") {
+							continue
+						}
+						// Count as valid
+						validStreams++
+					}
+					
+					if validStreams > 0 {
+						hasStreams = true
+						fmt.Printf("[Stream Scan] ✓ %s - Found %d valid streams\n", movie.Title, validStreams)
+						break
+					} else {
+						fmt.Printf("[Stream Scan] ✗ %s - Streams returned but all invalid\n", movie.Title)
+					}
 				}
 			}
 
@@ -761,10 +787,33 @@ func (h *Handler) scanStreamAvailability(ctx context.Context) error {
 			resp, err := http.Get(url)
 			if err == nil {
 				var result struct {
-					Streams []interface{} `json:"streams"`
+					Streams []struct {
+						URL      string `json:"url"`
+						InfoHash string `json:"infoHash"`
+						Name     string `json:"name"`
+					} `json:"streams"`
 				}
 				if json.NewDecoder(resp.Body).Decode(&result) == nil && len(result.Streams) > 0 {
-					hasStreams = true
+					// Validate that at least one stream has a valid URL
+					validStreams := 0
+					for _, stream := range result.Streams {
+						// Skip empty URLs
+						if stream.URL == "" && stream.InfoHash == "" {
+							continue
+						}
+						// Skip invalid URL schemes
+						if stream.URL != "" && !strings.HasPrefix(stream.URL, "http://") && 
+						   !strings.HasPrefix(stream.URL, "https://") && 
+						   !strings.HasPrefix(stream.URL, "magnet:") {
+							continue
+						}
+						// Count as valid
+						validStreams++
+					}
+					
+					if validStreams > 0 {
+						hasStreams = true
+					}
 				}
 				resp.Body.Close()
 				break
