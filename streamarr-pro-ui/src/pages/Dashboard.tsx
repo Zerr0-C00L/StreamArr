@@ -179,7 +179,7 @@ function StatCard({
   value: number; 
   subtitle: string; 
   color: string;
-  link: string;
+  link?: string;
 }) {
   const colorClasses: Record<string, string> = {
     purple: 'from-purple-600 to-purple-800',
@@ -188,17 +188,31 @@ function StatCard({
     cyan: 'from-cyan-600 to-cyan-800',
   };
 
-  return (
-    <Link
-      to={link}
-      className="bg-[#1e1e1e] rounded-xl p-5 hover:bg-[#282828] transition-all group"
-    >
+  const content = (
+    <>
       <div className={`w-12 h-12 rounded-lg bg-gradient-to-br ${colorClasses[color]} flex items-center justify-center mb-4 group-hover:scale-110 transition-transform`}>
         <Icon className="w-6 h-6 text-white" />
       </div>
       <div className="text-3xl font-black text-white mb-1">{value.toLocaleString()}</div>
       <div className="text-white font-medium">{label}</div>
       <div className="text-slate-500 text-sm mt-1">{subtitle}</div>
+    </>
+  );
+
+  if (!link) {
+    return (
+      <div className="bg-[#1e1e1e] rounded-xl p-5">
+        {content}
+      </div>
+    );
+  }
+
+  return (
+    <Link
+      to={link}
+      className="bg-[#1e1e1e] rounded-xl p-5 hover:bg-[#282828] transition-all group"
+    >
+      {content}
     </Link>
   );
 }
