@@ -245,6 +245,15 @@ export default function Settings() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [profileMessage, setProfileMessage] = useState('');
 
+  // Zilean stats state
+  const [zileanStats, setZileanStats] = useState<{
+    enabled: boolean;
+    status: string;
+    healthy: boolean;
+    torrent_count: number;
+  } | null>(null);
+  const [loadingZileanStats, setLoadingZileanStats] = useState(false);
+
   useEffect(() => {
     fetchSettings();
     fetchChannelStats();
@@ -252,6 +261,7 @@ export default function Settings() {
     fetchDbStats();
     fetchVersionInfo();
     fetchUserProfile();
+    fetchZileanStats();
     
     // Load avatar from localStorage as fallback
     const savedAvatar = localStorage.getItem('profile_picture');
@@ -263,10 +273,24 @@ export default function Settings() {
   // Poll services status when on services tab
   useEffect(() => {
     if (activeTab === 'services') {
-      const interval = setInterval(fetchServices, 5000);
+      const interval = setInterval(() => {
+        fetchServices();
+        fetchZileanStats();
+      }, 5000);
       return () => clearInterval(interval);
     }
   }, [activeTab]);
+
+  const fetchZileanStats = async () => {
+    setLoadingZileanStats(true);
+    try {
+      const response = await api.get('/zilean/stats');
+      setZileanStats(response.data);
+    } catch (error) {
+      console.error('Failed to fetch Zilean stats:', error);
+    }
+    setLoadingZileanStats(false);
+  };
 
   const fetchServices = async () => {
     try {
@@ -3288,6 +3312,64 @@ export default function Settings() {
                   or you can trigger them manually. Data refreshes every 5 seconds while on this tab.
                 </p>
               </div>
+
+              {/* Zilean Stats Section */}
+              {zileanStats && zileanStats.enabled && (
+                <div className={`p-4 rounded-lg border ${
+                  zileanStats.healthy
+                    ? 'bg-green-900/20 border-green-700'
+                    : 'bg-red-900/20 border-red-700'
+                }`}>
+                  <div className="flex items-start justify-between">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-3">
+                        <h4 className="text-white font-medium flex items-center gap-2">
+                          <Database className="w-5 h-5" />
+                          🔮 Zilean DMM Integration
+                        </h4>
+                        {zileanStats.healthy ? (
+                          <span className="flex items-center gap-1 text-xs bg-green-500/30 text-green-400 px-2 py-0.5 rounded">
+                            <CheckCircle className="w-3 h-3" />
+                            {zileanStats.status}
+                          </span>
+                        ) : (
+                          <span className="flex items-center gap-1 text-xs bg-red-500/30 text-red-400 px-2 py-0.5 rounded">
+                            <AlertCircle className="w-3 h-3" />
+                            {zileanStats.status}
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-sm text-slate-400 mt-1">
+                        Local DMM torrent index for instant cached stream lookups
+                      </p>
+                      
+                      <div className="flex flex-wrap gap-4 mt-3 text-xs text-slate-300">
+                        <div className="flex items-center gap-2 bg-[#2a2a2a] px-3 py-2 rounded">
+                          <Film className="w-4 h-4 text-red-400" />
+                          <span className="text-slate-400">Indexed Torrents:</span>
+                          <span className="font-semibold text-white">
+                            {zileanStats.torrent_count.toLocaleString()}
+                          </span>
+                        </div>
+                        {zileanStats.torrent_count === 0 && zileanStats.healthy && (
+                          <div className="flex items-center gap-2 text-yellow-400">
+                            <Loader className="w-3 h-3 animate-spin" />
+                            <span>Scraping in progress... Check docker logs for details</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    <button
+                      onClick={fetchZileanStats}
+                      disabled={loadingZileanStats}
+                      className="px-3 py-1.5 text-sm bg-red-500 hover:bg-red-600 disabled:bg-gray-600 rounded text-white flex items-center gap-2"
+                    >
+                      <RefreshCw className={`w-4 h-4 ${loadingZileanStats ? 'animate-spin' : ''}`} />
+                      Refresh
+                    </button>
+                  </div>
+                </div>
+              )}
 
               <div className="space-y-4">
                 {services.length === 0 ? (

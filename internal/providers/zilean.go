@@ -260,6 +260,63 @@ func extractQualityFromFilename(filename string) string {
 	return "Unknown"
 }
 
+// ZileanStats represents statistics from Zilean
+type ZileanStats struct {
+	TorrentCount int64  `json:"torrent_count"`
+	Status       string `json:"status"`
+	Healthy      bool   `json:"healthy"`
+}
+
+// GetStats retrieves statistics from Zilean
+func (z *ZileanProvider) GetStats(ctx context.Context) (*ZileanStats, error) {
+	stats := &ZileanStats{
+		Status: "unknown",
+	}
+
+	// Check health first
+	err := z.HealthCheck(ctx)
+	stats.Healthy = (err == nil)
+
+	if err != nil {
+		stats.Status = "offline"
+		return stats, nil
+	}
+
+	stats.Status = "online"
+
+	// Try to get torrent count from /dmm/filtered/all endpoint
+	req, err := http.NewRequestWithContext(ctx, "GET", fmt.Sprintf("%s/dmm/filtered/all", z.BaseURL), nil)
+	if err != nil {
+		return stats, nil
+	}
+
+	if z.APIKey != "" {
+		req.Header.Set("X-Api-Key", z.APIKey)
+	}
+
+	resp, err := z.Client.Do(req)
+	if err != nil {
+		return stats, nil
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusOK {
+		body, err := io.ReadAll(resp.Body)
+		if err == nil {
+			// Count newlines to estimate torrents (each line is a torrent hash)
+			count := int64(0)
+			for _, b := range body {
+				if b == '\n' {
+					count++
+				}
+			}
+			stats.TorrentCount = count
+		}
+	}
+
+	return stats, nil
+}
+
 // HealthCheck checks if Zilean is accessible
 func (z *ZileanProvider) HealthCheck(ctx context.Context) error {
 	req, err := http.NewRequestWithContext(ctx, "GET", fmt.Sprintf("%s/healthchecks/ping", z.BaseURL), nil)

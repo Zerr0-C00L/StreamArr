@@ -43,6 +43,47 @@ type Handler struct {
 	streamProvider  *providers.MultiProvider
 }
 
+// GetZileanStats returns statistics about Zilean
+func (h *Handler) GetZileanStats(w http.ResponseWriter, r *http.Request) {
+	// Check if Zilean is enabled
+	currentSettings := h.settingsManager.Get()
+	if !currentSettings.ZileanEnabled {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"enabled": false,
+			"status":  "disabled",
+		})
+		return
+	}
+
+	// Get Zilean provider from MultiProvider
+	zileanProvider := h.streamProvider.GetZileanProvider()
+	if zileanProvider == nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"enabled": true,
+			"status":  "not_configured",
+		})
+		return
+	}
+
+	// Get stats
+	ctx := r.Context()
+	stats, err := zileanProvider.GetStats(ctx)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to get Zilean stats: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	response := map[string]interface{}{
+		"enabled":       true,
+		"status":        stats.Status,
+		"healthy":       stats.Healthy,
+		"torrent_count": stats.TorrentCount,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
+
 func NewHandler(
 	movieStore *database.MovieStore,
 	seriesStore *database.SeriesStore,
