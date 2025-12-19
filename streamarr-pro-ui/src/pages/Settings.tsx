@@ -3348,13 +3348,13 @@ export default function Settings() {
                           <Film className="w-4 h-4 text-red-400" />
                           <span className="text-slate-400">Indexed Torrents:</span>
                           <span className="font-semibold text-white">
-                            {zileanStats.torrent_count.toLocaleString()}
+                            {zileanStats.torrent_count === -1 ? 'Scraping...' : zileanStats.torrent_count.toLocaleString()}
                           </span>
                         </div>
-                        {zileanStats.torrent_count === 0 && zileanStats.healthy && (
+                        {zileanStats.torrent_count <= 0 && zileanStats.healthy && (
                           <div className="flex items-center gap-2 text-yellow-400">
                             <Loader className="w-3 h-3 animate-spin" />
-                            <span>Scraping in progress... Check docker logs for details</span>
+                            <span>Initial scraping in progress... Check docker logs for details</span>
                           </div>
                         )}
                       </div>

@@ -284,63 +284,37 @@ func (z *ZileanProvider) GetStats(ctx context.Context) (*ZileanStats, error) {
 
 	stats.Status = "online"
 
-	// Try HEAD request on /dmm/filtered/all to check if torrents exist without downloading all data
-	req, err := http.NewRequestWithContext(ctx, "HEAD", fmt.Sprintf("%s/dmm/filtered/all", z.BaseURL), nil)
+	// Zilean doesn't provide a stats API endpoint, so we'll make a test search
+	// to verify it's functional and return an indicator that torrents are available
+	testReq, err := http.NewRequestWithContext(ctx, "GET", fmt.Sprintf("%s/dmm/search?query=test", z.BaseURL), nil)
 	if err != nil {
+		stats.TorrentCount = -1 // -1 indicates "scraping in progress"
 		return stats, nil
 	}
 
 	if z.APIKey != "" {
-		req.Header.Set("X-Api-Key", z.APIKey)
+		testReq.Header.Set("X-Api-Key", z.APIKey)
 	}
 
-	resp, err := z.Client.Do(req)
+	// Set a short timeout
+	testCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	testReq = testReq.WithContext(testCtx)
+
+	testResp, err := z.Client.Do(testReq)
 	if err != nil {
+		stats.TorrentCount = -1 // -1 indicates "scraping in progress"
 		return stats, nil
 	}
-	defer resp.Body.Close()
+	defer testResp.Body.Close()
 
-	// If DMM endpoint is available, assume torrents are being scraped
-	// Return a non-zero count to indicate activity
-	if resp.StatusCode == http.StatusOK {
-		// Since we can't efficiently count without downloading all hashes,
-		// we'll make a small sample request to estimate
-		sampleReq, err := http.NewRequestWithContext(ctx, "GET", fmt.Sprintf("%s/dmm/filtered/all", z.BaseURL), nil)
-		if err == nil {
-			if z.APIKey != "" {
-				sampleReq.Header.Set("X-Api-Key", z.APIKey)
-			}
-			
-			// Set a timeout for sampling
-			sampleCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
-			defer cancel()
-			sampleReq = sampleReq.WithContext(sampleCtx)
-			
-			sampleResp, err := z.Client.Do(sampleReq)
-			if err == nil {
-				defer sampleResp.Body.Close()
-				
-				// Read up to 1MB to sample
-				limited := io.LimitReader(sampleResp.Body, 1024*1024)
-				body, err := io.ReadAll(limited)
-				if err == nil && len(body) > 0 {
-					// Count lines in sample
-					count := int64(0)
-					for _, b := range body {
-						if b == '\n' {
-							count++
-						}
-					}
-					// If we got a full 1MB, there's likely many more
-					if len(body) == 1024*1024 {
-						// Estimate based on sample (rough approximation)
-						stats.TorrentCount = count * 10
-					} else {
-						stats.TorrentCount = count
-					}
-				}
-			}
-		}
+	// If search endpoint responds (even with empty results), Zilean is working
+	if testResp.StatusCode == http.StatusOK {
+		// Return -1 to indicate "scraping in progress" in the UI
+		// The actual count would require direct database access
+		stats.TorrentCount = -1
+	} else {
+		stats.TorrentCount = -1
 	}
 
 	return stats, nil
