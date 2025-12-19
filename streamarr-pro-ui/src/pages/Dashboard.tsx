@@ -97,7 +97,6 @@ export default function Dashboard() {
           value={dashboardStats.totalCollections}
           subtitle="Movie collections"
           color="cyan"
-          link="/library?view=collections"
         />
       </div>
 

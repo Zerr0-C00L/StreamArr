@@ -639,9 +639,6 @@ export default function Library() {
       case 'series':
         filtered = filtered.filter(m => m.type === 'series');
         break;
-      case 'collections':
-        filtered = filtered.filter(m => m.collection_id && m.collection_id > 0);
-        break;
       default:
         filtered = filtered.sort((a, b) => new Date(b.added_at || 0).getTime() - new Date(a.added_at || 0).getTime());
     }
@@ -668,7 +665,6 @@ export default function Library() {
     'top-rated': 'Top Rated',
     'movies': 'Movies',
     'series': 'TV Shows',
-    'collections': 'Collections',
   };
 
   // Search results
@@ -781,7 +777,6 @@ export default function Library() {
             { key: 'top-rated', label: 'Top Rated' },
             { key: 'movies', label: 'Movies' },
             { key: 'series', label: 'TV Shows' },
-            { key: 'collections', label: 'Collections' },
           ].map((tab) => (
             <button
               key={tab.key}
