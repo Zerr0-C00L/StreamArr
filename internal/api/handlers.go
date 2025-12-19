@@ -993,6 +993,42 @@ func (h *Handler) GetMovieStreams(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Filter streams by year to remove wrong movies with same title
+	if movie.ReleaseDate != nil && !movie.ReleaseDate.IsZero() {
+		movieYear := movie.ReleaseDate.Year()
+		filtered := make([]providers.TorrentioStream, 0)
+		for _, s := range providerStreams {
+			// Check if stream name/title contains a different year
+			yearPattern := regexp.MustCompile(`\b(19|20)\d{2}\b`)
+			checkStr := s.Name + " " + s.Title
+			matches := yearPattern.FindAllString(checkStr, -1)
+			
+			// If no year found in stream, keep it (benefit of doubt)
+			if len(matches) == 0 {
+				filtered = append(filtered, s)
+				continue
+			}
+			
+			// Check if any found year matches our movie year (+/- 1 year tolerance)
+			hasMatchingYear := false
+			for _, match := range matches {
+				streamYear, _ := strconv.Atoi(match)
+				if streamYear >= movieYear-1 && streamYear <= movieYear+1 {
+					hasMatchingYear = true
+					break
+				}
+			}
+			
+			if hasMatchingYear {
+				filtered = append(filtered, s)
+			} else {
+				log.Printf("Filtered out stream with wrong year: %s (expected %d)", s.Title, movieYear)
+			}
+		}
+		providerStreams = filtered
+		log.Printf("Year filter: %d streams remaining after filtering for year %d", len(providerStreams), movieYear)
+	}
+
 	// Apply release filters from settings
 	providerStreams = h.applyReleaseFilters(providerStreams)
 
