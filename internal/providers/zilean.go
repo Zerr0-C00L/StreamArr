@@ -89,18 +89,19 @@ func (z *ZileanProvider) SearchByIMDB(ctx context.Context, imdbID string) ([]Zil
 		return nil, fmt.Errorf("zilean returned status %d: %s", resp.StatusCode, string(body))
 	}
 
-	var result ZileanSearchResult
+	// Zilean returns an array directly, not wrapped in an object
+	var result []ZileanTorrent
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return nil, fmt.Errorf("decode response: %w", err)
 	}
 
 	// Cache the results
 	z.Cache[cacheKey] = &ZileanCachedResponse{
-		Data:      result.Torrents,
+		Data:      result,
 		Timestamp: time.Now(),
 	}
 
-	return result.Torrents, nil
+	return result, nil
 }
 
 // SearchByQuery searches Zilean using a text query
@@ -138,18 +139,19 @@ func (z *ZileanProvider) SearchByQuery(ctx context.Context, query string) ([]Zil
 		return nil, fmt.Errorf("zilean returned status %d: %s", resp.StatusCode, string(body))
 	}
 
-	var result ZileanSearchResult
+	// Zilean returns an array directly, not wrapped in an object
+	var result []ZileanTorrent
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return nil, fmt.Errorf("decode response: %w", err)
 	}
 
 	// Cache the results
 	z.Cache[cacheKey] = &ZileanCachedResponse{
-		Data:      result.Torrents,
+		Data:      result,
 		Timestamp: time.Now(),
 	}
 
-	return result.Torrents, nil
+	return result, nil
 }
 
 // GetMovieStreams implements StreamProvider interface
