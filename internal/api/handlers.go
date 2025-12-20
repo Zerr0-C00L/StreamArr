@@ -3241,11 +3241,8 @@ func (h *Handler) InstallUpdate(w http.ResponseWriter, r *http.Request) {
 
 		log.Println("[Update] Script started in background")
 	} else {
-		// Non-Docker environment - use update-local.sh if available
-		localUpdateScript := "./scripts/update-local.sh"
-		if _, err := os.Stat(localUpdateScript); err == nil {
-			updateScript = localUpdateScript
-		}
+		// Non-Docker environment - use update.sh (already set at the top)
+		// updateScript is already "./scripts/update.sh"
 		
 		log.Printf("[Update] Using script: %s with branch: %s", updateScript, branch)
 		
