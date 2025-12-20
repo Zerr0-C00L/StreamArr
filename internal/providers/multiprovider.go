@@ -57,9 +57,10 @@ type StreamProvider interface {
 }
 
 type MultiProvider struct {
-	Providers     []StreamProvider
-	ProviderNames []string
-	zileanProvider *ZileanProvider // Keep reference for stats
+	Providers        []StreamProvider
+	ProviderNames    []string
+	zileanProvider   *ZileanProvider   // Keep reference for stats (deprecated)
+	dmmDirectProvider *DMMDirectProvider // Direct DMM queries
 }
 
 // GetZileanProvider returns the Zilean provider if configured
@@ -84,12 +85,21 @@ func NewMultiProviderWithZilean(rdAPIKey string, addons []StremioAddon, tmdbClie
 		ProviderNames: make([]string, 0),
 	}
 	
-	// Add Zilean provider first (highest priority for cached content)
+	// Add Direct DMM provider first (highest priority, on-demand queries)
+	if rdAPIKey != "" {
+		dmmProvider := NewDMMDirectProvider(rdAPIKey)
+		mp.dmmDirectProvider = dmmProvider
+		mp.Providers = append(mp.Providers, dmmProvider)
+		mp.ProviderNames = append(mp.ProviderNames, "DMM Direct (On-Demand)")
+		log.Printf("✓ DMM Direct provider loaded (on-demand querying)")
+	}
+	
+	// Add Zilean provider (optional, for database-based queries)
 	if zileanCfg != nil && zileanCfg.Enabled && zileanCfg.URL != "" {
 		zileanProvider := NewZileanProvider(zileanCfg.URL, zileanCfg.APIKey, rdAPIKey)
 		mp.zileanProvider = zileanProvider // Store reference
 		mp.Providers = append(mp.Providers, zileanProvider)
-		mp.ProviderNames = append(mp.ProviderNames, "Zilean DMM")
+		mp.ProviderNames = append(mp.ProviderNames, "Zilean DMM (Database)")
 		log.Printf("✓ Zilean provider loaded (%s)", zileanCfg.URL)
 	}
 	
