@@ -259,46 +259,74 @@ func (c *RealDebridClient) DeleteTorrent(ctx context.Context, torrentID string) 
 	return nil
 }
 
-// makeRequest performs an HTTP request to Real-Debrid API
+// makeRequest performs an HTTP request to Real-Debrid API with retry logic for rate limiting
 func (c *RealDebridClient) makeRequest(ctx context.Context, method, endpoint string, params url.Values, body io.Reader) ([]byte, error) {
-	reqURL := endpoint
-	if method == "GET" && params != nil {
-		reqURL = fmt.Sprintf("%s?%s", endpoint, params.Encode())
+	maxRetries := 3
+	var lastErr error
+	
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		// Exponential backoff for retries: 2s, 4s, 8s
+		if attempt > 0 {
+			backoff := time.Duration(1<<uint(attempt)) * time.Second
+			time.Sleep(backoff)
+		}
+		
+		reqURL := endpoint
+		if method == "GET" && params != nil {
+			reqURL = fmt.Sprintf("%s?%s", endpoint, params.Encode())
+		}
+
+		var reqBody io.Reader
+		if method == "POST" && params != nil {
+			reqBody = strings.NewReader(params.Encode())
+		} else if body != nil {
+			reqBody = body
+		}
+
+		req, err := http.NewRequestWithContext(ctx, method, reqURL, reqBody)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create request: %w", err)
+		}
+
+		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.apiKey))
+		if method == "POST" && params != nil {
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		}
+
+		resp, err := c.httpClient.Do(req)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+
+		data, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		
+		if err != nil {
+			lastErr = fmt.Errorf("failed to read response: %w", err)
+			continue
+		}
+
+		// Retry on 429 (Too Many Requests)
+		if resp.StatusCode == http.StatusTooManyRequests {
+			lastErr = fmt.Errorf("rate limited by Real-Debrid")
+			if attempt < maxRetries-1 {
+				continue
+			}
+			return nil, lastErr
+		}
+
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			return nil, fmt.Errorf("Real-Debrid API returned status %d: %s", resp.StatusCode, string(data))
+		}
+
+		return data, nil
 	}
 
-	var reqBody io.Reader
-	if method == "POST" && params != nil {
-		reqBody = strings.NewReader(params.Encode())
-	} else if body != nil {
-		reqBody = body
+	if lastErr != nil {
+		return nil, lastErr
 	}
-
-	req, err := http.NewRequestWithContext(ctx, method, reqURL, reqBody)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.apiKey))
-	if method == "POST" && params != nil {
-		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	}
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to make request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	data, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response: %w", err)
-	}
-
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("Real-Debrid API returned status %d: %s", resp.StatusCode, string(data))
-	}
-
-	return data, nil
+	return nil, fmt.Errorf("max retries exceeded")
 }
 
 // TestConnection tests the Real-Debrid API connection
