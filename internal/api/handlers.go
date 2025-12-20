@@ -3241,9 +3241,17 @@ func (h *Handler) InstallUpdate(w http.ResponseWriter, r *http.Request) {
 
 		log.Println("[Update] Script started in background")
 	} else {
-		// Non-Docker environment
+		// Non-Docker environment - use update-local.sh if available
+		localUpdateScript := "./scripts/update-local.sh"
+		if _, err := os.Stat(localUpdateScript); err == nil {
+			updateScript = localUpdateScript
+		}
+		
+		log.Printf("[Update] Using script: %s with branch: %s", updateScript, branch)
+		
 		cmd := exec.Command("/bin/bash", "-c",
-			fmt.Sprintf("nohup setsid /bin/bash %s %s > logs/update.log 2>&1 &", updateScript, branch))
+			fmt.Sprintf("cd %s && nohup setsid /bin/bash %s %s > logs/update.log 2>&1 &", 
+				".", updateScript, branch))
 		cmd.Dir = "."
 
 		if err := cmd.Start(); err != nil {
@@ -3254,6 +3262,8 @@ func (h *Handler) InstallUpdate(w http.ResponseWriter, r *http.Request) {
 
 		// Detach from the process immediately
 		go cmd.Wait()
+		
+		log.Println("[Update] Update script started in background")
 	}
 
 	respondJSON(w, http.StatusOK, map[string]interface{}{
