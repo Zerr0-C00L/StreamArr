@@ -1,7 +1,7 @@
 [Unit]
 Description=StreamArr Pro Worker
 After=network.target postgresql.service streamarr.service
-Requires=postgresql.service
+Requires=postgresql.service streamarr.service
 BindsTo=streamarr.service
 PartOf=streamarr.service
 
