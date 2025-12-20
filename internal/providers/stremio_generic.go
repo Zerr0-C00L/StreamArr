@@ -193,6 +193,32 @@ func (g *GenericStremioProvider) fetchStreams(url, cacheKey string) ([]Torrentio
 			return nil, fmt.Errorf("read response: %w", err)
 		}
 		
+		// Check if response is an error from the addon
+		var errorResponse struct {
+			Err     string `json:"err"`
+			Error   string `json:"error"`
+			Message string `json:"message"`
+		}
+		if err := json.Unmarshal(body, &errorResponse); err == nil {
+			if errorResponse.Err != "" {
+				lastErr = fmt.Errorf("addon error: %s", errorResponse.Err)
+				if strings.Contains(strings.ToLower(errorResponse.Err), "too many") || 
+				   strings.Contains(strings.ToLower(errorResponse.Err), "rate limit") {
+					// Retry on rate limit errors
+					if attempt < maxRetries-1 {
+						continue
+					}
+				}
+				return nil, lastErr
+			}
+			if errorResponse.Error != "" {
+				return nil, fmt.Errorf("addon error: %s", errorResponse.Error)
+			}
+			if errorResponse.Message != "" {
+				return nil, fmt.Errorf("addon error: %s", errorResponse.Message)
+			}
+		}
+		
 		var response GenericStreamResponse
 		if err := json.Unmarshal(body, &response); err != nil {
 			return nil, fmt.Errorf("decode response: %w", err)
