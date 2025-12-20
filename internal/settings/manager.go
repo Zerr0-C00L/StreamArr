@@ -125,9 +125,14 @@ type Settings struct {
 	ZileanAPIKey  string `json:"zilean_api_key"` // Optional Zilean API key
 	
 	// Comet Provider Settings
-	CometEnabled   bool   `json:"comet_enabled"`   // Enable Comet torrent provider
-	CometIndexers  string `json:"comet_indexers"`  // Comma-separated list of indexers
-	CometOnlyCached bool  `json:"comet_only_cached"` // Only show cached torrents
+	CometEnabled           bool   `json:"comet_enabled"`            // Enable Comet torrent provider
+	CometIndexers          string `json:"comet_indexers"`           // Comma-separated list of indexers
+	CometOnlyShowCached    bool   `json:"comet_only_show_cached"`   // Only show cached torrents
+	CometMaxResults        int    `json:"comet_max_results"`        // Max results per quality
+	CometSortBy            string `json:"comet_sort_by"`            // Sorting: quality, qualitysize, seeders, size
+	CometExcludedQualities string `json:"comet_excluded_qualities"` // Comma-separated quality exclusions
+	CometPriorityLanguages string `json:"comet_priority_languages"` // Comma-separated priority languages
+	CometMaxSize           string `json:"comet_max_size"`           // Max file size (e.g., "10GB" or "10GB,2GB")
 	
 	// Built-in Stremio Addon Settings
 	StremioAddon       StremioAddonConfig `json:"stremio_addon"`
@@ -235,7 +240,12 @@ func getDefaultSettings() *Settings {
 		ZileanAPIKey:           "",
 		CometEnabled:           true,
 		CometIndexers:          "bitorrent,therarbg,yts,eztv,thepiratebay",
-		CometOnlyCached:        true, // Default to only cached for faster playback
+		CometOnlyShowCached:    true,  // Default to only cached for faster playback
+		CometMaxResults:        5,     // Default to 5 results per quality
+		CometSortBy:            "quality", // Default sorting by quality then seeders
+		CometExcludedQualities: "",    // No exclusions by default
+		CometPriorityLanguages: "",    // No priority languages by default
+		CometMaxSize:           "",    // No size limit by default
 		StremioAddons:          []StremioAddon{}, // Empty by default - users should configure their own addons
 		StremioAddon: StremioAddonConfig{
 			Enabled:         true, // Enabled by default for built-in addon
@@ -574,7 +584,12 @@ func (m *Manager) GetAll() (map[string]interface{}, error) {
 		"zilean_api_key":               m.settings.ZileanAPIKey,
 		"comet_enabled":                m.settings.CometEnabled,
 		"comet_indexers":               m.settings.CometIndexers,
-		"comet_only_cached":            m.settings.CometOnlyCached,
+		"comet_only_show_cached":       m.settings.CometOnlyShowCached,
+		"comet_max_results":            m.settings.CometMaxResults,
+		"comet_sort_by":                m.settings.CometSortBy,
+		"comet_excluded_qualities":     m.settings.CometExcludedQualities,
+		"comet_priority_languages":     m.settings.CometPriorityLanguages,
+		"comet_max_size":               m.settings.CometMaxSize,
 		"total_pages":                  m.settings.TotalPages,
 		"max_resolution":               m.settings.MaxResolution,
 		"auto_cache_interval_hours":    m.settings.AutoCacheIntervalHours,
@@ -633,8 +648,23 @@ func (m *Manager) SetAll(updates map[string]interface{}) error {
 	if v, ok := updates["comet_indexers"].(string); ok {
 		m.settings.CometIndexers = v
 	}
-	if v, ok := updates["comet_only_cached"].(bool); ok {
-		m.settings.CometOnlyCached = v
+	if v, ok := updates["comet_only_show_cached"].(bool); ok {
+		m.settings.CometOnlyShowCached = v
+	}
+	if v, ok := updates["comet_max_results"].(float64); ok {
+		m.settings.CometMaxResults = int(v)
+	}
+	if v, ok := updates["comet_sort_by"].(string); ok {
+		m.settings.CometSortBy = v
+	}
+	if v, ok := updates["comet_excluded_qualities"].(string); ok {
+		m.settings.CometExcludedQualities = v
+	}
+	if v, ok := updates["comet_priority_languages"].(string); ok {
+		m.settings.CometPriorityLanguages = v
+	}
+	if v, ok := updates["comet_max_size"].(string); ok {
+		m.settings.CometMaxSize = v
 	}
 	if v, ok := updates["total_pages"].(float64); ok {
 		m.settings.TotalPages = int(v)

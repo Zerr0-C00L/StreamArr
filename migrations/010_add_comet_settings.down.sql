@@ -1,3 +1,2 @@
 -- Remove Comet provider settings
-ALTER TABLE settings DROP COLUMN IF EXISTS comet_enabled;
-ALTER TABLE settings DROP COLUMN IF EXISTS comet_indexers;
+DELETE FROM settings WHERE key IN ('comet_enabled', 'comet_indexers', 'comet_only_show_cached');

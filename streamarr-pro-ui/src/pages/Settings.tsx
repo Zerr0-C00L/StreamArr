@@ -43,6 +43,11 @@ interface SettingsData {
   comet_enabled: boolean;
   comet_indexers: string;
   comet_only_show_cached: boolean;
+  comet_max_results: number;
+  comet_sort_by: string;
+  comet_excluded_qualities: string;
+  comet_priority_languages: string;
+  comet_max_size: string;
 
   stremio_addons: Array<{name: string; url: string; enabled: boolean}>;
   stream_providers: string[] | string; // Legacy, will be removed
@@ -1691,7 +1696,7 @@ export default function Settings() {
                   When enabled, only torrents that are already cached in RealDebrid will be shown, ensuring instant playback.
                 </p>
 
-                <div>
+                <div className="mb-4">
                   <label className="block text-sm font-medium text-slate-300 mb-2">
                     Indexers (comma-separated)
                   </label>
@@ -1705,6 +1710,93 @@ export default function Settings() {
                   />
                   <p className="text-xs text-slate-500 mt-1">
                     Available indexers: bitorrent, therarbg, yts, eztv, thepiratebay, kickass, torrentgalaxy, magnetdl
+                  </p>
+                </div>
+
+                <div className="mb-4">
+                  <label className="block text-sm font-medium text-slate-300 mb-2">
+                    Sorting
+                  </label>
+                  <select
+                    value={settings.comet_sort_by || 'quality'}
+                    onChange={(e) => updateSetting('comet_sort_by', e.target.value)}
+                    className="w-full px-3 py-2 bg-[#2a2a2a] border border-white/10 rounded-lg text-white focus:outline-none focus:border-blue-500"
+                    disabled={settings.comet_enabled === false}
+                  >
+                    <option value="quality">By quality then seeders</option>
+                    <option value="qualitysize">By quality then size</option>
+                    <option value="seeders">By seeders</option>
+                    <option value="size">By size</option>
+                  </select>
+                </div>
+
+                <div className="mb-4">
+                  <label className="block text-sm font-medium text-slate-300 mb-2">
+                    Priority Languages (comma-separated)
+                  </label>
+                  <input
+                    type="text"
+                    value={settings.comet_priority_languages || ''}
+                    onChange={(e) => updateSetting('comet_priority_languages', e.target.value)}
+                    className="w-full px-3 py-2 bg-[#2a2a2a] border border-white/10 rounded-lg text-white focus:outline-none focus:border-blue-500"
+                    placeholder="e.g., russian,italian,spanish"
+                    disabled={settings.comet_enabled === false}
+                  />
+                  <p className="text-xs text-slate-500 mt-1">
+                    Streams with selected language dubs/subs will be prioritized at the top
+                  </p>
+                </div>
+
+                <div className="mb-4">
+                  <label className="block text-sm font-medium text-slate-300 mb-2">
+                    Exclude Qualities/Resolutions (comma-separated)
+                  </label>
+                  <input
+                    type="text"
+                    value={settings.comet_excluded_qualities || ''}
+                    onChange={(e) => updateSetting('comet_excluded_qualities', e.target.value)}
+                    className="w-full px-3 py-2 bg-[#2a2a2a] border border-white/10 rounded-lg text-white focus:outline-none focus:border-blue-500"
+                    placeholder="e.g., cam,screener,480p"
+                    disabled={settings.comet_enabled === false}
+                  />
+                  <p className="text-xs text-slate-500 mt-1">
+                    Options: 4k, 1080p, 720p, 480p, cam, screener, brremux, hdr, dolbyvision, 3d
+                  </p>
+                </div>
+
+                <div className="mb-4">
+                  <label className="block text-sm font-medium text-slate-300 mb-2">
+                    Max Results Per Quality
+                  </label>
+                  <input
+                    type="number"
+                    value={settings.comet_max_results || 5}
+                    onChange={(e) => updateSetting('comet_max_results', parseInt(e.target.value) || 5)}
+                    className="w-full px-3 py-2 bg-[#2a2a2a] border border-white/10 rounded-lg text-white focus:outline-none focus:border-blue-500"
+                    placeholder="5"
+                    min="1"
+                    max="50"
+                    disabled={settings.comet_enabled === false}
+                  />
+                  <p className="text-xs text-slate-500 mt-1">
+                    Limit the number of results shown per quality tier (1-50)
+                  </p>
+                </div>
+
+                <div className="mb-4">
+                  <label className="block text-sm font-medium text-slate-300 mb-2">
+                    Max Video Size
+                  </label>
+                  <input
+                    type="text"
+                    value={settings.comet_max_size || ''}
+                    onChange={(e) => updateSetting('comet_max_size', e.target.value)}
+                    className="w-full px-3 py-2 bg-[#2a2a2a] border border-white/10 rounded-lg text-white focus:outline-none focus:border-blue-500"
+                    placeholder="e.g., 10GB or 10GB,2GB for movies,series"
+                    disabled={settings.comet_enabled === false}
+                  />
+                  <p className="text-xs text-slate-500 mt-1">
+                    Set maximum file size (e.g., 5GB, 800MB). Use comma for different limits: movies,series
                   </p>
                 </div>
               </div>
