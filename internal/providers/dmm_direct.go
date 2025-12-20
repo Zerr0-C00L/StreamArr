@@ -34,13 +34,6 @@ type DMMSearchResult struct {
 	Hash     string  `json:"hash"`
 }
 
-// DMM API response format
-type DMMSearchResult struct {
-	Title    string  `json:"title"`
-	FileSize float64 `json:"fileSize"` // Size in MB
-	Hash     string  `json:"hash"`
-}
-
 type DMMAPIResponse struct {
 	Results      []DMMSearchResult `json:"results,omitempty"`
 	ErrorMessage string            `json:"errorMessage,omitempty"`
