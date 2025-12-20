@@ -190,7 +190,7 @@ func (d *DMMDirectProvider) querySource(sourceURL, mediaType string) ([]Torrenti
 		stream.Size = s.BehaviorHints.VideoSize
 
 		// Extract quality from title
-		stream.Quality = extractQuality(s.Title)
+		stream.Quality = extractQualityFromTitle(s.Title)
 
 		streams = append(streams, stream)
 	}
@@ -217,8 +217,8 @@ func (d *DMMDirectProvider) getSourceName(sourceURL string) string {
 	return "DMM"
 }
 
-// extractQuality extracts quality info from title
-func extractQuality(title string) string {
+// extractQualityFromTitle extracts quality info from title
+func extractQualityFromTitle(title string) string {
 	title = strings.ToUpper(title)
 	
 	qualities := []string{"2160P", "4K", "UHD", "1080P", "720P", "480P"}
