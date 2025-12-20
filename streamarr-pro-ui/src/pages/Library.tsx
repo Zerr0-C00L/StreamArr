@@ -166,8 +166,15 @@ function DetailModal({
             <div className="absolute bottom-6 left-8 right-8">
               <h1 className="text-3xl md:text-5xl font-black text-white mb-4 drop-shadow-lg">{media.title}</h1>
               <div className="flex items-center gap-3 flex-wrap">
-                <button className="flex items-center gap-2 px-6 py-2 bg-white text-black font-bold rounded hover:bg-white/80 transition-colors">
-                  <Play className="w-5 h-5 fill-black" />
+                <button 
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    alert('⚠️ Playback temporarily disabled\n\nWe are working on fixing stream provider rate limiting issues. Please check back soon!');
+                  }}
+                  className="flex items-center gap-2 px-6 py-2 bg-gray-600 text-white font-bold rounded hover:bg-gray-500 transition-colors"
+                  title="Playback temporarily disabled"
+                >
+                  <Play className="w-5 h-5 fill-white" />
                   Play
                 </button>
                 <button className="p-2 rounded-full border-2 border-gray-400 hover:border-white transition-colors" title="Add to My List">
