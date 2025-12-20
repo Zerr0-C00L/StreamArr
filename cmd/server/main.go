@@ -337,7 +337,7 @@ func main() {
 		cometCfg = &providers.CometProviderConfig{
 			Enabled:        true,
 			Indexers:       indexers,
-			OnlyShowCached: cometSettings.CometOnlyCached,
+			OnlyShowCached: cometSettings.CometOnlyShowCached,
 		}
 	}
 	
