@@ -203,18 +203,29 @@ func (h spaHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 // getUIPath returns the path to the UI dist folder
 func getUIPath() string {
+	// Prefer host-mounted UI for hot-reload if enabled
+	hostFlag := "/app/host/.hotreload"
+	hostUI := "/app/host/streamarr-pro-ui/dist"
+	if _, err := os.Stat(hostFlag); err == nil {
+		if _, err := os.Stat(filepath.Join(hostUI, "index.html")); err == nil {
+			return hostUI
+		}
+	}
+
+	// Fallbacks: container-built UI and common install paths
 	paths := []string{
-		"./streamarr-pro-ui/dist",
+		"./streamarr-pro-ui/dist",       // resolves to /app/streamarr-pro-ui/dist in container
+		"/app/streamarr-pro-ui/dist",   // explicit container path
 		"/opt/StreamArr/streamarr-pro-ui/dist",
 		"/opt/streamarr/streamarr-pro-ui/dist",
 	}
-	
+    
 	for _, p := range paths {
 		if _, err := os.Stat(filepath.Join(p, "index.html")); err == nil {
 			return p
 		}
 	}
-	
+    
 	return ""
 }
 

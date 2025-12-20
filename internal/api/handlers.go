@@ -27,6 +27,13 @@ import (
 	"github.com/gorilla/mux"
 )
 
+// Version information - injected at build time via ldflags
+var (
+	Version   = "dev"
+	Commit    = "unknown"
+	BuildDate = "unknown"
+)
+
 type Handler struct {
 	movieStore      *database.MovieStore
 	seriesStore     *database.SeriesStore
@@ -3013,13 +3020,6 @@ func (h *Handler) ExecuteDatabaseAction(w http.ResponseWriter, r *http.Request) 
 	})
 }
 
-// Version info - set at build time via ldflags
-var (
-	Version   = "1.1.0"
-	Commit    = "unknown"
-	BuildDate = "unknown"
-)
-
 // GetVersion returns the current version info
 func (h *Handler) GetVersion(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, map[string]interface{}{
@@ -4234,14 +4234,31 @@ func validateMovieStreams(streams []providers.TorrentioStream, movieTitle string
 		return streams
 	}
 
+	// Helper function to normalize text for comparison
+	// Removes special characters and extra spaces
+	normalizeForMatch := func(text string) string {
+		// Convert to lowercase
+		text = strings.ToLower(text)
+		// Replace special chars with spaces: : - . _ etc.
+		text = strings.Map(func(r rune) rune {
+			if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == ' ' {
+				return r
+			}
+			return ' '
+		}, text)
+		// Collapse multiple spaces into one
+		text = strings.Join(strings.Fields(text), " ")
+		return strings.TrimSpace(text)
+	}
+
 	// Normalize movie title for comparison
-	normalizedTitle := strings.ToLower(strings.TrimSpace(movieTitle))
+	normalizedTitle := normalizeForMatch(movieTitle)
 	
 	validated := []providers.TorrentioStream{}
 	
 	for _, stream := range streams {
 		// Combine all text fields for matching
-		streamText := strings.ToLower(fmt.Sprintf("%s %s", stream.Title, stream.Name))
+		streamText := normalizeForMatch(fmt.Sprintf("%s %s", stream.Title, stream.Name))
 		
 		// Check if the stream title contains the movie title as a substring
 		// This handles cases like "Django Unchained 2012" containing "Django Unchained"
@@ -4249,8 +4266,8 @@ func validateMovieStreams(streams []providers.TorrentioStream, movieTitle string
 			validated = append(validated, stream)
 		} else {
 			// Log rejected streams with detailed info for debugging
-			log.Printf("[VALIDATION] ❌ Stream rejected (title mismatch): requested='%s' stream='%s'", 
-				movieTitle, stream.Title)
+			log.Printf("[VALIDATION] ❌ Stream rejected (title mismatch): requested='%s' (normalized: '%s') stream='%s' (normalized: '%s')", 
+				movieTitle, normalizedTitle, stream.Title, normalizeForMatch(stream.Title))
 		}
 	}
 	

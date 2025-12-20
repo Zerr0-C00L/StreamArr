@@ -28,6 +28,7 @@ export default function Layout({ children }: LayoutProps) {
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [apiOnline, setApiOnline] = useState(false);
+  const [versionInfo, setVersionInfo] = useState<{ current_version: string; current_commit: string } | null>(null);
   const [profilePicture, setProfilePicture] = useState<string | null>(null);
   const username = localStorage.getItem('username') || 'User';
 
@@ -57,7 +58,15 @@ export default function Layout({ children }: LayoutProps) {
 
   useEffect(() => {
     api.get('/version')
-      .then(() => setApiOnline(true))
+      .then((res) => {
+        setApiOnline(true);
+        if (res?.data) {
+          setVersionInfo({
+            current_version: res.data.current_version,
+            current_commit: res.data.current_commit,
+          });
+        }
+      })
       .catch(() => setApiOnline(false));
     
     // Fetch user profile to get profile picture
@@ -257,6 +266,14 @@ export default function Layout({ children }: LayoutProps) {
           {children || <Outlet />}
         </div>
       </main>
+
+      {/* Tiny footer with version & commit */}
+      {versionInfo && (
+        <div className="fixed bottom-2 right-3 z-40 text-xs text-slate-400 bg-black/40 border border-white/10 rounded px-2 py-1 backdrop-blur-sm">
+          <span className="mr-2">v{versionInfo.current_version}</span>
+          <span title="Commit">{versionInfo.current_commit}</span>
+        </div>
+      )}
     </div>
   );
 }
