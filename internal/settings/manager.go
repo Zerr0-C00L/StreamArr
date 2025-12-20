@@ -119,10 +119,15 @@ type Settings struct {
 	UsePremiumize      bool            `json:"use_premiumize"`
 	StremioAddons      []StremioAddon  `json:"stremio_addons"` // Custom Stremio addons for content providers
 	
-	// Zilean DMM Integration
+	// Zilean DMM Integration (deprecated)
 	ZileanEnabled bool   `json:"zilean_enabled"` // Enable Zilean DMM torrent indexer
 	ZileanURL     string `json:"zilean_url"`     // Zilean API endpoint
 	ZileanAPIKey  string `json:"zilean_api_key"` // Optional Zilean API key
+	
+	// Comet Provider Settings
+	CometEnabled   bool   `json:"comet_enabled"`   // Enable Comet torrent provider
+	CometIndexers  string `json:"comet_indexers"`  // Comma-separated list of indexers
+	CometOnlyCached bool  `json:"comet_only_cached"` // Only show cached torrents
 	
 	// Built-in Stremio Addon Settings
 	StremioAddon       StremioAddonConfig `json:"stremio_addon"`
@@ -228,6 +233,9 @@ func getDefaultSettings() *Settings {
 		ZileanEnabled:          false,
 		ZileanURL:              "http://localhost:8181",
 		ZileanAPIKey:           "",
+		CometEnabled:           true,
+		CometIndexers:          "bitorrent,therarbg,yts,eztv,thepiratebay",
+		CometOnlyCached:        true, // Default to only cached for faster playback
 		StremioAddons:          []StremioAddon{}, // Empty by default - users should configure their own addons
 		StremioAddon: StremioAddonConfig{
 			Enabled:         true, // Enabled by default for built-in addon
@@ -564,6 +572,9 @@ func (m *Manager) GetAll() (map[string]interface{}, error) {
 		"zilean_enabled":               m.settings.ZileanEnabled,
 		"zilean_url":                   m.settings.ZileanURL,
 		"zilean_api_key":               m.settings.ZileanAPIKey,
+		"comet_enabled":                m.settings.CometEnabled,
+		"comet_indexers":               m.settings.CometIndexers,
+		"comet_only_cached":            m.settings.CometOnlyCached,
 		"total_pages":                  m.settings.TotalPages,
 		"max_resolution":               m.settings.MaxResolution,
 		"auto_cache_interval_hours":    m.settings.AutoCacheIntervalHours,
@@ -615,6 +626,15 @@ func (m *Manager) SetAll(updates map[string]interface{}) error {
 	}
 	if v, ok := updates["zilean_api_key"].(string); ok {
 		m.settings.ZileanAPIKey = v
+	}
+	if v, ok := updates["comet_enabled"].(bool); ok {
+		m.settings.CometEnabled = v
+	}
+	if v, ok := updates["comet_indexers"].(string); ok {
+		m.settings.CometIndexers = v
+	}
+	if v, ok := updates["comet_only_cached"].(bool); ok {
+		m.settings.CometOnlyCached = v
 	}
 	if v, ok := updates["total_pages"].(float64); ok {
 		m.settings.TotalPages = int(v)

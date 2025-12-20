@@ -322,8 +322,27 @@ func main() {
 		}
 	}
 	
-	// Create MultiProvider (DMM + Stremio Addons)
-	multiProvider := providers.NewMultiProvider(cfg.RealDebridAPIKey, stremioAddons, tmdbClient)
+	// Load Comet configuration from settings
+	cometSettings := settingsManager.Get()
+	var cometCfg *providers.CometProviderConfig
+	if cometSettings.CometEnabled {
+		indexers := []string{}
+		if cometSettings.CometIndexers != "" {
+			indexers = strings.Split(cometSettings.CometIndexers, ",")
+			// Trim whitespace from each indexer
+			for i := range indexers {
+				indexers[i] = strings.TrimSpace(indexers[i])
+			}
+		}
+		cometCfg = &providers.CometProviderConfig{
+			Enabled:        true,
+			Indexers:       indexers,
+			OnlyShowCached: cometSettings.CometOnlyCached,
+		}
+	}
+	
+	// Create MultiProvider with Comet configuration
+	multiProvider := providers.NewMultiProviderWithConfig(cfg.RealDebridAPIKey, stremioAddons, tmdbClient, nil, cometCfg)
 	log.Printf("✓ Stream providers enabled: %v", multiProvider.ProviderNames)
 	
 	xtreamHandler := xtream.NewXtreamHandlerWithProvider(cfg, db, tmdbClient, rdClient, channelManager, epgManager, multiProvider)

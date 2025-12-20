@@ -59,10 +59,14 @@ type SettingsResponse struct {
 	MediaFusionEnabled  bool   `json:"mediafusion_enabled"`
 	TorrentioProviders  string `json:"torrentio_providers"`
 
-	// Zilean Integration
+	// Zilean Integration (deprecated, kept for backward compatibility)
 	ZileanEnabled  bool   `json:"zilean_enabled"`
 	ZileanURL      string `json:"zilean_url"`
 	ZileanAPIKey   string `json:"zilean_api_key"`
+
+	// Comet Provider Settings
+	CometEnabled   bool   `json:"comet_enabled"`
+	CometIndexers  string `json:"comet_indexers"` // Comma-separated indexer list
 
 	// Content Sources (GitHub lists)
 	IncludePopularMovies         bool `json:"include_popular_movies"`

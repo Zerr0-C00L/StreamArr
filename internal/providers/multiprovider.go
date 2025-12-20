@@ -60,6 +60,7 @@ type MultiProvider struct {
 	Providers        []StreamProvider
 	ProviderNames    []string
 	dmmDirectProvider *DMMDirectProvider // Direct DMM queries
+	cometProvider     *CometProvider     // Comet for real-time search
 }
 
 // GetZileanProvider returns nil (Zilean removed, using DMM instead)
@@ -74,23 +75,49 @@ type ZileanConfig struct {
 	APIKey  string
 }
 
+// CometProviderConfig for configuring Comet provider
+type CometProviderConfig struct {
+	Enabled        bool
+	Indexers       []string
+	OnlyShowCached bool
+}
+
 func NewMultiProvider(rdAPIKey string, addons []StremioAddon, tmdbClient *services.TMDBClient) *MultiProvider {
-	return NewMultiProviderWithZilean(rdAPIKey, addons, tmdbClient, nil)
+	return NewMultiProviderWithConfig(rdAPIKey, addons, tmdbClient, nil, nil)
 }
 
 func NewMultiProviderWithZilean(rdAPIKey string, addons []StremioAddon, tmdbClient *services.TMDBClient, zileanCfg *ZileanConfig) *MultiProvider {
+	return NewMultiProviderWithConfig(rdAPIKey, addons, tmdbClient, zileanCfg, nil)
+}
+
+func NewMultiProviderWithConfig(rdAPIKey string, addons []StremioAddon, tmdbClient *services.TMDBClient, zileanCfg *ZileanConfig, cometCfg *CometProviderConfig) *MultiProvider {
 	mp := &MultiProvider{
 		Providers:     make([]StreamProvider, 0),
 		ProviderNames: make([]string, 0),
 	}
 	
-	// Add Direct DMM provider first (highest priority, queries DMM API)
+	// Add Comet provider (real-time torrent search)
 	if rdAPIKey != "" {
-		dmmProvider := NewDMMDirectProvider(rdAPIKey)
-		mp.dmmDirectProvider = dmmProvider
-		mp.Providers = append(mp.Providers, dmmProvider)
-		mp.ProviderNames = append(mp.ProviderNames, "DMM (Debrid Media Manager)")
-		log.Printf("✓ DMM provider loaded (pre-scraped torrents)")
+		// Use config if provided, otherwise use defaults
+		var indexers []string
+		enabled := true
+		
+		if cometCfg != nil {
+			enabled = cometCfg.Enabled
+			indexers = cometCfg.Indexers
+		}
+		
+		if enabled {
+			if len(indexers) == 0 {
+				indexers = []string{"bitorrent", "therarbg", "yts", "eztv", "thepiratebay"}
+			}
+			onlyShowCached := cometCfg.OnlyShowCached
+			cometProvider := NewCometProvider(rdAPIKey, indexers, onlyShowCached)
+			mp.cometProvider = cometProvider
+			mp.Providers = append(mp.Providers, cometProvider)
+			mp.ProviderNames = append(mp.ProviderNames, "Comet (Live Torrent Search)")
+			log.Printf("✓ Comet provider loaded with indexers: %v (cached only: %v)", indexers, onlyShowCached)
+		}
 	}
 	
 	// Add each enabled addon as a generic Stremio provider

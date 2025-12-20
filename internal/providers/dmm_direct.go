@@ -41,8 +41,8 @@ type DMMAPIResponse struct {
 
 // NewDMMDirectProvider creates a new DMM API provider
 func NewDMMDirectProvider(rdAPIKey string) *DMMDirectProvider {
-	// Default to DMM container on same network
-	dmmURL := "http://dmm:8080"
+	// Default to DMM container on same network (DMM listens on port 8181)
+	dmmURL := "http://dmm:8181"
 	
 	return &DMMDirectProvider{
 		DMMURL:           dmmURL,

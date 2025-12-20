@@ -39,15 +39,14 @@ interface SettingsData {
   use_realdebrid: boolean;
   use_premiumize: boolean;
 
-  // Zilean Integration
-  zilean_enabled: boolean;
-  zilean_url: string;
-  zilean_api_key: string;
+  // Comet Provider Settings
+  comet_enabled: boolean;
+  comet_indexers: string;
+  comet_only_show_cached: boolean;
 
   stremio_addons: Array<{name: string; url: string; enabled: boolean}>;
   stream_providers: string[] | string; // Legacy, will be removed
   torrentio_providers: string; // Legacy, will be removed
-  comet_indexers: string[] | string; // Legacy, will be removed
   enable_quality_variants: boolean;
   show_full_stream_name: boolean;
   auto_add_collections: boolean;
@@ -245,15 +244,6 @@ export default function Settings() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [profileMessage, setProfileMessage] = useState('');
 
-  // Zilean stats state
-  const [zileanStats, setZileanStats] = useState<{
-    enabled: boolean;
-    status: string;
-    healthy: boolean;
-    torrent_count: number;
-  } | null>(null);
-  const [loadingZileanStats, setLoadingZileanStats] = useState(false);
-
   // Blacklist state
   const [blacklist, setBlacklist] = useState<Array<{
     id: number;
@@ -273,7 +263,6 @@ export default function Settings() {
     fetchDbStats();
     fetchVersionInfo();
     fetchUserProfile();
-    fetchZileanStats();
     
     // Load avatar from localStorage as fallback
     const savedAvatar = localStorage.getItem('profile_picture');
@@ -294,22 +283,10 @@ export default function Settings() {
     if (activeTab === 'services') {
       const interval = setInterval(() => {
         fetchServices();
-        fetchZileanStats();
       }, 5000);
       return () => clearInterval(interval);
     }
   }, [activeTab]);
-
-  const fetchZileanStats = async () => {
-    setLoadingZileanStats(true);
-    try {
-      const response = await api.get('/zilean/stats');
-      setZileanStats(response.data);
-    } catch (error) {
-      console.error('Failed to fetch Zilean stats:', error);
-    }
-    setLoadingZileanStats(false);
-  };
 
   const fetchServices = async () => {
     try {
@@ -1463,63 +1440,6 @@ export default function Settings() {
                 </p>
               </div>
 
-              {/* Zilean Integration */}
-              <div className="col-span-full mt-6 pt-6 border-t border-white/10">
-                <h3 className="text-lg font-semibold text-white mb-4">🔮 Zilean DMM Integration</h3>
-                <p className="text-sm text-slate-400 mb-4">
-                  Connect to Zilean for instant access to cached DMM torrents. Zilean indexes debrid-cached content for faster streaming.
-                </p>
-
-                <label className="flex items-center gap-2 mb-4 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={settings.zilean_enabled || false}
-                    onChange={(e) => updateSetting('zilean_enabled', e.target.checked)}
-                    className="w-4 h-4 rounded border-white/20 bg-[#2a2a2a] text-blue-600 focus:ring-blue-500"
-                  />
-                  <span className="text-sm text-slate-300">Enable Zilean Provider</span>
-                </label>
-
-                <div className="space-y-4">
-                  <div>
-                    <label className="block text-sm font-medium text-slate-300 mb-2">
-                      Zilean URL
-                    </label>
-                    <input
-                      type="text"
-                      value={settings.zilean_url || ''}
-                      onChange={(e) => updateSetting('zilean_url', e.target.value)}
-                      className="w-full px-3 py-2 bg-[#2a2a2a] border border-white/10 rounded-lg text-white focus:outline-none focus:border-blue-500"
-                      placeholder="http://localhost:8181"
-                      disabled={!settings.zilean_enabled}
-                    />
-                    <p className="text-xs text-slate-500 mt-1">
-                      URL of your Zilean instance. Default: http://localhost:8181
-                    </p>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-slate-300 mb-2">
-                      Zilean API Key (Optional)
-                    </label>
-                    <input
-                      type="text"
-                      value={settings.zilean_api_key || ''}
-                      onChange={(e) => updateSetting('zilean_api_key', e.target.value)}
-                      className="w-full px-3 py-2 bg-[#2a2a2a] border border-white/10 rounded-lg text-white focus:outline-none focus:border-blue-500"
-                      placeholder="Leave empty if no API key is set"
-                      disabled={!settings.zilean_enabled}
-                    />
-                    <p className="text-xs text-slate-500 mt-1">
-                      Found in settings.json on your Zilean server. Only needed if authentication is enabled.{' '}
-                      <a href="https://ipromknight.github.io/zilean/" target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline">
-                        Learn more
-                      </a>
-                    </p>
-                  </div>
-                </div>
-              </div>
-
               <div>
                 <label className="block text-sm font-medium text-slate-300 mb-2">
                   MDBList API Key
@@ -1735,6 +1655,57 @@ export default function Settings() {
                       <div className="text-xs text-slate-500">Coming soon</div>
                     </div>
                   </div>
+                </div>
+              </div>
+
+              <hr className="border-white/10" />
+
+              {/* Comet Provider Configuration */}
+              <div className="mb-6">
+                <h3 className="text-lg font-semibold text-white mb-2">🌟 Comet Torrent Provider</h3>
+                <p className="text-sm text-slate-400 mb-4">
+                  Configure Comet for real-time torrent searches. Comet searches multiple indexers and checks RealDebrid cache availability.
+                </p>
+
+                <label className="flex items-center gap-2 mb-4 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={settings.comet_enabled !== false} // Default to true
+                    onChange={(e) => updateSetting('comet_enabled', e.target.checked)}
+                    className="w-4 h-4 rounded border-white/20 bg-[#2a2a2a] text-blue-600 focus:ring-blue-500"
+                  />
+                  <span className="text-sm text-slate-300">Enable Comet Provider</span>
+                </label>
+
+                <label className="flex items-center gap-2 mb-4 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={settings.comet_only_show_cached || false}
+                    onChange={(e) => updateSetting('comet_only_show_cached', e.target.checked)}
+                    className="w-4 h-4 rounded border-white/20 bg-[#2a2a2a] text-blue-600 focus:ring-blue-500"
+                    disabled={settings.comet_enabled === false}
+                  />
+                  <span className="text-sm text-slate-300">Only Show Cached Torrents</span>
+                </label>
+                <p className="text-xs text-slate-500 mb-4">
+                  When enabled, only torrents that are already cached in RealDebrid will be shown, ensuring instant playback.
+                </p>
+
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-2">
+                    Indexers (comma-separated)
+                  </label>
+                  <input
+                    type="text"
+                    value={settings.comet_indexers || 'bitorrent,therarbg,yts,eztv,thepiratebay'}
+                    onChange={(e) => updateSetting('comet_indexers', e.target.value)}
+                    className="w-full px-3 py-2 bg-[#2a2a2a] border border-white/10 rounded-lg text-white focus:outline-none focus:border-blue-500"
+                    placeholder="bitorrent,therarbg,yts,eztv,thepiratebay"
+                    disabled={settings.comet_enabled === false}
+                  />
+                  <p className="text-xs text-slate-500 mt-1">
+                    Available indexers: bitorrent, therarbg, yts, eztv, thepiratebay, kickass, torrentgalaxy, magnetdl
+                  </p>
                 </div>
               </div>
 
@@ -3376,64 +3347,6 @@ export default function Settings() {
                   or you can trigger them manually. Data refreshes every 5 seconds while on this tab.
                 </p>
               </div>
-
-              {/* Zilean Stats Section */}
-              {zileanStats && zileanStats.enabled && (
-                <div className={`p-4 rounded-lg border ${
-                  zileanStats.healthy
-                    ? 'bg-green-900/20 border-green-700'
-                    : 'bg-red-900/20 border-red-700'
-                }`}>
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-3">
-                        <h4 className="text-white font-medium flex items-center gap-2">
-                          <Database className="w-5 h-5" />
-                          🔮 Zilean DMM Integration
-                        </h4>
-                        {zileanStats.healthy ? (
-                          <span className="flex items-center gap-1 text-xs bg-green-500/30 text-green-400 px-2 py-0.5 rounded">
-                            <CheckCircle className="w-3 h-3" />
-                            {zileanStats.status}
-                          </span>
-                        ) : (
-                          <span className="flex items-center gap-1 text-xs bg-red-500/30 text-red-400 px-2 py-0.5 rounded">
-                            <AlertCircle className="w-3 h-3" />
-                            {zileanStats.status}
-                          </span>
-                        )}
-                      </div>
-                      <p className="text-sm text-slate-400 mt-1">
-                        Local DMM torrent index for instant cached stream lookups
-                      </p>
-                      
-                      <div className="flex flex-wrap gap-4 mt-3 text-xs text-slate-300">
-                        <div className="flex items-center gap-2 bg-[#2a2a2a] px-3 py-2 rounded">
-                          <Film className="w-4 h-4 text-red-400" />
-                          <span className="text-slate-400">Indexed Torrents:</span>
-                          <span className="font-semibold text-white">
-                            {zileanStats.torrent_count === -1 ? 'Scraping...' : zileanStats.torrent_count.toLocaleString()}
-                          </span>
-                        </div>
-                        {zileanStats.torrent_count <= 0 && zileanStats.healthy && (
-                          <div className="flex items-center gap-2 text-yellow-400">
-                            <Loader className="w-3 h-3 animate-spin" />
-                            <span>Initial scraping in progress... Check docker logs for details</span>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                    <button
-                      onClick={fetchZileanStats}
-                      disabled={loadingZileanStats}
-                      className="px-3 py-1.5 text-sm bg-red-500 hover:bg-red-600 disabled:bg-gray-600 rounded text-white flex items-center gap-2"
-                    >
-                      <RefreshCw className={`w-4 h-4 ${loadingZileanStats ? 'animate-spin' : ''}`} />
-                      Refresh
-                    </button>
-                  </div>
-                </div>
-              )}
 
               <div className="space-y-4">
                 {services.length === 0 ? (

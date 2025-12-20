@@ -14,6 +14,7 @@ type CometProvider struct {
 	BaseURL          string
 	RealDebridAPIKey string
 	Indexers         []string
+	OnlyShowCached   bool
 	Client           *http.Client
 	Cache            map[string]*CometCachedResponse
 }
@@ -22,6 +23,7 @@ type CometConfig struct {
 	Indexers       []string `json:"indexers"`
 	DebridService  string   `json:"debridService"`
 	DebridAPIKey   string   `json:"debridApiKey"`
+	MaxResults     int      `json:"maxResults,omitempty"`
 }
 
 type CometStream struct {
@@ -40,7 +42,7 @@ type CometCachedResponse struct {
 	Timestamp time.Time
 }
 
-func NewCometProvider(rdAPIKey string, indexers []string) *CometProvider {
+func NewCometProvider(rdAPIKey string, indexers []string, onlyShowCached bool) *CometProvider {
 	if len(indexers) == 0 {
 		indexers = []string{"bktorrent", "thepiratebay", "yts", "eztv"}
 	}
@@ -49,6 +51,7 @@ func NewCometProvider(rdAPIKey string, indexers []string) *CometProvider {
 		BaseURL:          "https://comet.elfhosted.com",
 		RealDebridAPIKey: rdAPIKey,
 		Indexers:         indexers,
+		OnlyShowCached:   onlyShowCached,
 		Client: &http.Client{
 			Timeout: 15 * time.Second,
 		},
@@ -137,9 +140,9 @@ func (c *CometProvider) fetchStreams(url, cacheKey string) ([]TorrentioStream, e
 }
 
 func (c *CometProvider) convertToTorrentioStreams(cometStreams []CometStream) []TorrentioStream {
-	streams := make([]TorrentioStream, len(cometStreams))
+	streams := make([]TorrentioStream, 0, len(cometStreams))
 	
-	for i, cs := range cometStreams {
+	for _, cs := range cometStreams {
 		// Normalize RD indicator
 		name := cs.Name
 		if strings.Contains(name, "[RD⚡]") {
@@ -157,7 +160,13 @@ func (c *CometProvider) convertToTorrentioStreams(cometStreams []CometStream) []
 		
 		// Parse stream info
 		parseStreamInfoForComet(&stream)
-		streams[i] = stream
+		
+		// Filter: if OnlyShowCached is enabled, skip non-cached streams
+		if c.OnlyShowCached && !stream.Cached {
+			continue
+		}
+		
+		streams = append(streams, stream)
 	}
 	
 	return streams
