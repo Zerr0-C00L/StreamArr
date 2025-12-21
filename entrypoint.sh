@@ -25,12 +25,9 @@ else
 fi
 echo ""
 
-# Start worker process in background
-echo "🤖 Starting background workers..."
-/app/bin/worker > /app/logs/worker.log 2>&1 &
-WORKER_PID=$!
-echo "   Worker PID: $WORKER_PID"
-echo "   Logs: /app/logs/worker.log"
+# NOTE: Workers are now integrated into the server process
+# No need to start a separate worker process
+echo "ℹ️  Background workers are integrated into the server process"
 echo ""
 
 # Determine which server binary to use

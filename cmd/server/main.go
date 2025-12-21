@@ -15,6 +15,7 @@ import (
 	_ "github.com/lib/pq"
 
 	"github.com/Zerr0-C00L/StreamArr/internal/api"
+	"github.com/Zerr0-C00L/StreamArr/internal/cache"
 	"github.com/Zerr0-C00L/StreamArr/internal/config"
 	"github.com/Zerr0-C00L/StreamArr/internal/database"
 	"github.com/Zerr0-C00L/StreamArr/internal/epg"
@@ -364,32 +365,159 @@ func main() {
 	)
 	
 	// Initialize playlist generator
-	playlistGen := playlist.NewPlaylistGenerator(cfg, db, tmdbClient)
-	_ = playlistGen // Use in background worker or on-demand
+	playlistGen := playlist.NewEnhancedGenerator(cfg, db, tmdbClient, multiProvider)
 
-	// Update EPG data in background
+	// Initialize cache manager
+	cacheManager := cache.NewManager(db)
+
+	// Initialize MDBList sync service
+	mdbSyncService := services.NewMDBListSyncService(db, cfg.MDBListAPIKey, cfg.TMDBAPIKey)
+	log.Println("✓ MDBList sync service initialized")
+
+	// Worker context for graceful shutdown
+	workerCtx, workerCancel := context.WithCancel(context.Background())
+	_ = workerCancel // Used on shutdown
+
+	// ============ BACKGROUND WORKERS (integrated for shared GlobalScheduler) ============
+
+	// Worker: Playlist Regeneration (every 12 hours)
 	go func() {
-		ticker := time.NewTicker(6 * time.Hour)
-		defer ticker.Stop()
+		interval := 12 * time.Hour
+		log.Printf("📋 Playlist Worker: Starting (interval: %v)", interval)
 		
+		// Run immediately on startup
+		services.GlobalScheduler.MarkRunning(services.ServicePlaylist)
+		err := playlistGen.GenerateComplete(workerCtx)
+		services.GlobalScheduler.MarkComplete(services.ServicePlaylist, err, interval)
+		if err != nil {
+			log.Printf("❌ Playlist generation error: %v", err)
+		} else {
+			log.Println("✅ Initial playlist generation complete")
+		}
+		
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
 		for {
-			channels := channelManager.GetAllChannels()
-			channelList := make([]livetv.Channel, len(channels))
-			for i, ch := range channels {
-				channelList[i] = *ch
+			select {
+			case <-workerCtx.Done():
+				return
+			case <-ticker.C:
+				services.GlobalScheduler.MarkRunning(services.ServicePlaylist)
+				err := playlistGen.GenerateComplete(workerCtx)
+				services.GlobalScheduler.MarkComplete(services.ServicePlaylist, err, interval)
 			}
-			if err := epgManager.UpdateEPG(channelList); err != nil {
-				log.Printf("EPG update error: %v", err)
-			} else {
-				log.Println("EPG data updated successfully")
-			}
-			<-ticker.C
 		}
 	}()
 
-	// Periodic IPTV VOD sync (import + cleanup) using configurable interval when mode includes VOD
+	// Worker: Cache Cleanup (every hour)
+	go func() {
+		interval := 1 * time.Hour
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-workerCtx.Done():
+				return
+			case <-ticker.C:
+				services.GlobalScheduler.MarkRunning(services.ServiceCacheCleanup)
+				cacheManager.Cleanup()
+				services.GlobalScheduler.MarkComplete(services.ServiceCacheCleanup, nil, interval)
+			}
+		}
+	}()
+
+	// Worker: EPG Update (every 6 hours)
+	go func() {
+		interval := 6 * time.Hour
+		log.Printf("📺 EPG Update Worker: Starting (interval: %v)", interval)
+		
+		// Run immediately
+		services.GlobalScheduler.MarkRunning(services.ServiceEPGUpdate)
+		channels := channelManager.GetAllChannels()
+		channelList := make([]livetv.Channel, len(channels))
+		for i, ch := range channels {
+			channelList[i] = *ch
+		}
+		err := epgManager.UpdateEPG(channelList)
+		services.GlobalScheduler.MarkComplete(services.ServiceEPGUpdate, err, interval)
+		
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-workerCtx.Done():
+				return
+			case <-ticker.C:
+				services.GlobalScheduler.MarkRunning(services.ServiceEPGUpdate)
+				channels := channelManager.GetAllChannels()
+				channelList := make([]livetv.Channel, len(channels))
+				for i, ch := range channels {
+					channelList[i] = *ch
+				}
+				err := epgManager.UpdateEPG(channelList)
+				services.GlobalScheduler.MarkComplete(services.ServiceEPGUpdate, err, interval)
+			}
+		}
+	}()
+
+	// Worker: Channel Refresh (every hour)
+	go func() {
+		interval := 1 * time.Hour
+		log.Printf("📡 Channel Refresh Worker: Starting (interval: %v)", interval)
+		
+		// Initial load already done above, just mark complete
+		services.GlobalScheduler.MarkComplete(services.ServiceChannelRefresh, nil, interval)
+		
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-workerCtx.Done():
+				return
+			case <-ticker.C:
+				services.GlobalScheduler.MarkRunning(services.ServiceChannelRefresh)
+				err := channelManager.LoadChannels()
+				services.GlobalScheduler.MarkComplete(services.ServiceChannelRefresh, err, interval)
+			}
+		}
+	}()
+
+	// Worker: MDBList Sync (every 6 hours)
+	go func() {
+		interval := 6 * time.Hour
+		log.Printf("📋 MDBList Sync Worker: Starting (interval: %v)", interval)
+		
+		// Run immediately
+		services.GlobalScheduler.MarkRunning(services.ServiceMDBListSync)
+		err := mdbSyncService.SyncAllLists(workerCtx)
+		services.GlobalScheduler.MarkComplete(services.ServiceMDBListSync, err, interval)
+		if err != nil {
+			log.Printf("❌ MDBList sync error: %v", err)
+		}
+		
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-workerCtx.Done():
+				return
+			case <-ticker.C:
+				services.GlobalScheduler.MarkRunning(services.ServiceMDBListSync)
+				err := mdbSyncService.SyncAllLists(workerCtx)
+				services.GlobalScheduler.MarkComplete(services.ServiceMDBListSync, err, interval)
+			}
+		}
+	}()
+
+	// Worker: IPTV VOD Sync (configurable interval)
 	go func() {
 		for {
+			select {
+			case <-workerCtx.Done():
+				return
+			default:
+			}
+			
 			current := settingsManager.Get()
 			mode := strings.ToLower(current.IPTVImportMode)
 			includesVOD := mode == "vod_only" || mode == "both"
@@ -398,23 +526,54 @@ func main() {
 				intervalHours = 6
 			}
 			interval := time.Duration(intervalHours) * time.Hour
+			
 			if includesVOD && cfg.TMDBAPIKey != "" {
 				services.GlobalScheduler.MarkRunning(services.ServiceIPTVVODSync)
-				ctx := context.Background()
-				_, err := services.ImportIPTVVOD(ctx, current, tmdbClient, movieStore, seriesStore)
+				_, err := services.ImportIPTVVOD(workerCtx, current, tmdbClient, movieStore, seriesStore)
 				if err != nil {
 					log.Printf("[Scheduler] IPTV VOD import error: %v", err)
 				}
-				_ = services.CleanupIPTVVOD(ctx, current, movieStore, seriesStore)
+				_ = services.CleanupIPTVVOD(workerCtx, current, movieStore, seriesStore)
 				services.GlobalScheduler.MarkComplete(services.ServiceIPTVVODSync, err, interval)
 			}
+			
 			time.Sleep(interval)
 		}
 	}()
 
-	// Initialize MDBList sync service
-	mdbSyncService := services.NewMDBListSyncService(db, cfg.MDBListAPIKey, cfg.TMDBAPIKey)
-	log.Println("✓ MDBList sync service initialized")
+	// Worker: Balkan VOD Sync (every 24 hours)
+	go func() {
+		interval := 24 * time.Hour
+		log.Printf("🇧🇦 Balkan VOD Sync Worker: Starting (interval: %v)", interval)
+		
+		// Run immediately
+		current := settingsManager.Get()
+		if current.BalkanVODEnabled && current.BalkanVODAutoSync {
+			services.GlobalScheduler.MarkRunning(services.ServiceBalkanVODSync)
+			importer := services.NewBalkanVODImporter(movieStore, seriesStore, tmdbClient, current)
+			err := importer.ImportBalkanVOD(workerCtx)
+			services.GlobalScheduler.MarkComplete(services.ServiceBalkanVODSync, err, interval)
+		}
+		
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-workerCtx.Done():
+				return
+			case <-ticker.C:
+				current := settingsManager.Get()
+				if current.BalkanVODEnabled && current.BalkanVODAutoSync {
+					services.GlobalScheduler.MarkRunning(services.ServiceBalkanVODSync)
+					importer := services.NewBalkanVODImporter(movieStore, seriesStore, tmdbClient, current)
+					err := importer.ImportBalkanVOD(workerCtx)
+					services.GlobalScheduler.MarkComplete(services.ServiceBalkanVODSync, err, interval)
+				}
+			}
+		}
+	}()
+
+	log.Println("✅ All background workers started")
 
 	// Initialize API handler with all components
 	handler := api.NewHandlerWithComponents(
@@ -481,6 +640,9 @@ func main() {
 	<-quit
 
 	log.Println("Shutting down server...")
+
+	// Stop background workers
+	workerCancel()
 
 	// Graceful shutdown with 30 second timeout
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
