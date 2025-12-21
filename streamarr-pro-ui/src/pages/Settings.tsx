@@ -3750,6 +3750,7 @@ export default function Settings() {
                       >
                         <option value="main">main</option>
                         <option value="dev">dev</option>
+                        <option value="tag">tag (stable releases)</option>
                       </select>
                     </div>
                   </div>
