@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Save, Key, Layers, Settings as SettingsIcon, Bell, Code, Plus, X, Tv, Activity, Play, Clock, RefreshCw, Filter, Database, Trash2, AlertTriangle, Info, Github, Download, ExternalLink, CheckCircle, AlertCircle, Film, User, Camera, Loader, Search } from 'lucide-react';
+import { Save, Layers, Settings as SettingsIcon, Code, Plus, X, Tv, Activity, Play, Clock, RefreshCw, Filter, Database, Trash2, Info, Github, Download, ExternalLink, CheckCircle, AlertCircle, Film, User, Camera, Loader, Search } from 'lucide-react';
 import axios from 'axios';
 
 // v1.2.1 - Added manual IP configuration
@@ -133,12 +133,6 @@ interface SourceStatus {
   status_code: number;
   message: string;
   checking?: boolean;
-}
-
-interface ChannelStats {
-  total_channels: number;
-  categories: Array<{name: string; count: number}>;
-  sources: Array<{name: string; count: number}>;
 }
 
 interface ServiceStatus {
@@ -281,9 +275,6 @@ export default function Settings() {
   const [triggeringService, setTriggeringService] = useState<string | null>(null);
   const [dbStats, setDbStats] = useState<any>(null);
   const [channelStats, setChannelStats] = useState<any>(null);
-  const [dbOperation, setDbOperation] = useState<string | null>(null);
-  const [loadingDbOperation, setLoadingDbOperation] = useState(false);
-  const [confirmDialog, setConfirmDialog] = useState<{action: string; title: string; message: string} | null>(null);
   const [enabledSources, setEnabledSources] = useState<Set<string>>(new Set());
   const [enabledCategories, setEnabledCategories] = useState<Set<string>>(new Set());
   const [sourceStatuses, setSourceStatuses] = useState<Map<string, SourceStatus>>(new Map());
@@ -544,22 +535,6 @@ export default function Settings() {
       setTimeout(() => setMessage(''), 5000);
     }
     setLoadingBlacklist(false);
-  };
-
-  const executeDbAction = async (action: string) => {
-    setDbOperation(action);
-    setConfirmDialog(null);
-    try {
-      const response = await api.post(`/database/${action}`);
-      setMessage(`✅ ${response.data.message}`);
-      setTimeout(() => setMessage(''), 5000);
-      fetchDbStats();
-      fetchServices();
-    } catch (error: any) {
-      setMessage(`❌ Failed: ${error.response?.data?.error || error.message}`);
-      setTimeout(() => setMessage(''), 5000);
-    }
-    setDbOperation(null);
   };
 
   const fetchVersionInfo = async () => {
@@ -1062,9 +1037,7 @@ export default function Settings() {
   };
 
   // Helper functions
-  const showConfirmDialog = (action: string, title: string, message: string) => {
-    setConfirmDialog({ action, title, message });
-  };
+  // Removed unused confirmation dialog - using inline confirmations instead
 
   const toggleServiceEnabled = async (serviceName: string, enabled: boolean) => {
     try {
