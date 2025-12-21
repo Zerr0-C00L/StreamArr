@@ -245,6 +245,7 @@ func (b *BalkanVODImporter) ImportBalkanVOD(ctx context.Context) error {
 	}
 
 	log.Println("[BalkanVOD] Starting import from GitHub repo...")
+	GlobalScheduler.UpdateProgress(ServiceBalkanVODSync, 0, 0, "Fetching content from GitHub...")
 	
 	// Fetch content from Balkan On Demand repo
 	content, err := fetchBalkanData()
@@ -252,7 +253,10 @@ func (b *BalkanVODImporter) ImportBalkanVOD(ctx context.Context) error {
 		return fmt.Errorf("fetch balkan content: %w", err)
 	}
 
+	totalItems := len(content.Movies) + len(content.Series)
 	log.Printf("[BalkanVOD] Fetched %d movies and %d series", len(content.Movies), len(content.Series))
+	GlobalScheduler.UpdateProgress(ServiceBalkanVODSync, 0, totalItems, 
+		fmt.Sprintf("Found %d movies, %d series", len(content.Movies), len(content.Series)))
 
 	// Get selected categories from settings
 	selectedCategories := b.cfg.BalkanVODSelectedCategories
@@ -268,8 +272,15 @@ func (b *BalkanVODImporter) ImportBalkanVOD(ctx context.Context) error {
 	skippedByCategory := 0
 	skippedByDomestic := 0
 	seriesFromMoviesArray := 0
+	processedCount := 0
 
-	for _, movie := range content.Movies {
+	for i, movie := range content.Movies {
+		processedCount++
+		if i%25 == 0 {
+			GlobalScheduler.UpdateProgress(ServiceBalkanVODSync, processedCount, totalItems, 
+				fmt.Sprintf("Importing movie: %s", movie.Name))
+		}
+		
 		// Filter by category ONLY if categories are explicitly selected
 		if !useAllCategories && !isInSelectedCategories(movie.Category, selectedCategories) {
 			skippedByCategory++
@@ -302,7 +313,12 @@ func (b *BalkanVODImporter) ImportBalkanVOD(ctx context.Context) error {
 
 	// Import series (all series are domestic)
 	log.Printf("[BalkanVOD] Starting series import: %d series to process", len(content.Series))
-	for _, series := range content.Series {
+	for i, series := range content.Series {
+		processedCount++
+		if i%10 == 0 {
+			GlobalScheduler.UpdateProgress(ServiceBalkanVODSync, processedCount, totalItems, 
+				fmt.Sprintf("Importing series: %s", series.Name))
+		}
 		log.Printf("[BalkanVOD] Processing series: %s (ID: %s, Seasons: %d)", series.Name, series.ID, len(series.Seasons))
 		result := b.importSeries(ctx, series)
 		if result.Error != nil {
@@ -314,6 +330,9 @@ func (b *BalkanVODImporter) ImportBalkanVOD(ctx context.Context) error {
 			imported++
 		}
 	}
+	
+	GlobalScheduler.UpdateProgress(ServiceBalkanVODSync, totalItems, totalItems, 
+		fmt.Sprintf("Complete: %d new, %d updated, %d failed", imported, updated, failed))
 
 	log.Printf("[BalkanVOD] Import complete: %d new, %d updated, %d skipped (%d by category filter, %d not domestic), %d failed", imported, updated, skipped, skippedByCategory, skippedByDomestic, failed)
 	return nil

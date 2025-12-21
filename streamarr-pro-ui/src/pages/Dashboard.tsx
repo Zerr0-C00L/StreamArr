@@ -1,8 +1,9 @@
 import { useQuery } from '@tanstack/react-query';
 import { streamarrApi, tmdbImageUrl } from '../services/api';
-import { Film, Tv, Layers, Radio, TrendingUp, Clock, Star, ChevronRight } from 'lucide-react';
+import { Film, Tv, Layers, Radio, TrendingUp, Clock, Star, ChevronRight, Calendar, Play } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import type { Movie, Series, CalendarEntry } from '../types';
+import { useState } from 'react';
 
 interface DashboardStats {
   total_movies: number;
@@ -231,6 +232,8 @@ function ContentSection({
   type: 'movie' | 'series';
   link: string;
 }) {
+  const [hoveredItem, setHoveredItem] = useState<number | null>(null);
+
   if (items.length === 0) return null;
 
   return (
@@ -249,23 +252,69 @@ function ContentSection({
         {items.slice(0, 8).map((item) => (
           <Link
             key={item.id}
-            to={link}
-            className="flex-shrink-0 w-28 group"
+            to={`/${type === 'movie' ? 'movies' : 'series'}/${item.tmdb_id || item.id}`}
+            className="flex-shrink-0 w-36 group relative"
+            onMouseEnter={() => setHoveredItem(item.id)}
+            onMouseLeave={() => setHoveredItem(null)}
           >
-            <div className="aspect-[2/3] rounded-lg overflow-hidden bg-slate-800 mb-2 group-hover:ring-2 ring-white transition-all">
+            <div className="aspect-[2/3] rounded-lg overflow-hidden bg-slate-800 mb-2 group-hover:ring-2 ring-red-600 transition-all relative">
               {item.poster_path ? (
                 <img
-                  src={tmdbImageUrl(item.poster_path, 'w200')}
+                  src={tmdbImageUrl(item.poster_path, 'w300')}
                   alt={item.title}
-                  className="w-full h-full object-cover"
+                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                 />
               ) : (
                 <div className="w-full h-full flex items-center justify-center">
                   {type === 'movie' ? <Film className="w-8 h-8 text-slate-600" /> : <Tv className="w-8 h-8 text-slate-600" />}
                 </div>
               )}
+              
+              {/* Rating badge */}
+              {item.vote_average && item.vote_average > 0 && (
+                <div className="absolute top-2 left-2 bg-black/80 backdrop-blur-sm px-1.5 py-0.5 rounded flex items-center gap-1">
+                  <Star className="w-3 h-3 text-yellow-400 fill-yellow-400" />
+                  <span className="text-white text-xs font-bold">{item.vote_average.toFixed(1)}</span>
+                </div>
+              )}
+
+              {/* Year badge */}
+              {(() => {
+                const year = type === 'movie' 
+                  ? (item as Movie).year || (item as Movie).release_date?.split('-')[0]
+                  : (item as Series).first_air_date?.split('-')[0];
+                return year ? (
+                  <div className="absolute top-2 right-2 bg-black/80 backdrop-blur-sm px-1.5 py-0.5 rounded">
+                    <span className="text-white text-xs font-medium">{year}</span>
+                  </div>
+                ) : null;
+              })()}
+
+              {/* Hover overlay with info */}
+              <div className={`absolute inset-0 bg-gradient-to-t from-black via-black/50 to-transparent flex flex-col justify-end p-3 transition-opacity duration-200 ${hoveredItem === item.id ? 'opacity-100' : 'opacity-0'}`}>
+                <div className="flex items-center justify-center mb-2">
+                  <div className="w-10 h-10 rounded-full bg-red-600 flex items-center justify-center">
+                    <Play className="w-5 h-5 text-white fill-white ml-0.5" />
+                  </div>
+                </div>
+                {item.overview && (
+                  <p className="text-white/80 text-xs line-clamp-3 text-center">{item.overview}</p>
+                )}
+              </div>
             </div>
-            <p className="text-white text-xs font-medium truncate">{item.title}</p>
+            
+            <p className="text-white text-sm font-medium truncate">{item.title}</p>
+            
+            {/* Genre/Type subtitle */}
+            <p className="text-slate-500 text-xs truncate">
+              {type === 'movie' ? 'Movie' : 'TV Series'}
+              {(() => {
+                const year = type === 'movie' 
+                  ? (item as Movie).year || (item as Movie).release_date?.split('-')[0]
+                  : (item as Series).first_air_date?.split('-')[0];
+                return year ? ` • ${year}` : '';
+              })()}
+            </p>
           </Link>
         ))}
       </div>
@@ -289,34 +338,50 @@ function UpcomingSection({ entries }: { entries: CalendarEntry[] }) {
         </div>
       ) : (
         <div className="space-y-3">
-          {entries.map((entry, index) => (
-            <div key={index} className="flex items-center gap-3 p-2 rounded-lg hover:bg-[#282828] transition-colors">
-              <div className="w-12 h-16 rounded overflow-hidden bg-slate-800 flex-shrink-0">
-                {entry.poster_path ? (
-                  <img
-                    src={tmdbImageUrl(entry.poster_path, 'w200')}
-                    alt={entry.title}
-                    className="w-full h-full object-cover"
-                  />
-                ) : (
-                  <div className="w-full h-full flex items-center justify-center">
-                    {entry.type === 'movie' ? <Film className="w-4 h-4 text-slate-600" /> : <Tv className="w-4 h-4 text-slate-600" />}
+          {entries.map((entry, index) => {
+            const releaseDate = new Date(entry.date);
+            const today = new Date();
+            const daysUntil = Math.ceil((releaseDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+            
+            return (
+              <div key={index} className="flex items-center gap-3 p-2 rounded-lg hover:bg-[#282828] transition-colors group">
+                <div className="w-14 h-20 rounded-lg overflow-hidden bg-slate-800 flex-shrink-0 relative group-hover:ring-2 ring-red-600 transition-all">
+                  {entry.poster_path ? (
+                    <img
+                      src={tmdbImageUrl(entry.poster_path, 'w200')}
+                      alt={entry.title}
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center">
+                      {entry.type === 'movie' ? <Film className="w-5 h-5 text-slate-600" /> : <Tv className="w-5 h-5 text-slate-600" />}
+                    </div>
+                  )}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-white text-sm font-medium truncate group-hover:text-red-400 transition-colors">{entry.title}</p>
+                  <div className="flex items-center gap-2 mt-1">
+                    <Calendar className="w-3 h-3 text-slate-500" />
+                    <p className="text-slate-400 text-xs">
+                      {releaseDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                    </p>
+                    {daysUntil > 0 && daysUntil <= 7 && (
+                      <span className="text-xs text-yellow-400">
+                        {daysUntil === 1 ? 'Tomorrow' : `in ${daysUntil} days`}
+                      </span>
+                    )}
                   </div>
-                )}
+                  <span className={`inline-block mt-1 text-xs px-2 py-0.5 rounded-full font-medium ${
+                    entry.type === 'movie' 
+                      ? 'bg-purple-600/30 text-purple-400 border border-purple-500/30' 
+                      : 'bg-green-600/30 text-green-400 border border-green-500/30'
+                  }`}>
+                    {entry.type === 'movie' ? 'Movie' : `S${entry.season_number}E${entry.episode_number}`}
+                  </span>
+                </div>
               </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-white text-sm font-medium truncate">{entry.title}</p>
-                <p className="text-slate-500 text-xs">
-                  {new Date(entry.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                </p>
-                <span className={`text-xs px-1.5 py-0.5 rounded ${
-                  entry.type === 'movie' ? 'bg-purple-600/30 text-purple-400' : 'bg-green-600/30 text-green-400'
-                }`}>
-                  {entry.type === 'movie' ? 'Movie' : `S${entry.season_number}E${entry.episode_number}`}
-                </span>
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>

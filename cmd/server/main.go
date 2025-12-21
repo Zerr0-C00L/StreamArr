@@ -207,9 +207,10 @@ func main() {
 		m3uSources := make([]livetv.M3USource, len(currentSettings.M3USources))
 		for i, s := range currentSettings.M3USources {
 			m3uSources[i] = livetv.M3USource{
-				Name:    s.Name,
-				URL:     s.URL,
-				Enabled: s.Enabled,
+				Name:               s.Name,
+				URL:                s.URL,
+				Enabled:            s.Enabled,
+				SelectedCategories: s.SelectedCategories,
 			}
 		}
 		channelManager.SetM3USources(m3uSources)
@@ -285,13 +286,32 @@ func main() {
 		var customEPGURLs []string
 		for _, s := range settings.M3USources {
 			log.Printf("Live TV: M3U source '%s' - enabled=%v, epg_url='%s'", s.Name, s.Enabled, s.EPGURL)
-			if s.Enabled && s.EPGURL != "" {
-				customEPGURLs = append(customEPGURLs, s.EPGURL)
+			if s.Enabled {
+				// If EPGURL is already set, use it
+				if s.EPGURL != "" {
+					customEPGURLs = append(customEPGURLs, s.EPGURL)
+				} else {
+					// Try to extract EPG URL from M3U file header
+					extractedURL := livetv.FetchAndExtractEPGURL(s.URL)
+					if extractedURL != "" {
+						log.Printf("Live TV: Extracted EPG URL from '%s': %s", s.Name, extractedURL)
+						customEPGURLs = append(customEPGURLs, extractedURL)
+					}
+				}
 			}
 		}
-		if len(customEPGURLs) > 0 {
-			epgManager.AddCustomEPGURLs(customEPGURLs)
-			log.Printf("Live TV: Added %d custom EPG URLs from M3U sources", len(customEPGURLs))
+		// Deduplicate EPG URLs
+		seen := make(map[string]bool)
+		uniqueURLs := make([]string, 0)
+		for _, url := range customEPGURLs {
+			if !seen[url] {
+				seen[url] = true
+				uniqueURLs = append(uniqueURLs, url)
+			}
+		}
+		if len(uniqueURLs) > 0 {
+			epgManager.AddCustomEPGURLs(uniqueURLs)
+			log.Printf("Live TV: Added %d unique custom EPG URLs from M3U sources", len(uniqueURLs))
 		}
 	}
 	
@@ -324,6 +344,24 @@ func main() {
 		s := settingsManager.Get()
 		return s.DuplicateVODPerProvider
 	})
+
+	// Wire up stream sorting settings
+	xtreamHandler.SetSortSettings(
+		func() string {
+			s := settingsManager.Get()
+			if s.StreamSortOrder != "" {
+				return s.StreamSortOrder
+			}
+			return "quality,size,seeders"
+		},
+		func() string {
+			s := settingsManager.Get()
+			if s.StreamSortPrefer != "" {
+				return s.StreamSortPrefer
+			}
+			return "best"
+		},
+	)
 	
 	// Initialize playlist generator
 	playlistGen := playlist.NewPlaylistGenerator(cfg, db, tmdbClient)
@@ -374,6 +412,10 @@ func main() {
 		}
 	}()
 
+	// Initialize MDBList sync service
+	mdbSyncService := services.NewMDBListSyncService(db, cfg.MDBListAPIKey, cfg.TMDBAPIKey)
+	log.Println("✓ MDBList sync service initialized")
+
 	// Initialize API handler with all components
 	handler := api.NewHandlerWithComponents(
 		movieStore,
@@ -390,6 +432,7 @@ func main() {
 		settingsManager,
 		epgManager,
 		multiProvider,
+		mdbSyncService,
 	)
 
 	// Create router and setup REST API routes

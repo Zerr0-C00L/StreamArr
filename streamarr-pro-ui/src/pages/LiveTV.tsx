@@ -3,17 +3,21 @@ import { useQuery } from '@tanstack/react-query';
 import { streamarrApi } from '../services/api';
 import { 
   Search, Radio, Filter, Play, ChevronLeft, ChevronRight, 
-  Loader2, ExternalLink, Tv, X
+  Loader2, ExternalLink, Tv, X, Grid3X3, Calendar
 } from 'lucide-react';
 import type { Channel } from '../types';
+import TVGuide from '../components/TVGuide';
 
 const CHANNELS_PER_PAGE = 50;
+
+type ViewMode = 'grid' | 'guide';
 
 export default function LiveTV() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [currentPage, setCurrentPage] = useState(1);
   const [selectedChannel, setSelectedChannel] = useState<Channel | null>(null);
+  const [viewMode, setViewMode] = useState<ViewMode>('grid');
 
   const { data: channels = [], isLoading } = useQuery({
     queryKey: ['channels', selectedCategory],
@@ -22,6 +26,14 @@ export default function LiveTV() {
       return streamarrApi.getChannels({ category }).then(res => res.data || []);
     },
   });
+
+  // Fetch categories from the API
+  const { data: categoriesData } = useQuery({
+    queryKey: ['channelCategories'],
+    queryFn: () => streamarrApi.getChannelCategories().then(res => res.data),
+  });
+
+  const categories = ['all', ...(categoriesData?.categories || [])];
 
   const filteredChannels = channels.filter((ch: Channel) =>
     ch.name.toLowerCase().includes(searchQuery.toLowerCase())
@@ -44,7 +56,17 @@ export default function LiveTV() {
     setCurrentPage(1);
   };
 
-  const categories = ['all', ...new Set(channels.map((ch: Channel) => ch.category).filter(Boolean))];
+  const handleChannelClick = (channelOrId: Channel | string) => {
+    if (typeof channelOrId === 'string') {
+      // Coming from TV Guide - find the channel by ID (compare as strings)
+      const channel = channels.find((ch: Channel) => String(ch.id) === channelOrId);
+      if (channel) {
+        setSelectedChannel(channel);
+      }
+    } else {
+      setSelectedChannel(channelOrId);
+    }
+  };
 
   // Group channels by category for display
   const channelsByCategory = useMemo(() => {
@@ -65,12 +87,12 @@ export default function LiveTV() {
     <div className="min-h-screen bg-[#141414] -m-6">
       {/* Hero Section */}
       <div className="relative h-[35vh] min-h-[250px] flex items-end pb-8 px-8">
-        <div className="absolute inset-0 bg-gradient-to-b from-red-900/30 via-[#141414]/50 to-[#141414]" />
+        <div className="absolute inset-0 bg-gradient-to-b from-purple-900/30 via-[#141414]/50 to-[#141414]" />
         <div className="absolute inset-0 bg-gradient-to-r from-[#141414] via-transparent to-[#141414]" />
         
         <div className="relative z-10 w-full">
           <div className="flex items-center gap-3 mb-4">
-            <div className="p-3 rounded-full bg-red-600">
+            <div className="p-3 rounded-full bg-purple-600">
               <Radio className="w-8 h-8 text-white" />
             </div>
             <div>
@@ -79,17 +101,17 @@ export default function LiveTV() {
                 {filteredChannels.length} channels available
                 <span className="ml-3 inline-flex items-center gap-1">
                   <span className="relative flex h-2 w-2">
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
-                    <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500"></span>
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-purple-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-purple-500"></span>
                   </span>
-                  <span className="text-red-500">{channels.filter((ch: Channel) => ch.active).length} Live</span>
+                  <span className="text-purple-400">{channels.filter((ch: Channel) => ch.active).length} Live</span>
                 </span>
               </p>
             </div>
           </div>
 
-          {/* Search and Filter */}
-          <div className="flex gap-4 max-w-3xl">
+          {/* Search, Filter, and View Toggle */}
+          <div className="flex gap-4 max-w-4xl">
             <div className="flex-1 relative">
               <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
               <input
@@ -117,15 +139,41 @@ export default function LiveTV() {
               </select>
               <Filter className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
             </div>
+
+            {/* View Mode Toggle */}
+            <div className="flex rounded-lg overflow-hidden border-2 border-transparent bg-[#333]">
+              <button
+                onClick={() => setViewMode('grid')}
+                className={`px-4 py-3 flex items-center gap-2 transition-colors ${
+                  viewMode === 'grid' 
+                    ? 'bg-purple-600 text-white' 
+                    : 'text-slate-400 hover:text-white hover:bg-white/10'
+                }`}
+              >
+                <Grid3X3 className="w-4 h-4" />
+                <span className="hidden sm:inline">Grid</span>
+              </button>
+              <button
+                onClick={() => setViewMode('guide')}
+                className={`px-4 py-3 flex items-center gap-2 transition-colors ${
+                  viewMode === 'guide' 
+                    ? 'bg-purple-600 text-white' 
+                    : 'text-slate-400 hover:text-white hover:bg-white/10'
+                }`}
+              >
+                <Calendar className="w-4 h-4" />
+                <span className="hidden sm:inline">Guide</span>
+              </button>
+            </div>
           </div>
         </div>
       </div>
 
-      {/* Channels Content */}
+      {/* Content */}
       <div className="px-8 pb-12">
         {isLoading ? (
           <div className="flex items-center justify-center py-20">
-            <Loader2 className="w-10 h-10 animate-spin text-red-600" />
+            <Loader2 className="w-10 h-10 animate-spin text-purple-600" />
           </div>
         ) : filteredChannels.length === 0 ? (
           <div className="text-center py-20">
@@ -137,14 +185,21 @@ export default function LiveTV() {
               {searchQuery ? 'Try a different search term' : 'Configure your IPTV sources in Settings'}
             </p>
           </div>
+        ) : viewMode === 'guide' ? (
+          /* TV Guide View */
+          <TVGuide 
+            category={selectedCategory} 
+            onChannelClick={handleChannelClick}
+          />
         ) : (
+          /* Grid View */
           <>
             {Object.entries(channelsByCategory).map(([category, categoryChannels]) => (
               <ChannelRow
                 key={category}
                 title={category}
                 channels={categoryChannels}
-                onChannelClick={setSelectedChannel}
+                onChannelClick={handleChannelClick}
               />
             ))}
 
@@ -237,14 +292,14 @@ function ChannelCard({ channel, onClick }: { channel: Channel; onClick: () => vo
         
         {/* Play overlay */}
         <div className="absolute inset-0 bg-black/60 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-          <div className="p-3 rounded-full bg-red-600">
+          <div className="p-3 rounded-full bg-purple-600">
             <Play className="w-6 h-6 text-white fill-white" />
           </div>
         </div>
 
         {/* Live indicator */}
         {channel.active && (
-          <div className="absolute top-2 right-2 flex items-center gap-1 px-2 py-0.5 bg-red-600 rounded text-xs font-bold text-white">
+          <div className="absolute top-2 right-2 flex items-center gap-1 px-2 py-0.5 bg-purple-600 rounded text-xs font-bold text-white">
             <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
             LIVE
           </div>
@@ -294,7 +349,7 @@ function ChannelModal({ channel, onClose }: { channel: Channel; onClose: () => v
           </button>
 
           {channel.active && (
-            <div className="absolute top-4 left-4 flex items-center gap-1 px-3 py-1 bg-red-600 rounded text-sm font-bold text-white">
+            <div className="absolute top-4 left-4 flex items-center gap-1 px-3 py-1 bg-purple-600 rounded text-sm font-bold text-white">
               <span className="w-2 h-2 rounded-full bg-white animate-pulse" />
               LIVE
             </div>
@@ -309,7 +364,7 @@ function ChannelModal({ channel, onClose }: { channel: Channel; onClose: () => v
           <div className="flex gap-3">
             <button
               onClick={handlePlay}
-              className="flex-1 flex items-center justify-center gap-2 px-6 py-3 bg-red-600 hover:bg-red-700 
+              className="flex-1 flex items-center justify-center gap-2 px-6 py-3 bg-purple-600 hover:bg-purple-700 
                          text-white font-bold rounded-lg transition-colors"
             >
               <Play className="w-5 h-5 fill-white" />

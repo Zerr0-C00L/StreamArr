@@ -281,7 +281,8 @@ func (cm *ChannelManager) LoadChannels() error {
 		if !source.Enabled {
 			continue
 		}
-		channels, err := cm.loadFromM3UURL(source.URL, source.Name)
+		fmt.Printf("[DEBUG] Loading %s with selected categories: %v (count: %d)\n", source.Name, source.SelectedCategories, len(source.SelectedCategories))
+		channels, err := cm.loadFromM3UURLWithCategories(source.URL, source.Name, source.SelectedCategories)
 		if err != nil {
 			fmt.Printf("Error loading channels from %s: %v\n", source.Name, err)
 			continue
@@ -315,30 +316,50 @@ func (cm *ChannelManager) LoadChannels() error {
 	}
 
 	// Smart duplicate merging - normalize channel names and keep best quality
+	// Only merge duplicates WITHIN THE SAME CATEGORY (not across categories)
 	cm.channels = make(map[string]*Channel)
 	channelsByNormalizedName := make(map[string]*Channel)
 
 	for _, ch := range allChannels {
-		normalizedName := normalizeChannelName(ch.Name)
+		// Include category in the deduplication key so same-named channels in different categories are kept
+		normalizedKey := ch.Category + "|" + normalizeChannelName(ch.Name)
 
-		existing, exists := channelsByNormalizedName[normalizedName]
+		existing, exists := channelsByNormalizedName[normalizedKey]
 		if !exists {
 			// First occurrence - add it
-			channelsByNormalizedName[normalizedName] = ch
+			channelsByNormalizedName[normalizedKey] = ch
 			cm.channels[ch.ID] = ch
 		} else {
-			// Duplicate found - keep the one with better data (logo, stream URL)
+			// Duplicate found within same category - keep the one with better data (logo, stream URL)
 			if shouldReplaceChannel(existing, ch) {
 				// Remove old channel
 				delete(cm.channels, existing.ID)
 				// Add new channel
-				channelsByNormalizedName[normalizedName] = ch
+				channelsByNormalizedName[normalizedKey] = ch
 				cm.channels[ch.ID] = ch
 			}
 		}
 	}
 
+	// Debug: Count channels per category
+	categoryCount := make(map[string]int)
+	for _, ch := range cm.channels {
+		categoryCount[ch.Category]++
+	}
 	fmt.Printf("Live TV: Loaded %d unique channels (merged from %d total)\n", len(cm.channels), len(allChannels))
+	fmt.Printf("[DEBUG] Channel count per category: %v\n", categoryCount)
+	
+	// Debug: Find which sources have uncategorized channels
+	uncategorizedBySource := make(map[string]int)
+	for _, ch := range cm.channels {
+		if ch.Category == "Uncategorized" {
+			uncategorizedBySource[ch.Source]++
+		}
+	}
+	if len(uncategorizedBySource) > 0 {
+		fmt.Printf("[DEBUG] Uncategorized channels by source: %v\n", uncategorizedBySource)
+	}
+	
 	return nil
 }
 
@@ -360,6 +381,591 @@ func normalizeChannelName(name string) string {
 	// Remove extra spaces
 	n = strings.Join(strings.Fields(n), " ")
 	return n
+}
+
+// categoryMapping maps various category names to normalized English categories
+var categoryMapping = map[string]string{
+	// Action
+	"action":        "Action",
+	"action sports": "Action",
+	"adventure":     "Action",
+
+	// Animation & Anime
+	"animation":              "Animation",
+	"animated":               "Animation",
+	"anime":                  "Animation",
+	"anime & gaming":         "Animation",
+	"anime & geek":           "Animation",
+	"animazione e bambini":   "Animation",
+	"anime & gaming, kids & family": "Animation",
+
+	// Comedy
+	"comedy":              "Comedy",
+	"comedia":             "Comedy",
+	"comédia":             "Comedy",
+	"comédie":             "Comedy",
+	"humor":               "Comedy",
+	"komedi":              "Comedy",
+	"komedie":             "Comedy",
+	"sitcom":              "Comedy",
+	"sitcoms":             "Comedy",
+	"sitcoms + comedy":    "Comedy",
+	"dark comedy":         "Comedy",
+	"comedy drama":        "Comedy",
+	"comedy live":         "Comedy",
+	"comedy, hit tv":      "Comedy",
+	"comedy live, entertainment live": "Comedy",
+
+	// Crime & Mystery
+	"crime":                "Crime & Mystery",
+	"crime drama":          "Crime & Mystery",
+	"crime files":          "Crime & Mystery",
+	"true crime":           "Crime & Mystery",
+	"policiacas":           "Crime & Mystery",
+	"crime & mystère":      "Crime & Mystery",
+	"crimen y misterio":    "Crime & Mystery",
+	"investigación":        "Crime & Mystery",
+	"investigação":         "Crime & Mystery",
+	"mystery":              "Crime & Mystery",
+	"serie crime":          "Crime & Mystery",
+	"séries policières":    "Crime & Mystery",
+	"true crime, drama tv": "Crime & Mystery",
+	"true crime, en español": "Crime & Mystery",
+
+	// Documentary
+	"documentary":          "Documentary",
+	"documentaries":        "Documentary",
+	"documentaire":         "Documentary",
+	"documentales":         "Documentary",
+	"documentari":          "Documentary",
+	"dokumentarer":         "Documentary",
+	"dokumentärer":         "Documentary",
+	"dokus + wissen":       "Documentary",
+	"documentary + science": "Documentary",
+	"biography":            "Documentary",
+
+	// Drama
+	"drama":           "Drama",
+	"drama tv":        "Drama",
+	"bingeable drama": "Drama",
+	"tv dramas":       "Drama",
+	"novelas":         "Drama",
+	"séries":          "Drama",
+	"serie":           "Drama",
+	"serie classiche": "Drama",
+	"serien-marathon": "Drama",
+	"hit tv":          "Drama",
+	"hit tv, drama tv": "Drama",
+	"hit tv, reality": "Drama",
+
+	// Entertainment
+	"entertainment":      "Entertainment",
+	"divertissement":     "Entertainment",
+	"entretenimiento":    "Entertainment",
+	"intrattenimento":    "Entertainment",
+	"pop culture":        "Entertainment",
+	"entertainment live": "Entertainment",
+	"talkshow":           "Entertainment",
+	"daytime & talk shows": "Entertainment",
+	"daytime tv":         "Entertainment",
+	"emissions cultes":   "Entertainment",
+	"auction":            "Entertainment",
+
+	// Food & Lifestyle
+	"food":                "Food & Lifestyle",
+	"food & home":         "Food & Lifestyle",
+	"cooking":             "Food & Lifestyle",
+	"lifestyle":           "Food & Lifestyle",
+	"home improvement":    "Food & Lifestyle",
+	"living":              "Food & Lifestyle",
+	"good eats":           "Food & Lifestyle",
+	"estilo de vida":      "Food & Lifestyle",
+	"home + food":         "Food & Lifestyle",
+	"house/garden":        "Food & Lifestyle",
+	"mad & livsstil":      "Food & Lifestyle",
+	"mat & livsstil":      "Food & Lifestyle",
+	"food & home, lifestyle": "Food & Lifestyle",
+	"food and fitness live": "Food & Lifestyle",
+	"lifestyle, en español": "Food & Lifestyle",
+
+	// Horror & Paranormal
+	"horror":              "Horror & Paranormal",
+	"horror & paranormal": "Horror & Paranormal",
+	"paranormal":          "Horror & Paranormal",
+	"chills & thrills":    "Horror & Paranormal",
+	"terror":              "Horror & Paranormal",
+	"house of horror":     "Horror & Paranormal",
+	"horror e paranormale": "Horror & Paranormal",
+	"zona paranormal":     "Horror & Paranormal",
+	"overnaturlig":        "Horror & Paranormal",
+	"övernaturligt":       "Horror & Paranormal",
+	"mistérios e sobrenatural": "Horror & Paranormal",
+	"chills & thrills, sci-fi & action": "Horror & Paranormal",
+
+	// Kids & Family
+	"kids":            "Kids & Family",
+	"kids & family":   "Kids & Family",
+	"infantil":        "Kids & Family",
+	"barn":            "Kids & Family",
+	"for barn":        "Kids & Family",
+	"for børn":        "Kids & Family",
+	"children-music":  "Kids & Family",
+	"nickelodeon":     "Kids & Family",
+	"kids en français": "Kids & Family",
+	"kids & family, anime & gaming": "Kids & Family",
+	"kids & family, en español": "Kids & Family",
+	"teen":            "Kids & Family",
+
+	// Movies
+	"cine":             "Movies",
+	"cinéma":           "Movies",
+	"películas":        "Movies",
+	"westerns":         "Movies",
+	"western":          "Movies",
+	"explosão de cinema": "Movies",
+	"romance":          "Movies",
+	"à binge-watch":    "Movies",
+
+	// Music
+	"music":        "Music",
+	"música":       "Music",
+	"musica":       "Music",
+	"musik":        "Music",
+	"musikk":       "Music",
+	"musique":      "Music",
+	"music videos": "Music",
+	"mtv":          "Music",
+	"music live":   "Music",
+	"music talk":   "Music",
+	"music, en español": "Music",
+	"music live, entertainment live": "Music",
+	"det bedste fra mtv": "Music",
+	"det beste fra mtv": "Music",
+	"det bästa från mtv": "Music",
+	"mtv en pluto tv": "Music",
+
+	// News
+	"news":           "News",
+	"noticias":       "News",
+	"notícias":       "News",
+	"nachrichten":    "News",
+	"nyheter":        "News",
+	"local news":     "News",
+	"national news":  "News",
+	"global news":    "News",
+	"business news":  "News",
+	"news + opinion": "News",
+	"news e mondo":   "News",
+	"news, en español": "News",
+	"news, hit tv":   "News",
+	"news flash live": "News",
+	"news flash live, entertainment live": "News",
+	"news flash live, finance and business": "News",
+	"news flash live, stirr cities": "News",
+	"news flash live, sports live": "News",
+	"weather":        "News",
+	"finance and business": "News",
+	"bus./financial": "News",
+
+	// Reality
+	"reality":              "Reality",
+	"reality show":         "Reality",
+	"tv réalité":           "Reality",
+	"realityserier":        "Reality",
+	"competition reality":  "Reality",
+	"competencia":          "Reality",
+	"real life adventure":  "Reality",
+	"dansk reality & underholdning": "Reality",
+	"norsk reality og underholdning": "Reality",
+	"svensk reality och underhållning": "Reality",
+	"paradise hotel":       "Reality",
+	"reality, en español":  "Reality",
+	"reality, food & home": "Reality",
+	"history & science, reality": "Reality",
+
+	// Sci-Fi & Fantasy
+	"sci-fi":              "Sci-Fi & Fantasy",
+	"sci-fi & fantasy":    "Sci-Fi & Fantasy",
+	"sci-fi & action":     "Sci-Fi & Fantasy",
+	"sci-fi & supernatural": "Sci-Fi & Fantasy",
+	"science fiction":     "Sci-Fi & Fantasy",
+	"star trek":           "Sci-Fi & Fantasy",
+	"ciencia ficción":     "Sci-Fi & Fantasy",
+
+	// Sports
+	"sports":          "Sports",
+	"sport":           "Sports",
+	"deportes":        "Sports",
+	"esportes":        "Sports",
+	"live sports":     "Sports",
+	"sports live":     "Sports",
+	"sports on now":   "Sports",
+	"baseball":        "Sports",
+	"basketball":      "Sports",
+	"football":        "Sports",
+	"soccer":          "Sports",
+	"golf":            "Sports",
+	"boxing":          "Sports",
+	"billiards":       "Sports",
+	"fishing":         "Sports",
+	"hunting":         "Sports",
+	"olympics":        "Sports",
+	"bullfighting":    "Sports",
+	"sports & auto":   "Sports",
+	"auto":            "Sports",
+	"motori e sport":  "Sports",
+	"deportes y gaming": "Sports",
+	"sports, en español": "Sports",
+	"sports live, entertainment live": "Sports",
+
+	// Classic TV
+	"classic tv":         "Classic TV",
+	"classic tv comedy":  "Classic TV",
+	"retro":              "Classic TV",
+	"retrô":              "Classic TV",
+	"klassiske tv-serier": "Classic TV",
+	"gamla godingar":     "Classic TV",
+	"gamle godbiter":     "Classic TV",
+	"classic tv, hit tv": "Classic TV",
+
+	// Game Shows
+	"game shows":          "Game Shows",
+	"game show":           "Game Shows",
+	"daytime + game shows": "Game Shows",
+	"games & competition": "Game Shows",
+	"hit tv, game shows":  "Game Shows",
+
+	// Nature & Science
+	"nature":           "Nature & Science",
+	"nature & travel":  "Nature & Science",
+	"animals":          "Nature & Science",
+	"animals + nature": "Nature & Science",
+	"science & nature": "Nature & Science",
+	"history & science": "Nature & Science",
+	"history + science": "Nature & Science",
+	"environment":      "Nature & Science",
+	"natureza":         "Nature & Science",
+	"history":          "Nature & Science",
+
+	// Spanish Content
+	"en español":         "En Español",
+	"español":            "En Español",
+	"hit tv, en español": "En Español",
+
+	// Holiday/Seasonal
+	"season's greetings":   "Holiday",
+	"merry christmas!":     "Holiday",
+	"epische weihnachten":  "Holiday",
+	"natale":               "Holiday",
+	"jul på pluto tv":      "Holiday",
+	"¡feliz navidad!":      "Holiday",
+	"¡fiestas con todo!":   "Holiday",
+	"boas festas coca-cola": "Holiday",
+
+	// Faith
+	"faith": "Faith & Family",
+
+	// International/Regional
+	"100% français":     "International",
+	"international":     "International",
+	"tv brasileira":     "International",
+
+	// Gaming
+	"gaming":   "Gaming",
+	"computers": "Gaming",
+
+	// Art & Culture
+	"art": "Arts & Culture",
+
+	// Shopping
+	"shopping":      "Shopping",
+	"shopping live": "Shopping",
+
+	// Platform-specific (map to relevant category)
+	"new on pluto tv":       "Entertainment",
+	"nuevo en pluto tv":     "Entertainment",
+	"nouveau sur pluto tv":  "Entertainment",
+	"nyt på pluto tv":       "Entertainment",
+	"nytt på pluto tv":      "Entertainment",
+	"how to use pluto tv":   "Entertainment",
+	"paramount+ apresenta":  "Entertainment",
+	"paramount+ presenta":   "Entertainment",
+	"curiosidad":            "Entertainment",
+	"curiosidades":          "Entertainment",
+	"south park":            "Comedy",
+	"black entertainment":   "Entertainment",
+	"sinnliche fantasien":   "Entertainment",
+	"law":                   "Crime & Mystery",
+	"health":                "Food & Lifestyle",
+	"special":               "Entertainment",
+	"other":                 "Entertainment",
+}
+
+// NormalizeCategory maps a category to a normalized English category
+func NormalizeCategory(category string) string {
+	if category == "" {
+		return "Uncategorized"
+	}
+	
+	// Try exact match (case-insensitive)
+	lowerCat := strings.ToLower(strings.TrimSpace(category))
+	if normalized, ok := categoryMapping[lowerCat]; ok {
+		return normalized
+	}
+	
+	// Try partial match for compound categories
+	for key, value := range categoryMapping {
+		if strings.Contains(lowerCat, key) {
+			return value
+		}
+	}
+	
+	// Return original if no mapping found
+	return category
+}
+
+// SmartCategorizeChannel uses AI-like keyword matching to categorize a channel by its name
+// This is used for channels that have no category from the M3U source
+func SmartCategorizeChannel(channelName string) string {
+	name := strings.ToLower(channelName)
+	
+	// News channels - check first as they're common
+	newsKeywords := []string{"news", "cnn", "msnbc", "bbc", "cnbc", "bloomberg", "c-span", "cspan",
+		"sky news", "al jazeera", "abc news", "cbs news", "nbc news", "newsmax", "oan", "fox news",
+		"headline", "euronews", "n1", "reuters", "ap news", "world news", "breaking", "inter 24/7",
+		"france 24", "dateline", "actualidad", "info", "cnñ", "xpress"}
+	for _, kw := range newsKeywords {
+		if strings.Contains(name, kw) {
+			return "News"
+		}
+	}
+	
+	// Weather
+	if strings.Contains(name, "weather") || strings.Contains(name, "accuweather") || strings.Contains(name, "météo") {
+		return "News"
+	}
+	
+	// Sports channels
+	sportsKeywords := []string{"sport", "espn", "nfl", "nba", "mlb", "nhl", "golf", "tennis",
+		"bein", "dazn", "soccer", "football", "baseball", "basketball", "hockey", "cricket",
+		"wwe", "ufc", "boxing", "racing", "f1", "formula", "nascar", "motogp", "olympic",
+		"athletic", "arena", "supersport", "eurosport", "pga", "fifa", "mlb", "nascar",
+		"red bull", "x games", "outdoor", "hunting", "fishing", "stadium", "poker", "racer",
+		"triton poker", "fight club", "dfb", "lucha", "bassmaster", "extreme jobs", "deportes"}
+	for _, kw := range sportsKeywords {
+		if strings.Contains(name, kw) {
+			return "Sports"
+		}
+	}
+	
+	// Kids & Family channels
+	kidsKeywords := []string{"disney", "nick", "nickelodeon", "cartoon", "boomerang", "pbs kids",
+		"baby", "junior", "kids", "children", "sesame", "sprout", "universal kids", "kidz",
+		"toon", "animaniacs", "lego", "pokemon", "dora", "spongebob", "paw patrol", "wiggles",
+		"barney", "my little pony", "garfield", "shaun the sheep", "arthur", "nastya",
+		"pink panther", "barbie", "hasbro", "mattel", "dragons", "that girl", "polly pocket",
+		"mrbeast", "pocket.watch", "ryan and friends", "addams family", "teens"}
+	for _, kw := range kidsKeywords {
+		if strings.Contains(name, kw) {
+			return "Kids & Family"
+		}
+	}
+	
+	// Music channels
+	musicKeywords := []string{"mtv", "vh1", "vevo", "music", "hit", "radio", "fm ", "concert",
+		"hip hop", "rock", "jazz", "country", "cmt", "bet ", "soul", "r&b", "pop", "classic rock",
+		"80s", "90s", "70s", "fuse", "revolt", "trace", "xite", "dance moms", "dance"}
+	for _, kw := range musicKeywords {
+		if strings.Contains(name, kw) {
+			return "Music"
+		}
+	}
+	
+	// Movies channels
+	movieKeywords := []string{"movie", "cinema", "film", "hbo", "cinemax", "showtime", "starz",
+		"epix", "mgm", "tcm", "amc", "ifc", "sundance", "hallmark", "lifetime movie",
+		"fx movie", "sony movie", "thriller", "action movie", "western", "cine", "trailers",
+		"allociné", "allocine", "runtime", "pelimex", "hollywood", "wonderful life", "cindie",
+		"box office", "acorn"}
+	for _, kw := range movieKeywords {
+		if strings.Contains(name, kw) {
+			return "Movies"
+		}
+	}
+	
+	// Documentary/Nature/Science
+	docKeywords := []string{"discovery", "national geographic", "nat geo", "history", "science",
+		"animal planet", "smithsonian", "pbs", "nature", "planet earth", "wild", "ocean",
+		"space", "cosmos", "universe", "world", "geo", "documentary", "vice", "curiosity",
+		"mayday", "air disaster", "catastrophe", "bondi vet", "timber kings", "life down under",
+		"historia", "echos du monde", "cosmic", "frontiers", "ax men", "modern marvels",
+		"expedientes", "evidence of evil", "ctv gets real", "big stories"}
+	for _, kw := range docKeywords {
+		if strings.Contains(name, kw) {
+			return "Nature & Science"
+		}
+	}
+	
+	// Crime & Mystery
+	crimeKeywords := []string{"crime", "mystery", "detective", "investigation", "true crime",
+		"law & order", "csi", "ncis", "forensic", "court", "justice", "fbi", "cia", "police",
+		"midsomer", "first 48", "mi-5", "relic hunter", "outlaw", "lawless", "murdoch",
+		"blacklist", "caso cerrado", "love after lockup", "chaos on cam", "mysteries",
+		"shades of black", "sobrenaturales"}
+	for _, kw := range crimeKeywords {
+		if strings.Contains(name, kw) {
+			return "Crime & Mystery"
+		}
+	}
+	
+	// Comedy
+	comedyKeywords := []string{"comedy", "funny", "laugh", "sitcom", "stand up", "comic",
+		"snl", "saturday night", "conan", "late night", "daily show", "colbert", "graham norton",
+		"green acres", "weeds", "nurse jackie", "comédie", "wendy williams", "les débatteurs",
+		"les filles", "ça c'est drôle", "kim's convenience", "bizaar"}
+	for _, kw := range comedyKeywords {
+		if strings.Contains(name, kw) {
+			return "Comedy"
+		}
+	}
+	
+	// Food & Lifestyle
+	foodKeywords := []string{"food", "cook", "kitchen", "chef", "recipe", "hgtv", "home",
+		"garden", "diy", "lifestyle", "travel", "tlc", "bravo", "e!", "magnolia",
+		"renovation", "design", "property", "house", "taste", "bon appetit", "viajes",
+		"sabores", "voyages", "saveurs", "voyage", "mueble", "come dine", "hotel inspector",
+		"inside outside", "epicurieux", "platos", "bodas"}
+	for _, kw := range foodKeywords {
+		if strings.Contains(name, kw) {
+			return "Food & Lifestyle"
+		}
+	}
+	
+	// Reality TV
+	realityKeywords := []string{"reality", "real housewives", "survivor", "big brother",
+		"bachelor", "bachelorette", "love island", "jersey shore", "kardashian", "pawn",
+		"storage", "auction", "swap", "makeover", "idol", "voice", "talent", "x factor",
+		"shark tank", "little women", "vidas extremas", "dude perfect", "the doctors",
+		"geraldo", "bold and the beautiful", "pasión", "passion", "duck dynasty",
+		"dragons' den", "gata salvaje", "amor", "piel salvaje", "we tv", "osbournes",
+		"preston & brianna", "tvone"}
+	for _, kw := range realityKeywords {
+		if strings.Contains(name, kw) {
+			return "Reality"
+		}
+	}
+	
+	// Horror & Paranormal
+	horrorKeywords := []string{"horror", "scary", "fear", "terror", "paranormal", "ghost",
+		"haunted", "supernatural", "zombie", "vampire", "monster", "scream", "chiller", "monstruos",
+		"hantise", "haunting"}
+	for _, kw := range horrorKeywords {
+		if strings.Contains(name, kw) {
+			return "Horror & Paranormal"
+		}
+	}
+	
+	// Sci-Fi & Fantasy
+	scifiKeywords := []string{"sci-fi", "scifi", "science fiction", "star trek", "star wars",
+		"fantasy", "syfy", "doctor who", "alien", "galaxy", "futuristic", "outer limits",
+		"the outpost", "cirque du soleil"}
+	for _, kw := range scifiKeywords {
+		if strings.Contains(name, kw) {
+			return "Sci-Fi & Fantasy"
+		}
+	}
+	
+	// Animation/Anime
+	animeKeywords := []string{"anime", "animation", "animated", "toonami", "crunchyroll",
+		"funimation", "manga", "cartoon network", "adult swim"}
+	for _, kw := range animeKeywords {
+		if strings.Contains(name, kw) {
+			return "Animation"
+		}
+	}
+	
+	// Game Shows
+	gameShowKeywords := []string{"game show", "gameshow", "wheel of fortune", "jeopardy",
+		"price is right", "deal or no deal", "family feud", "who wants", "quiz", "trivia",
+		"pointless", "game & fish", "game-on"}
+	for _, kw := range gameShowKeywords {
+		if strings.Contains(name, kw) {
+			return "Game Shows"
+		}
+	}
+	
+	// Classic TV
+	classicKeywords := []string{"classic", "retro", "vintage", "golden", "nostalgia", "old school",
+		"tv land", "antenna", "me tv", "metv", "decades", "buzzr", "legends", "bonanza",
+		"alerte à malibu"}
+	for _, kw := range classicKeywords {
+		if strings.Contains(name, kw) {
+			return "Classic TV"
+		}
+	}
+	
+	// Spanish/Latino/French/International content
+	internationalKeywords := []string{"español", "espanol", "spanish", "latino", "latina", "telemundo",
+		"univision", "azteca", "televisa", "galavision", "unimas", "novela", "mexic", 
+		"teleonce", "asesinatos", "soleil", "éxitos", "séries", "favoris", "tv5monde",
+		"noovo", "canela", "zee mundo", "amasian", "hong kong", "wedotv", "atres",
+		"aventura", "plus", "365blk", "emoción", "comercio", "merli", "xataka", "latinx",
+		"revry", "itv", "black effect", "stars & stories", "wedo"}
+	for _, kw := range internationalKeywords {
+		if strings.Contains(name, kw) {
+			return "International"
+		}
+	}
+	
+	// Holiday/Christmas
+	holidayKeywords := []string{"christmas", "holiday", "xmas", "santa", "halloween", "easter",
+		"thanksgiving", "valentine", "new year"}
+	for _, kw := range holidayKeywords {
+		if strings.Contains(name, kw) {
+			return "Holiday"
+		}
+	}
+	
+	// Faith & Family
+	faithKeywords := []string{"faith", "church", "gospel", "christian", "religious", "god",
+		"jesus", "prayer", "worship", "trinity", "daystar", "tbn", "catholic", "bible",
+		"inspirational", "uplift"}
+	for _, kw := range faithKeywords {
+		if strings.Contains(name, kw) {
+			return "Faith & Family"
+		}
+	}
+	
+	// Shopping
+	shoppingKeywords := []string{"shop", "qvc", "hsn", "shopping", "jewelry", "buy", "deal"}
+	for _, kw := range shoppingKeywords {
+		if strings.Contains(name, kw) {
+			return "Shopping"
+		}
+	}
+	
+	// Drama (general) - specific shows
+	dramaKeywords := []string{"drama", "soap", "series", "primetime", "rookie blue", "the outpost"}
+	for _, kw := range dramaKeywords {
+		if strings.Contains(name, kw) {
+			return "Drama"
+		}
+	}
+	
+	// Entertainment (broad catch-all for networks)
+	entertainmentKeywords := []string{"abc", "nbc", "cbs", "fox", "cw", "tbs", "tnt", "usa",
+		"freeform", "paramount", "ion", "bounce", "grit", "comet", "charge",
+		"pluto", "tubi", "roku", "plex", "stirr", "xumo", "live", "channel",
+		"network", "broadcast", "stream", "sony one", "stars central", "cut ", "wineman",
+		"9 story", "america", "fast", "play", "combatv", "rio", "mgg", "billies"}
+	for _, kw := range entertainmentKeywords {
+		if strings.Contains(name, kw) {
+			return "Entertainment"
+		}
+	}
+	
+	// Still uncategorized
+	return "Uncategorized"
 }
 
 // shouldReplaceChannel determines if new channel should replace existing
@@ -395,8 +1001,63 @@ func (cm *ChannelManager) loadFromXtreamSource(source XtreamSource) ([]*Channel,
 	return cm.loadFromM3UURL(m3uURL, fmt.Sprintf("Xtream: %s", source.Name))
 }
 
+// ExtractEPGURLFromM3U extracts the url-tvg attribute from M3U content header
+func ExtractEPGURLFromM3U(content string) string {
+	// Look for url-tvg in the first line (#EXTM3U)
+	lines := strings.SplitN(content, "\n", 2)
+	if len(lines) == 0 {
+		return ""
+	}
+	
+	firstLine := lines[0]
+	if !strings.HasPrefix(firstLine, "#EXTM3U") {
+		return ""
+	}
+	
+	// Extract url-tvg="..."
+	if idx := strings.Index(firstLine, "url-tvg=\""); idx != -1 {
+		start := idx + 9 // len("url-tvg=\"")
+		end := strings.Index(firstLine[start:], "\"")
+		if end != -1 {
+			return firstLine[start : start+end]
+		}
+	}
+	
+	return ""
+}
+
+// FetchAndExtractEPGURL fetches an M3U URL and extracts the EPG URL from it
+func FetchAndExtractEPGURL(url string) string {
+	client := &http.Client{Timeout: 30 * time.Second}
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return ""
+	}
+	req.Header.Set("User-Agent", "Mozilla/5.0")
+	
+	resp, err := client.Do(req)
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+	
+	// Only read the first 1KB to get the header
+	buf := make([]byte, 1024)
+	n, _ := resp.Body.Read(buf)
+	if n == 0 {
+		return ""
+	}
+	
+	return ExtractEPGURLFromM3U(string(buf[:n]))
+}
+
 // loadFromM3UURL loads channels from a remote M3U URL
 func (cm *ChannelManager) loadFromM3UURL(url string, sourceName string) ([]*Channel, error) {
+	return cm.loadFromM3UURLWithCategories(url, sourceName, nil)
+}
+
+// loadFromM3UURLWithCategories loads channels from a remote M3U URL with category filtering
+func (cm *ChannelManager) loadFromM3UURLWithCategories(url string, sourceName string, selectedCategories []string) ([]*Channel, error) {
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return nil, err
@@ -414,15 +1075,22 @@ func (cm *ChannelManager) loadFromM3UURL(url string, sourceName string) ([]*Chan
 		return nil, err
 	}
 	
-	return cm.parseM3U(string(body), sourceName)
+	return cm.parseM3UWithCategories(string(body), sourceName, selectedCategories)
 }
 
 // Third-party IPTV loader removed
 
 // parseM3U parses M3U content and returns channels
 func (cm *ChannelManager) parseM3U(content string, sourceName string) ([]*Channel, error) {
+	return cm.parseM3UWithCategories(content, sourceName, nil)
+}
+
+// parseM3UWithCategories parses M3U content and returns channels, filtering by selected categories
+func (cm *ChannelManager) parseM3UWithCategories(content string, sourceName string, selectedCategories []string) ([]*Channel, error) {
 	channels := make([]*Channel, 0)
 	scanner := bufio.NewScanner(strings.NewReader(content))
+	
+	fmt.Printf("[DEBUG] parseM3UWithCategories: sourceName=%s, selectedCategories=%v, count=%d\n", sourceName, selectedCategories, len(selectedCategories))
 	
 	var currentChannel *Channel
 	var currentIsVOD bool
@@ -470,8 +1138,13 @@ func (cm *ChannelManager) parseM3U(content string, sourceName string) ([]*Channe
 				}
 			}
 			
-			// We ignore the provider's group-title and use smart category mapping instead
-			// The category will be set based on channel name after parsing
+			// Extract group-title as category
+			if idx := strings.Index(line, "group-title=\""); idx != -1 {
+				end := strings.Index(line[idx+13:], "\"")
+				if end != -1 {
+					currentChannel.Category = line[idx+13 : idx+13+end]
+				}
+			}
 			
 			// Extract tvg-id
 			if idx := strings.Index(line, "tvg-id=\""); idx != -1 {
@@ -503,9 +1176,39 @@ func (cm *ChannelManager) parseM3U(content string, sourceName string) ([]*Channe
 			shouldInclude := !currentIsVOD && !isVODURL
 			if shouldInclude {
 				if currentChannel.Name != "" {
-					// Set category based on channel name (smart mapping)
-					currentChannel.Category = mapChannelToCategory(currentChannel.Name)
-					channels = append(channels, currentChannel)
+					// Use category from M3U group-title, fallback to "Uncategorized" if not set
+					if currentChannel.Category == "" {
+						currentChannel.Category = "Uncategorized"
+					}
+					
+					// Store original category for filtering, then normalize for display
+					originalCategory := currentChannel.Category
+					currentChannel.Category = NormalizeCategory(currentChannel.Category)
+					
+					// If still uncategorized, try smart categorization based on channel name
+					if currentChannel.Category == "Uncategorized" {
+						smartCategory := SmartCategorizeChannel(currentChannel.Name)
+						if smartCategory != "Uncategorized" {
+							currentChannel.Category = smartCategory
+						}
+					}
+					
+					// Filter by selected categories if specified (match against original OR normalized)
+					if len(selectedCategories) > 0 {
+						categoryMatches := false
+						for _, selectedCat := range selectedCategories {
+							if strings.EqualFold(originalCategory, selectedCat) || strings.EqualFold(currentChannel.Category, selectedCat) {
+								categoryMatches = true
+								break
+							}
+						}
+						if categoryMatches {
+							channels = append(channels, currentChannel)
+						}
+					} else {
+						// No filter - include all channels
+						channels = append(channels, currentChannel)
+					}
 				}
 			}
 			currentChannel = nil
@@ -558,6 +1261,8 @@ func (cm *ChannelManager) parseM3UWithProviders(content string) ([]*Channel, err
 			
 			// Map group-title to provider name
 			currentChannel.Source = extractProviderName(currentGroupTitle)
+			// Use group-title as category
+			currentChannel.Category = currentGroupTitle
 
 			// Detect VOD via group-title
 			currentIsVOD = false
@@ -610,8 +1315,21 @@ func (cm *ChannelManager) parseM3UWithProviders(content string) ([]*Channel, err
 			isVODURL := strings.Contains(strings.ToLower(line), "/movie/") || strings.Contains(strings.ToLower(line), "/series/") || strings.HasSuffix(strings.ToLower(line), ".mp4") || strings.HasSuffix(strings.ToLower(line), ".mkv")
 			if !currentIsVOD && !isVODURL {
 				if currentChannel.Name != "" {
-					// Set category based on channel name (smart mapping)
-					currentChannel.Category = mapChannelToCategory(currentChannel.Name)
+					// Use category from M3U group-title, fallback to "Uncategorized" if not set
+					if currentChannel.Category == "" {
+						currentChannel.Category = "Uncategorized"
+					}
+					// Normalize category
+					currentChannel.Category = NormalizeCategory(currentChannel.Category)
+					
+					// If still uncategorized, try smart categorization based on channel name
+					if currentChannel.Category == "Uncategorized" {
+						smartCategory := SmartCategorizeChannel(currentChannel.Name)
+						if smartCategory != "Uncategorized" {
+							currentChannel.Category = smartCategory
+						}
+					}
+					
 					channels = append(channels, currentChannel)
 				}
 			}

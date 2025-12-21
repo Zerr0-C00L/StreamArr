@@ -171,6 +171,13 @@ export default function Settings() {
   const [saving, setSaving] = useState(false);
   
   // Dropdown option sets
+  // Set default for enable_release_filters to true if not set
+  useEffect(() => {
+    if (settings && settings.enable_release_filters === undefined) {
+      autoSaveSetting('enable_release_filters', true);
+    }
+  }, [settings]);
+
   const languageOptions = [
     'english', 'russian', 'italian', 'spanish', 'german', 'french', 'hindi', 'turkish', 'portuguese',
     'polish', 'dutch', 'thai', 'vietnamese', 'indonesian', 'arabic', 'chinese', 'korean', 'japanese'
@@ -422,9 +429,33 @@ export default function Settings() {
     }
   };
 
-  const updateSetting = (key: keyof SettingsData, value: any) => {
+  // Auto-save on every setting change
+  const autoSaveSetting = (key: keyof SettingsData, value: any) => {
     if (!settings) return;
-    setSettings({ ...settings, [key]: value });
+    const next = { ...settings, [key]: value };
+    setSettings(next);
+    const settingsToSave = {
+      ...next,
+      mdblist_lists: JSON.stringify(mdbLists),
+      m3u_sources: m3uSources,
+      xtream_sources: xtreamSources,
+      livetv_enabled_sources: Array.from(enabledSources),
+      livetv_enabled_categories: Array.from(enabledCategories),
+    };
+    api.put('/settings', settingsToSave)
+      .then(() => {
+        setMessage('✅ Setting saved');
+        setTimeout(() => setMessage(''), 1500);
+      })
+      .catch((error: any) => {
+        setMessage(`❌ Error saving: ${error.response?.data?.error || error.message}`);
+        setTimeout(() => setMessage(''), 3000);
+      });
+  };
+
+  // Update setting and auto-save
+  const updateSetting = (key: keyof SettingsData, value: any) => {
+    autoSaveSetting(key, value);
   };
 
   const saveSettingsImmediate = async (patch: Partial<SettingsData>) => {
@@ -815,9 +846,11 @@ export default function Settings() {
       newSource.epg_url = newM3uEpg.trim();
     }
     
+    console.log('[DEBUG] newM3uCategories:', newM3uCategories);
     if (newM3uCategories.length > 0) {
       newSource.selected_categories = newM3uCategories;
     }
+    console.log('[DEBUG] newSource:', newSource);
     
     setM3uSources([...m3uSources, newSource]);
     setNewM3uName('');
@@ -1977,24 +2010,6 @@ export default function Settings() {
                 <h3 className="text-lg font-semibold text-white mb-4">↕️ Sorting</h3>
                 <p className="text-sm text-slate-400 mb-4">Configure how streams are sorted and which one is selected for playback.</p>
                 <div className="space-y-4">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <label className="block text-sm font-medium text-slate-300">Enable Release Filters</label>
-                      <p className="text-xs text-slate-500">Apply the filter patterns above when selecting streams</p>
-                    </div>
-                    <button
-                      onClick={() => updateSetting('enable_release_filters', !settings?.enable_release_filters)}
-                      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                        settings?.enable_release_filters ? 'bg-green-600' : 'bg-gray-600'
-                      }`}
-                    >
-                      <span
-                        className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                          settings?.enable_release_filters ? 'translate-x-6' : 'translate-x-1'
-                        }`}
-                      />
-                    </button>
-                  </div>
 
                   <div>
                     <label className="block text-sm font-medium text-slate-300 mb-2">

@@ -67,12 +67,15 @@ func (s *MDBListSyncService) SyncAllLists(ctx context.Context) error {
 	}
 
 	log.Printf("📋 Syncing %d MDBList lists...", len(enabledLists))
+	GlobalScheduler.UpdateProgress(ServiceMDBListSync, 0, len(enabledLists), "Starting MDBList sync...")
 
 	totalMovies := 0
 	totalSeries := 0
 
-	for _, listConfig := range enabledLists {
+	for listIdx, listConfig := range enabledLists {
 		log.Printf("  → Fetching: %s", listConfig.Name)
+		GlobalScheduler.UpdateProgress(ServiceMDBListSync, listIdx, len(enabledLists), 
+			fmt.Sprintf("Fetching: %s", listConfig.Name))
 
 		// Parse username and slug from URL
 		username, slug := parseListURL(listConfig.URL)
@@ -89,10 +92,17 @@ func (s *MDBListSyncService) SyncAllLists(ctx context.Context) error {
 		}
 
 		log.Printf("    📊 Found %d movies, %d series", len(result.Movies), len(result.Series))
+		
+		totalItems := len(result.Movies) + len(result.Series)
+		processedItems := 0
 
 		// Import movies
 		moviesAdded := 0
 		for _, item := range result.Movies {
+			processedItems++
+			GlobalScheduler.UpdateProgress(ServiceMDBListSync, listIdx, len(enabledLists), 
+				fmt.Sprintf("%s: Importing %s (%d/%d)", listConfig.Name, item.Title, processedItems, totalItems))
+			
 			if err := s.importMovie(ctx, item, listConfig.Name); err != nil {
 				// Silently skip duplicates
 				if !strings.Contains(err.Error(), "already exists") && !strings.Contains(err.Error(), "duplicate") {
@@ -107,6 +117,10 @@ func (s *MDBListSyncService) SyncAllLists(ctx context.Context) error {
 		// Import series
 		seriesAdded := 0
 		for _, item := range result.Series {
+			processedItems++
+			GlobalScheduler.UpdateProgress(ServiceMDBListSync, listIdx, len(enabledLists), 
+				fmt.Sprintf("%s: Importing %s (%d/%d)", listConfig.Name, item.Title, processedItems, totalItems))
+			
 			if err := s.importSeries(ctx, item, listConfig.Name); err != nil {
 				// Silently skip duplicates
 				if !strings.Contains(err.Error(), "already exists") && !strings.Contains(err.Error(), "duplicate") {
@@ -117,6 +131,9 @@ func (s *MDBListSyncService) SyncAllLists(ctx context.Context) error {
 			}
 		}
 		totalSeries += seriesAdded
+		
+		GlobalScheduler.UpdateProgress(ServiceMDBListSync, listIdx+1, len(enabledLists), 
+			fmt.Sprintf("Completed: %s (+%d movies, +%d series)", listConfig.Name, moviesAdded, seriesAdded))
 
 		log.Printf("    ✅ Added %d movies, %d series", moviesAdded, seriesAdded)
 	}

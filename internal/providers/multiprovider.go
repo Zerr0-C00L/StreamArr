@@ -45,6 +45,9 @@ type MultiProvider struct {
 	Providers        []StreamProvider
 	ProviderNames    []string
 	dmmDirectProvider *DMMDirectProvider // Direct DMM queries
+	// Settings getters for dynamic configuration
+	getSortOrder     func() string
+	getSortPrefer    func() string
 }
 
 // Removed Zilean-related code: provider and config
@@ -96,6 +99,12 @@ func NewMultiProviderWithConfig(rdAPIKey string, addons []StremioAddon, tmdbClie
 	}
 	
 	return mp
+}
+
+// SetSortSettings configures the sorting behavior dynamically
+func (mp *MultiProvider) SetSortSettings(getSortOrder, getSortPrefer func() string) {
+	mp.getSortOrder = getSortOrder
+	mp.getSortPrefer = getSortPrefer
 }
 
 // StreamRequest represents a request for streams, following Stremio SDK pattern
@@ -264,18 +273,16 @@ func (mp *MultiProvider) GetBestStream(imdbID string, season, episode *int, maxQ
 		return nil, fmt.Errorf("no streams found")
 	}
 	
-	// FILTERING DISABLED - All filtering is now handled by Torrentio addon URL configuration
-	// Accept all streams regardless of quality/filters
+	// Prioritize cached streams, then accept uncached
 	filteredStreams := make([]TorrentioStream, 0)
 	for _, s := range streams {
-		// Prioritize cached streams
 		if s.Cached {
 			filteredStreams = append(filteredStreams, s)
 		}
 	}
 	
 	if len(filteredStreams) == 0 {
-		// No cached streams, accept uncached streams
+		// No cached streams, accept all uncached streams
 		filteredStreams = streams
 	}
 	
@@ -283,9 +290,17 @@ func (mp *MultiProvider) GetBestStream(imdbID string, season, episode *int, maxQ
 		return nil, fmt.Errorf("no streams available after filtering")
 	}
 	
-	// Sort streams - default: highest quality, largest size, most seeders
+	// Sort streams - get settings from user preferences or use defaults
 	sortOrder := "quality,size,seeders"
 	sortPrefer := "best"
+	if mp.getSortOrder != nil {
+		sortOrder = mp.getSortOrder()
+	}
+	if mp.getSortPrefer != nil {
+		sortPrefer = mp.getSortPrefer()
+	}
+	
+	log.Printf("[SORT] Using sort order: %s, preference: %s", sortOrder, sortPrefer)
 	
 	// Parse sort fields
 	sortFields := strings.Split(sortOrder, ",")

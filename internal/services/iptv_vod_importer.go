@@ -34,19 +34,43 @@ func ImportIPTVVOD(ctx context.Context, cfg *isettings.Settings, tmdb *TMDBClien
 
     // Dedup map: key = kind:title:year
     seen := make(map[string]bool)
+    
+    // Count total sources
+    totalSources := 0
+    for _, xs := range cfg.XtreamSources {
+        if xs.Enabled && strings.TrimSpace(xs.ServerURL) != "" {
+            totalSources++
+        }
+    }
+    for _, m3u := range cfg.M3USources {
+        if m3u.Enabled && strings.TrimSpace(m3u.URL) != "" {
+            totalSources++
+        }
+    }
+    
+    GlobalScheduler.UpdateProgress(ServiceIPTVVODSync, 0, totalSources, "Starting IPTV VOD import...")
+    currentSource := 0
 
     // Process Xtream sources using API
     for _, xs := range cfg.XtreamSources {
         if !xs.Enabled || strings.TrimSpace(xs.ServerURL) == "" || strings.TrimSpace(xs.Username) == "" || strings.TrimSpace(xs.Password) == "" {
             continue
         }
+        currentSource++
+        GlobalScheduler.UpdateProgress(ServiceIPTVVODSync, currentSource, totalSources, 
+            fmt.Sprintf("Scanning Xtream: %s", xs.Name))
+        
         server := strings.TrimSuffix(xs.ServerURL, "/")
         
         // Import VOD movies from Xtream
         items, err := fetchXtreamVODMovies(ctx, client, server, xs.Username, xs.Password, xs.Name, xs.SelectedCategories)
         if err == nil {
             summary.ItemsFound += len(items)
-            for _, it := range items {
+            for i, it := range items {
+                if i%50 == 0 {
+                    GlobalScheduler.UpdateProgress(ServiceIPTVVODSync, currentSource, totalSources, 
+                        fmt.Sprintf("%s: Importing movies (%d/%d)", xs.Name, i, len(items)))
+                }
                 key := fmt.Sprintf("%s:%s:%d", it.Kind, normalizeTitle(it.Title), it.Year)
                 if seen[key] {
                     summary.Skipped++
@@ -75,7 +99,11 @@ func ImportIPTVVOD(ctx context.Context, cfg *isettings.Settings, tmdb *TMDBClien
         seriesItems, err := fetchXtreamSeries(ctx, client, server, xs.Username, xs.Password, xs.Name, xs.SelectedCategories)
         if err == nil {
             summary.ItemsFound += len(seriesItems)
-            for _, it := range seriesItems {
+            for i, it := range seriesItems {
+                if i%50 == 0 {
+                    GlobalScheduler.UpdateProgress(ServiceIPTVVODSync, currentSource, totalSources, 
+                        fmt.Sprintf("%s: Importing series (%d/%d)", xs.Name, i, len(seriesItems)))
+                }
                 key := fmt.Sprintf("%s:%s:%d", it.Kind, normalizeTitle(it.Title), it.Year)
                 if seen[key] {
                     summary.Skipped++
@@ -116,6 +144,10 @@ func ImportIPTVVOD(ctx context.Context, cfg *isettings.Settings, tmdb *TMDBClien
     }
 
     for _, s := range m3uURLs {
+        currentSource++
+        GlobalScheduler.UpdateProgress(ServiceIPTVVODSync, currentSource, totalSources, 
+            fmt.Sprintf("Scanning M3U: %s", s.name))
+        
         req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.url, nil)
         if err != nil {
             summary.Errors++
@@ -137,7 +169,11 @@ func ImportIPTVVOD(ctx context.Context, cfg *isettings.Settings, tmdb *TMDBClien
             items := extractVODItems(resp.Body, s.name, s.selectedCategories)
             summary.ItemsFound += len(items)
             // Import each item
-            for _, it := range items {
+            for i, it := range items {
+                if i%50 == 0 {
+                    GlobalScheduler.UpdateProgress(ServiceIPTVVODSync, currentSource, totalSources, 
+                        fmt.Sprintf("%s: Importing (%d/%d)", s.name, i, len(items)))
+                }
                 key := fmt.Sprintf("%s:%s:%d", it.Kind, normalizeTitle(it.Title), it.Year)
                 if seen[key] {
                     summary.Skipped++
@@ -177,6 +213,9 @@ func ImportIPTVVOD(ctx context.Context, cfg *isettings.Settings, tmdb *TMDBClien
         }()
         summary.SourcesChecked++
     }
+    
+    GlobalScheduler.UpdateProgress(ServiceIPTVVODSync, totalSources, totalSources, 
+        fmt.Sprintf("Complete: %d movies, %d series imported", summary.MoviesImported, summary.SeriesImported))
 
     return summary, nil
 }

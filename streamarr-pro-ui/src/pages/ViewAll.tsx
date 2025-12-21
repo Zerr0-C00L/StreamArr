@@ -91,11 +91,6 @@ export default function ViewAll() {
           .filter(m => m.type === 'series')
           .sort((a, b) => new Date(b.added_at || 0).getTime() - new Date(a.added_at || 0).getTime());
         break;
-      case 'top-rated':
-        filtered = filtered
-          .filter(m => m.vote_average && m.vote_average > 0)
-          .sort((a, b) => (b.vote_average || 0) - (a.vote_average || 0));
-        break;
       case 'movies':
         filtered = filtered.filter(m => m.type === 'movie');
         break;
@@ -119,7 +114,6 @@ export default function ViewAll() {
   const categoryTitle = {
     'recently-added-movies': 'Recently Added Movies',
     'recently-added-series': 'Recently Added Series',
-    'top-rated': 'Top Rated',
     'movies': 'Movies',
     'series': 'TV Shows',
     'all': 'All Media',

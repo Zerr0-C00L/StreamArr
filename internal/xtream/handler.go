@@ -64,6 +64,9 @@ type XtreamHandler struct {
 	episodeCache    map[string]EpisodeLookup
 	episodeMu       sync.RWMutex
 	duplicateVODPerProvider func() bool
+	// Sorting settings
+	getSortOrder     func() string
+	getSortPrefer    func() string
 }
 
 func NewXtreamHandler(cfg *config.Config, db *sql.DB, tmdb *services.TMDBClient, rdClient *services.RealDebridClient, channelManager *livetv.ChannelManager, epgManager *epg.Manager, stremioAddons []providers.StremioAddon) *XtreamHandler {
@@ -264,6 +267,16 @@ func (h *XtreamHandler) SetHideUnavailable(getter func() bool) {
 // SetDuplicateVODPerProvider allows toggling per-provider duplication in VOD streams list
 func (h *XtreamHandler) SetDuplicateVODPerProvider(getter func() bool) {
 	h.duplicateVODPerProvider = getter
+}
+
+// SetSortSettings configures stream sorting preferences
+func (h *XtreamHandler) SetSortSettings(getSortOrder, getSortPrefer func() string) {
+	h.getSortOrder = getSortOrder
+	h.getSortPrefer = getSortPrefer
+	// Pass to multiProvider
+	if h.multiProvider != nil {
+		h.multiProvider.SetSortSettings(getSortOrder, getSortPrefer)
+	}
 }
 
 // ValidateXtreamCredentials checks if the provided username/password match the configured Xtream API credentials

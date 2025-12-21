@@ -34,20 +34,21 @@ var (
 )
 
 type Handler struct {
-	movieStore      *database.MovieStore
-	seriesStore     *database.SeriesStore
-	episodeStore    *database.EpisodeStore
-	streamStore     *database.StreamStore
-	settingsStore   *database.SettingsStore
-	userStore       *database.UserStore
-	collectionStore *database.CollectionStore
-	blacklistStore  *database.BlacklistStore
-	tmdbClient      *services.TMDBClient
-	rdClient        *services.RealDebridClient
-	channelManager  *livetv.ChannelManager
-	settingsManager *settings.Manager
-	epgManager      *epg.Manager
-	streamProvider  *providers.MultiProvider
+	movieStore       *database.MovieStore
+	seriesStore      *database.SeriesStore
+	episodeStore     *database.EpisodeStore
+	streamStore      *database.StreamStore
+	settingsStore    *database.SettingsStore
+	userStore        *database.UserStore
+	collectionStore  *database.CollectionStore
+	blacklistStore   *database.BlacklistStore
+	tmdbClient       *services.TMDBClient
+	rdClient         *services.RealDebridClient
+	channelManager   *livetv.ChannelManager
+	settingsManager  *settings.Manager
+	epgManager       *epg.Manager
+	streamProvider   *providers.MultiProvider
+	mdbSyncService   *services.MDBListSyncService
 }
 
 
@@ -89,6 +90,7 @@ func NewHandlerWithComponents(
 	settingsManager *settings.Manager,
 	epgManager *epg.Manager,
 	streamProvider *providers.MultiProvider,
+	mdbSyncService *services.MDBListSyncService,
 ) *Handler {
 	return &Handler{
 		movieStore:      movieStore,
@@ -105,6 +107,7 @@ func NewHandlerWithComponents(
 		settingsManager: settingsManager,
 		epgManager:      epgManager,
 		streamProvider:  streamProvider,
+		mdbSyncService:  mdbSyncService,
 	}
 }
 
@@ -852,6 +855,113 @@ func (h *Handler) SearchMovies(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, movies)
 }
 
+// sortStreams sorts a slice of streams based on user's sorting preferences
+func sortStreams(streams []providers.TorrentioStream, sortOrder, sortPrefer string) {
+	if sortOrder == "" {
+		sortOrder = "quality,size,seeders"
+	}
+	if sortPrefer == "" {
+		sortPrefer = "best"
+	}
+	
+	sortFields := strings.Split(sortOrder, ",")
+	
+	sort.Slice(streams, func(i, j int) bool {
+		for _, field := range sortFields {
+			field = strings.TrimSpace(field)
+			cmp := compareStreamsByField(streams[i], streams[j], field, sortPrefer)
+			if cmp != 0 {
+				return cmp > 0 // We want better streams first
+			}
+			// cmp == 0, continue to next field
+		}
+		return false
+	})
+}
+
+// compareStreamsByField compares two streams by a specific field
+// Returns: 1 if a > b (a is better), -1 if a < b (b is better), 0 if equal
+func compareStreamsByField(a, b providers.TorrentioStream, field string, prefer string) int {
+	switch field {
+	case "quality":
+		aQuality := parseQualityValue(a.Quality)
+		bQuality := parseQualityValue(b.Quality)
+		if prefer == "smallest" || prefer == "lowest" {
+			// For smallest preference, lower quality is better
+			if aQuality < bQuality {
+				return 1
+			} else if aQuality > bQuality {
+				return -1
+			}
+		} else {
+			// Default: higher quality is better
+			if aQuality > bQuality {
+				return 1
+			} else if aQuality < bQuality {
+				return -1
+			}
+		}
+	case "size":
+		if prefer == "smallest" || prefer == "lowest" {
+			// Smaller size is better
+			if a.Size < b.Size && a.Size > 0 {
+				return 1
+			} else if a.Size > b.Size && b.Size > 0 {
+				return -1
+			}
+		} else {
+			// Default: larger size is better (usually better quality)
+			if a.Size > b.Size {
+				return 1
+			} else if a.Size < b.Size {
+				return -1
+			}
+		}
+	case "seeders":
+		if prefer == "smallest" || prefer == "lowest" {
+			// Fewer seeders (unusual preference)
+			if a.Seeders < b.Seeders {
+				return 1
+			} else if a.Seeders > b.Seeders {
+				return -1
+			}
+		} else {
+			// Default: more seeders is better
+			if a.Seeders > b.Seeders {
+				return 1
+			} else if a.Seeders < b.Seeders {
+				return -1
+			}
+		}
+	}
+	return 0
+}
+
+// parseQualityValue converts a quality string to an integer value for comparison
+func parseQualityValue(quality string) int {
+	q := strings.ToUpper(quality)
+	
+	// Check for resolution-based quality indicators
+	if strings.Contains(q, "4K") || strings.Contains(q, "2160") {
+		return 2160
+	}
+	if strings.Contains(q, "1080") {
+		return 1080
+	}
+	if strings.Contains(q, "720") {
+		return 720
+	}
+	if strings.Contains(q, "480") {
+		return 480
+	}
+	if strings.Contains(q, "360") {
+		return 360
+	}
+	
+	// Default to 0 for unknown quality
+	return 0
+}
+
 // GetMovieStreams handles GET /api/movies/{id}/streams
 func (h *Handler) GetMovieStreams(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
@@ -991,6 +1101,21 @@ func (h *Handler) GetMovieStreams(w http.ResponseWriter, r *http.Request) {
 	log.Printf("✅ Found %d streams for movie %d (%s) → %d CACHED, %d UNCACHED", 
 		len(providerStreams), id, movie.Title, cachedCount, len(providerStreams)-cachedCount)
 
+	// Apply user's sorting preferences to streams
+	sortOrder := "quality,size,seeders" // default
+	sortPrefer := "best"                // default
+	if h.settingsManager != nil {
+		settings := h.settingsManager.Get()
+		if settings.StreamSortOrder != "" {
+			sortOrder = settings.StreamSortOrder
+		}
+		if settings.StreamSortPrefer != "" {
+			sortPrefer = settings.StreamSortPrefer
+		}
+	}
+	log.Printf("[SORT-UI] Sorting %d streams with order: %s, preference: %s", len(providerStreams), sortOrder, sortPrefer)
+	sortStreams(providerStreams, sortOrder, sortPrefer)
+
 	apiStreams := make([]map[string]interface{}, 0, len(providerStreams))
 
 	// Convert provider streams to API response format
@@ -1090,6 +1215,21 @@ func (h *Handler) GetEpisodeStreams(w http.ResponseWriter, r *http.Request) {
 	}
 
 	log.Printf("Found %d streams for series %s S%02dE%02d", len(providerStreams), imdbID, season, episode)
+
+	// Apply user's sorting preferences to streams
+	sortOrder := "quality,size,seeders" // default
+	sortPrefer := "best"                // default
+	if h.settingsManager != nil {
+		settings := h.settingsManager.Get()
+		if settings.StreamSortOrder != "" {
+			sortOrder = settings.StreamSortOrder
+		}
+		if settings.StreamSortPrefer != "" {
+			sortPrefer = settings.StreamSortPrefer
+		}
+	}
+	log.Printf("[SORT-UI] Sorting %d series streams with order: %s, preference: %s", len(providerStreams), sortOrder, sortPrefer)
+	sortStreams(providerStreams, sortOrder, sortPrefer)
 
 	// Convert provider streams to API response format
 	apiStreams := make([]map[string]interface{}, 0, len(providerStreams))
@@ -1704,6 +1844,19 @@ func (h *Handler) GetChannelStats(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// GetChannelCategories handles GET /api/channels/categories - returns list of available categories
+func (h *Handler) GetChannelCategories(w http.ResponseWriter, r *http.Request) {
+	if h.channelManager == nil {
+		respondError(w, http.StatusServiceUnavailable, "channel manager not initialized")
+		return
+	}
+
+	categories := h.channelManager.GetCategories()
+	respondJSON(w, http.StatusOK, map[string]interface{}{
+		"categories": categories,
+	})
+}
+
 // CheckM3USourceStatus handles POST /api/channels/check-source - checks if an M3U URL is accessible
 func (h *Handler) CheckM3USourceStatus(w http.ResponseWriter, r *http.Request) {
 	var req struct {
@@ -1908,6 +2061,152 @@ func (h *Handler) ProxyChannelStream(w http.ResponseWriter, r *http.Request) {
 	io.Copy(w, resp.Body)
 }
 
+// GetTVGuide handles GET /api/channels/epg/guide - returns EPG data for all channels in a time range
+func (h *Handler) GetTVGuide(w http.ResponseWriter, r *http.Request) {
+	if h.epgManager == nil || h.channelManager == nil {
+		respondError(w, http.StatusServiceUnavailable, "EPG or channel manager not initialized")
+		return
+	}
+
+	// Parse query parameters
+	category := r.URL.Query().Get("category")
+	limitStr := r.URL.Query().Get("limit")
+	hoursStr := r.URL.Query().Get("hours")
+
+	// Default limit is 20 channels
+	limit := 20
+	if limitStr != "" {
+		if l, err := strconv.Atoi(limitStr); err == nil && l > 0 && l <= 100 {
+			limit = l
+		}
+	}
+
+	// Default hours is 4 (4 hours of EPG data)
+	hours := 4
+	if hoursStr != "" {
+		if h, err := strconv.Atoi(hoursStr); err == nil && h > 0 && h <= 24 {
+			hours = h
+		}
+	}
+
+	// Get channels (optionally filtered by category)
+	var channels []*livetv.Channel
+	if category != "" && category != "all" {
+		channels = h.channelManager.GetChannelsByCategory(category)
+	} else {
+		channels = h.channelManager.GetAllChannels()
+	}
+
+	// Limit channels
+	if len(channels) > limit {
+		channels = channels[:limit]
+	}
+
+	now := time.Now()
+	startTime := now.Add(-30 * time.Minute) // Start 30 minutes before now
+	endTime := now.Add(time.Duration(hours) * time.Hour)
+
+	type GuideProgram struct {
+		Title       string    `json:"title"`
+		Description string    `json:"description"`
+		StartTime   time.Time `json:"start_time"`
+		EndTime     time.Time `json:"end_time"`
+		Category    string    `json:"category"`
+		IsLive      bool      `json:"is_live"`
+	}
+
+	type GuideChannel struct {
+		ID       string         `json:"id"`
+		Name     string         `json:"name"`
+		Logo     string         `json:"logo"`
+		Category string         `json:"category"`
+		Programs []GuideProgram `json:"programs"`
+	}
+
+	type NowPlaying struct {
+		ChannelID   string    `json:"channel_id"`
+		ChannelName string    `json:"channel_name"`
+		ChannelLogo string    `json:"channel_logo"`
+		Title       string    `json:"title"`
+		Description string    `json:"description"`
+		StartTime   time.Time `json:"start_time"`
+		EndTime     time.Time `json:"end_time"`
+		Progress    float64   `json:"progress"` // 0-100
+	}
+
+	guideChannels := make([]GuideChannel, 0, len(channels))
+	var nowPlaying *NowPlaying
+
+	for _, ch := range channels {
+		// Get EPG programs for this channel
+		programs := h.epgManager.GetEPGWithFallback(ch.ID, ch.Name, now)
+
+		guidePrograms := make([]GuideProgram, 0)
+		for _, p := range programs {
+			// Filter to time range
+			if p.EndTime.Before(startTime) || p.StartTime.After(endTime) {
+				continue
+			}
+
+			isLive := now.After(p.StartTime) && now.Before(p.EndTime)
+			
+			gp := GuideProgram{
+				Title:       p.Title,
+				Description: p.Description,
+				StartTime:   p.StartTime,
+				EndTime:     p.EndTime,
+				Category:    p.Category,
+				IsLive:      isLive,
+			}
+			guidePrograms = append(guidePrograms, gp)
+
+			// Track first "now playing" we find for the hero section
+			if isLive && nowPlaying == nil {
+				duration := p.EndTime.Sub(p.StartTime).Seconds()
+				elapsed := now.Sub(p.StartTime).Seconds()
+				progress := 0.0
+				if duration > 0 {
+					progress = (elapsed / duration) * 100
+				}
+				nowPlaying = &NowPlaying{
+					ChannelID:   ch.ID,
+					ChannelName: ch.Name,
+					ChannelLogo: ch.Logo,
+					Title:       p.Title,
+					Description: p.Description,
+					StartTime:   p.StartTime,
+					EndTime:     p.EndTime,
+					Progress:    progress,
+				}
+			}
+		}
+
+		guideChannels = append(guideChannels, GuideChannel{
+			ID:       ch.ID,
+			Name:     ch.Name,
+			Logo:     ch.Logo,
+			Category: ch.Category,
+			Programs: guidePrograms,
+		})
+	}
+
+	// Generate time slots for the grid header
+	timeSlots := make([]time.Time, 0)
+	slotTime := startTime.Truncate(30 * time.Minute)
+	for slotTime.Before(endTime) {
+		timeSlots = append(timeSlots, slotTime)
+		slotTime = slotTime.Add(30 * time.Minute)
+	}
+
+	respondJSON(w, http.StatusOK, map[string]interface{}{
+		"channels":    guideChannels,
+		"now_playing": nowPlaying,
+		"time_slots":  timeSlots,
+		"start_time":  startTime,
+		"end_time":    endTime,
+	})
+}
+
 // GetChannelEPG handles GET /api/channels/{id}/epg
 func (h *Handler) GetChannelEPG(w http.ResponseWriter, r *http.Request) {
 	if h.epgManager == nil {
@@ -1990,10 +2289,11 @@ func (h *Handler) UpdateSettings(w http.ResponseWriter, r *http.Request) {
 			var customEPGURLs []string
 			for i, s := range newSettings.M3USources {
 				m3uSources[i] = livetv.M3USource{
-					Name:    s.Name,
-					URL:     s.URL,
-					Enabled: s.Enabled,
-					EPGURL:  s.EPGURL,
+					Name:               s.Name,
+					URL:                s.URL,
+					Enabled:            s.Enabled,
+					EPGURL:             s.EPGURL,
+					SelectedCategories: s.SelectedCategories,
 				}
 				// Collect EPG URLs from enabled M3U sources
 				if s.Enabled && s.EPGURL != "" {
@@ -2473,8 +2773,16 @@ func (h *Handler) runService(serviceName string) {
 
 	case services.ServiceMDBListSync:
 		interval = 6 * time.Hour
-		// MDBList sync requires the sync service
-		// For now just mark as complete
+		if h.mdbSyncService != nil {
+			services.GlobalScheduler.UpdateProgress(services.ServiceMDBListSync, 0, 0, "Starting MDBList sync...")
+			err = h.mdbSyncService.SyncAllLists(ctx)
+			if err == nil {
+				// Also enrich existing items
+				_ = h.mdbSyncService.EnrichExistingItems(ctx)
+			}
+		} else {
+			services.GlobalScheduler.UpdateProgress(services.ServiceMDBListSync, 0, 0, "MDBList sync service not initialized")
+		}
 
 	case services.ServiceCollectionSync:
 		interval = 24 * time.Hour

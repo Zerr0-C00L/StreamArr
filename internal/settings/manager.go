@@ -144,6 +144,15 @@ type Settings struct {
 	// Stream Availability Settings
 	HideUnavailableContent bool `json:"hide_unavailable_content"` // Don't show movies/episodes with no streams
 	
+	// Stream Sorting and Filter Settings
+	ExcludedReleaseGroups  string `json:"excluded_release_groups"`  // Comma-separated release group exclusions
+	ExcludedLanguageTags   string `json:"excluded_language_tags"`   // Comma-separated language exclusions
+	ExcludedQualities      string `json:"excluded_qualities"`       // Comma-separated quality exclusions
+	CustomExcludePatterns  string `json:"custom_exclude_patterns"`  // Custom regex patterns for exclusion
+	EnableReleaseFilters   bool   `json:"enable_release_filters"`   // Enable release filtering
+	StreamSortOrder        string `json:"stream_sort_order"`        // Sort order: "quality,size,seeders" etc
+	StreamSortPrefer       string `json:"stream_sort_prefer"`       // Preference: "best", "smallest", "balanced"
+	
 	// Update Settings
 	UpdateBranch string `json:"update_branch"` // GitHub branch for updates: main, dev, etc.
 	
@@ -254,6 +263,14 @@ func getDefaultSettings() *Settings {
 		Host:                   "0.0.0.0",
 		XtreamUsername:         "streamarr",
 		XtreamPassword:         "streamarr",
+		// Stream sorting and filters
+		EnableReleaseFilters:   true,  // Default to enabled
+		StreamSortOrder:        "quality,size,seeders",
+		StreamSortPrefer:       "best",
+		ExcludedReleaseGroups:  "",
+		ExcludedLanguageTags:   "",
+		ExcludedQualities:      "",
+		CustomExcludePatterns:  "",
 	}
 }
 

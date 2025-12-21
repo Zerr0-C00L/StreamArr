@@ -61,8 +61,10 @@ func SetupRoutes(handler *Handler) http.Handler {
 
 	// Channels (Live TV)
 	api.HandleFunc("/channels", handler.ListChannels).Methods("GET")
+	api.HandleFunc("/channels/categories", handler.GetChannelCategories).Methods("GET")
 	api.HandleFunc("/channels/stats", handler.GetChannelStats).Methods("GET")
 	api.HandleFunc("/channels/check-source", handler.CheckM3USourceStatus).Methods("POST")
+	api.HandleFunc("/channels/epg/guide", handler.GetTVGuide).Methods("GET")
 	api.HandleFunc("/channels/{id}", handler.GetChannel).Methods("GET")
 	api.HandleFunc("/channels/{id}/stream", handler.GetChannelStream).Methods("GET")
 	api.HandleFunc("/channels/proxy", handler.ProxyChannelStream).Methods("GET")
@@ -361,8 +363,10 @@ func SetupRoutesWithXtream(handler *Handler, xtreamHandler interface{ RegisterRo
 
 	// Channels (Live TV)
 	api.HandleFunc("/channels", handler.ListChannels).Methods("GET")
+	api.HandleFunc("/channels/categories", handler.GetChannelCategories).Methods("GET")
 	api.HandleFunc("/channels/stats", handler.GetChannelStats).Methods("GET")
 	api.HandleFunc("/channels/check-source", handler.CheckM3USourceStatus).Methods("POST")
+	api.HandleFunc("/channels/epg/guide", handler.GetTVGuide).Methods("GET")
 	api.HandleFunc("/channels/{id}", handler.GetChannel).Methods("GET")
 	api.HandleFunc("/channels/{id}/stream", handler.GetChannelStream).Methods("GET")
 	api.HandleFunc("/channels/proxy", handler.ProxyChannelStream).Methods("GET")

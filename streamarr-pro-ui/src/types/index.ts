@@ -138,6 +138,42 @@ export interface EPGProgram {
   category: string;
 }
 
+export interface GuideProgram {
+  title: string;
+  description: string;
+  start_time: string;
+  end_time: string;
+  category: string;
+  is_live: boolean;
+}
+
+export interface GuideChannel {
+  id: string;
+  name: string;
+  logo: string;
+  category: string;
+  programs: GuideProgram[];
+}
+
+export interface NowPlaying {
+  channel_id: string;
+  channel_name: string;
+  channel_logo: string;
+  title: string;
+  description: string;
+  start_time: string;
+  end_time: string;
+  progress: number;
+}
+
+export interface TVGuideResponse {
+  channels: GuideChannel[];
+  now_playing: NowPlaying | null;
+  time_slots: string[];
+  start_time: string;
+  end_time: string;
+}
+
 export interface DashboardStats {
   total_movies: number;
   total_series: number;
