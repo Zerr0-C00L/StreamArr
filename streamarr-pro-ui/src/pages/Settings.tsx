@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Save, Layers, Settings as SettingsIcon, Code, Plus, X, Tv, Activity, Play, Clock, RefreshCw, Filter, Database, Trash2, Info, Github, Download, ExternalLink, CheckCircle, AlertCircle, Film, User, Camera, Loader, Search } from 'lucide-react';
 import axios from 'axios';
 
@@ -300,6 +300,42 @@ export default function Settings() {
       setProfileAvatar(savedAvatar);
     }
   }, []);
+
+  // Auto-save MDBList changes
+  const initialMdbListsLoaded = useRef(false);
+  useEffect(() => {
+    // Skip initial load - only save when lists change after initial load
+    if (!initialMdbListsLoaded.current) {
+      if (mdbLists.length > 0 || settings?.mdblist_lists) {
+        initialMdbListsLoaded.current = true;
+      }
+      return;
+    }
+    
+    if (!settings) return;
+    
+    const saveTimer = setTimeout(async () => {
+      const settingsToSave = {
+        ...settings,
+        mdblist_lists: JSON.stringify(mdbLists),
+        m3u_sources: m3uSources,
+        xtream_sources: xtreamSources,
+        livetv_enabled_sources: Array.from(enabledSources),
+        livetv_enabled_categories: Array.from(enabledCategories),
+      };
+      
+      try {
+        await api.put('/settings', settingsToSave);
+        setMessage('✅ MDBList updated & sync triggered');
+        setTimeout(() => setMessage(''), 2000);
+      } catch (error: any) {
+        setMessage(`❌ Error saving MDBList: ${error.response?.data?.error || error.message}`);
+        setTimeout(() => setMessage(''), 3000);
+      }
+    }, 500); // Debounce 500ms
+    
+    return () => clearTimeout(saveTimer);
+  }, [mdbLists]);
 
   useEffect(() => {
     if (activeTab === 'services') {
