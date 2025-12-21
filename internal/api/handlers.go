@@ -2360,6 +2360,14 @@ func (h *Handler) UpdateSettings(w http.ResponseWriter, r *http.Request) {
 			}
 		}(newSettings)
 
+		// Trigger MDBList sync in background when MDBList lists are configured
+		if h.mdbSyncService != nil && newSettings.MDBListLists != "" && newSettings.MDBListLists != "[]" {
+			go func() {
+				log.Println("[Settings] MDBList lists updated, triggering sync...")
+				h.runService(services.ServiceMDBListSync)
+			}()
+		}
+
 		respondJSON(w, http.StatusOK, newSettings)
 		return
 	}
