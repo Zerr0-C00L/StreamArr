@@ -2,10 +2,12 @@ package xtream
 
 import (
 	"context"
+	"crypto/tls"
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"net/url"
@@ -91,6 +93,167 @@ func NewXtreamHandlerWithProvider(cfg *config.Config, db *sql.DB, tmdb *services
 	h.loadEpisodeCache()
 	
 	return h
+}
+
+// resolveStremioURL attempts to resolve a Stremio addon URL to an actual playable video URL
+func (h *XtreamHandler) resolveStremioURL(addonURL string) (string, error) {
+	// Check if this looks like a Stio addon URL
+	if !strings.Contains(addonURL, "torrentsdb.com") && !strings.Contains(addonURL, "/realdebrid/") {
+		// Not a Stremio addon URL, return as-is
+		return addonURL, nil
+	}
+	
+	log.Printf("[RESOLVE] Attempting to resolve Stremio addon URL...")
+	
+	// Get list of proxies if Torrentio URL
+	var proxyURLs []string
+	if strings.Contains(addonURL, "torrentio") {
+		if proxyEnv := os.Getenv("TORRENTIO_PROXY"); proxyEnv != "" {
+			for _, p := range strings.Split(proxyEnv, ",") {
+				p = strings.TrimSpace(p)
+				if p != "" {
+					proxyURLs = append(proxyURLs, p)
+				}
+			}
+		}
+	}
+	
+	// Try each proxy in sequence (or no proxy if list is empty)
+	maxAttempts := 1
+	if len(proxyURLs) > 0 {
+		maxAttempts = len(proxyURLs)
+	}
+	
+	var lastErr error
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		// Create fresh transport for each attempt
+		transport := &http.Transport{
+			TLSClientConfig: &tls.Config{
+				InsecureSkipVerify: false,
+			},
+			DisableCompression: true,
+		}
+		
+		// Configure proxy for this attempt
+		if attempt < len(proxyURLs) {
+			proxyURL := proxyURLs[attempt]
+			if proxy, err := url.Parse(proxyURL); err == nil {
+				transport.Proxy = http.ProxyURL(proxy)
+				log.Printf("[RESOLVE-PROXY] Attempt %d/%d: Using proxy %s", attempt+1, maxAttempts, proxyURL)
+			} else {
+				log.Printf("[RESOLVE-PROXY] Attempt %d/%d: Invalid proxy URL %s: %v", attempt+1, maxAttempts, proxyURL, err)
+				continue
+			}
+		}
+		
+		client := &http.Client{
+			Timeout: 30 * time.Second,
+			Transport: transport,
+			CheckRedirect: func(req *http.Request, via []*http.Request) error {
+				return http.ErrUseLastResponse
+			},
+		}
+		
+		// Create request with browser-like headers to avoid Cloudflare detection
+		req, err := http.NewRequest("GET", addonURL, nil)
+		if err != nil {
+			lastErr = err
+			log.Printf("[RESOLVE-PROXY] Attempt %d/%d: Failed to create request: %v", attempt+1, maxAttempts, err)
+			continue
+		}
+		
+		// Add browser headers to look like a real browser
+		req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+		req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8")
+		req.Header.Set("Accept-Language", "en-US,en;q=0.5")
+		req.Header.Set("Accept-Encoding", "gzip, deflate, br")
+		req.Header.Set("Connection", "keep-alive")
+		req.Header.Set("Upgrade-Insecure-Requests", "1")
+		
+		resp, err := client.Do(req)
+		if err != nil {
+			lastErr = err
+			log.Printf("[RESOLVE-PROXY] Attempt %d/%d failed: %v", attempt+1, maxAttempts, err)
+			continue
+		}
+		defer resp.Body.Close()
+		
+		// Check for Cloudflare block (403) or other errors
+		if resp.StatusCode == 403 {
+			lastErr = fmt.Errorf("cloudflare block (403)")
+			log.Printf("[RESOLVE-PROXY] Attempt %d/%d: Got 403 Cloudflare block", attempt+1, maxAttempts)
+			continue
+		}
+		
+		// Success! Process the response
+		if resp.StatusCode == http.StatusFound || resp.StatusCode == http.StatusMovedPermanently || resp.StatusCode == http.StatusTemporaryRedirect {
+			location := resp.Header.Get("Location")
+			if location != "" {
+				log.Printf("[RESOLVE-PROXY] ✓ Success on attempt %d/%d", attempt+1, maxAttempts)
+				return location, nil
+			}
+		}
+		
+		lastErr = fmt.Errorf("unexpected response status: %d", resp.StatusCode)
+		log.Printf("[RESOLVE-PROXY] Attempt %d/%d: Unexpected status %d", attempt+1, maxAttempts, resp.StatusCode)
+	}
+	
+	// All attempts failed
+	if lastErr != nil {
+		return "", lastErr
+	}
+	
+	// Fallback: try without proxy
+	transport := &http.Transport{
+		TLSClientConfig: &tls.Config{
+			InsecureSkipVerify: false,
+		},
+		DisableCompression: true,
+	}
+	
+	client := &http.Client{
+		Timeout: 30 * time.Second,
+		Transport: transport,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+	
+	resp, err := client.Get(addonURL)
+	if err != nil {
+		return "", fmt.Errorf("failed to fetch addon URL: %w", err)
+	}
+	defer resp.Body.Close()
+	
+	// Check for redirect (Real-Debrid direct link)
+	if resp.StatusCode == http.StatusFound || resp.StatusCode == http.StatusMovedPermanently || resp.StatusCode == http.StatusTemporaryRedirect {
+		location := resp.Header.Get("Location")
+		if location != "" {
+			log.Printf("[RESOLVE] ✓ Got redirect to: %s", location)
+			return location, nil
+		}
+	}
+	
+	// Check for JSON error response
+	contentType := resp.Header.Get("Content-Type")
+	if strings.Contains(contentType, "application/json") {
+		body, _ := io.ReadAll(resp.Body)
+		var jsonErr map[string]interface{}
+		if json.Unmarshal(body, &jsonErr) == nil {
+			if errMsg, ok := jsonErr["err"].(string); ok {
+				return "", fmt.Errorf("addon error: %s", errMsg)
+			}
+		}
+		return "", fmt.Errorf("addon returned JSON instead of video stream")
+	}
+	
+	// If status is OK and not JSON, the URL itself might be streamable
+	if resp.StatusCode == http.StatusOK {
+		log.Printf("[RESOLVE] Addon returned 200 OK, using original URL")
+		return addonURL, nil
+	}
+	
+	return "", fmt.Errorf("unexpected response status: %d", resp.StatusCode)
 }
 
 // SetSettingsManager sets the settings manager for dynamic settings access
@@ -1746,25 +1909,70 @@ func (h *XtreamHandler) handleSeriesPlay(w http.ResponseWriter, r *http.Request)
 
 // playEpisodeByIMDB streams an episode given IMDB ID and season/episode numbers
 func (h *XtreamHandler) playEpisodeByIMDB(w http.ResponseWriter, r *http.Request, imdbID string, seasonNum, episodeNum int) {
-	log.Printf("Playing episode: IMDB ID %s, S%02dE%02d", imdbID, seasonNum, episodeNum)
+	log.Printf("[PLAY] Episode request: IMDB %s S%02dE%02d from IP %s", imdbID, seasonNum, episodeNum, r.RemoteAddr)
+	startTime := time.Now()
 	
 	// Get release filters and sort options from settings
 	filters := h.getReleaseFilters()
 	sortOpts := h.getStreamSortOptions()
 	
 	// Get stream from providers
+	log.Printf("[PLAY] Fetching streams for %s S%02dE%02d...", imdbID, seasonNum, episodeNum)
 	stream, err := h.multiProvider.GetBestStream(imdbID, &seasonNum, &episodeNum, h.cfg.MaxResolution, filters, sortOpts)
+	elapsed := time.Since(startTime)
+	
 	if err != nil {
-		log.Printf("Error getting stream: %v", err)
+		log.Printf("[PLAY] ❌ Failed to get stream after %.2fs: %v", elapsed.Seconds(), err)
 		http.Error(w, "Stream not available", http.StatusNotFound)
 		return
 	}
 	
-	// Redirect to stream URL
+	// DEBUG: Log stream details
+	log.Printf("[PLAY-DEBUG] Stream details - InfoHash: '%s', URL: '%s', Name: '%s'", stream.InfoHash, stream.URL, stream.Name)
+	
+	// Extract infohash from URL if not present (TorrentsDB doesn't include it in response)
+	if stream.InfoHash == "" && strings.Contains(stream.URL, "/realdebrid/") {
+		// URL format: .../realdebrid/API_KEY/INFOHASH/...
+		parts := strings.Split(stream.URL, "/")
+		for i, part := range parts {
+			if part == "realdebrid" && i+2 < len(parts) {
+				stream.InfoHash = parts[i+2]
+				log.Printf("[PLAY-DEBUG] Extracted InfoHash from URL: %s", stream.InfoHash)
+				break
+			}
+		}
+	}
+	
+	// DISABLED: RD direct API unreliable - Torrentio handles RD internally via resolve URL
+	// if stream.InfoHash != "" && h.rdClient != nil {
+	// 	log.Printf("[PLAY-RD] Attempting to get cached stream from Real-Debrid: %s", stream.InfoHash)
+	// 	ctx, cancel := context.WithTimeout(r.Context(), 45*time.Second)
+	// 	defer cancel()
+	// 	
+	// 	rdURL, err := h.rdClient.GetStreamURL(ctx, stream.InfoHash)
+	// 	if err == nil && rdURL != "" {
+	// 		elapsed = time.Since(startTime)
+	// 		log.Printf("[PLAY-RD] ✓ Got Real-Debrid direct link (%.2fs): %s", elapsed.Seconds(), rdURL)
+	// 		http.Redirect(w, r, rdURL, http.StatusFound)
+	// 		return
+	// 	}
+	// 	log.Printf("[PLAY-RD] ⚠️ Failed to get RD stream URL: %v", err)
+	// }
+	
+	// Fallback: Resolve stream URL if needed (Stremio addon URLs)
 	if stream.URL != "" {
-		log.Printf("Redirecting to stream: %s", stream.URL)
-		http.Redirect(w, r, stream.URL, http.StatusFound)
+		finalURL, err := h.resolveStremioURL(stream.URL)
+		if err != nil {
+			log.Printf("[PLAY] ❌ Failed to resolve stream URL after %.2fs: %v", time.Since(startTime).Seconds(), err)
+			http.Error(w, fmt.Sprintf("Stream resolution failed: %v", err), http.StatusBadGateway)
+			return
+		}
+		
+		elapsed = time.Since(startTime)
+		log.Printf("[PLAY] ✓ Redirecting to addon stream (%.2fs): %s", elapsed.Seconds(), finalURL)
+		http.Redirect(w, r, finalURL, http.StatusFound)
 	} else {
+		log.Printf("[PLAY] ❌ No stream URL or infohash available after %.2fs", elapsed.Seconds())
 		http.Error(w, "Stream URL not available", http.StatusNotFound)
 	}
 }
@@ -1811,6 +2019,8 @@ func (h *XtreamHandler) handleDirectPlay(w http.ResponseWriter, r *http.Request)
 }
 
 func (h *XtreamHandler) playMovie(w http.ResponseWriter, r *http.Request, vodID string) {
+	log.Printf("[PLAY] Movie request: TMDB ID %s from IP %s", vodID, r.RemoteAddr)
+	startTime := time.Now()
 	tmdbID, _ := strconv.ParseInt(vodID, 10, 64)
 	
 	// Get IMDB ID from database by TMDB ID first - try both imdb_id column and metadata
@@ -1824,6 +2034,7 @@ func (h *XtreamHandler) playMovie(w http.ResponseWriter, r *http.Request, vodID 
 		query = `SELECT imdb_id, metadata FROM library_movies WHERE id = $1`
 		err = h.db.QueryRow(query, tmdbID).Scan(&imdbID, &metadataJSON)
 		if err != nil {
+			log.Printf("[PLAY] ❌ Movie not found in database: %s", vodID)
 			http.Error(w, "Movie not found", http.StatusNotFound)
 			return
 		}
@@ -1841,11 +2052,12 @@ func (h *XtreamHandler) playMovie(w http.ResponseWriter, r *http.Request, vodID 
 	}
 	
 	if !imdbID.Valid || imdbID.String == "" {
+		log.Printf("[PLAY] ❌ IMDB ID not found for TMDB %d", tmdbID)
 		http.Error(w, "IMDB ID not found", http.StatusNotFound)
 		return
 	}
 	
-	log.Printf("Playing movie TMDB ID %d, IMDB ID %s", tmdbID, imdbID.String)
+	log.Printf("[PLAY] Fetching streams for movie TMDB %d, IMDB %s...", tmdbID, imdbID.String)
 	
 	// Get release filters and sort options from settings
 	filters := h.getReleaseFilters()
@@ -1853,17 +2065,28 @@ func (h *XtreamHandler) playMovie(w http.ResponseWriter, r *http.Request, vodID 
 	
 	// Get stream from providers
 	stream, err := h.multiProvider.GetBestStream(imdbID.String, nil, nil, h.cfg.MaxResolution, filters, sortOpts)
+	elapsed := time.Since(startTime)
+	
 	if err != nil {
-		log.Printf("Error getting stream: %v", err)
+		log.Printf("[PLAY] ❌ Failed to get stream after %.2fs: %v", elapsed.Seconds(), err)
 		http.Error(w, "Stream not available", http.StatusNotFound)
 		return
 	}
 	
-	// Redirect to stream URL
+	// Resolve stream URL from addon (Torrentio has built-in RD support)
 	if stream.URL != "" {
-		log.Printf("Redirecting to stream: %s", stream.URL)
-		http.Redirect(w, r, stream.URL, http.StatusFound)
+		finalURL, err := h.resolveStremioURL(stream.URL)
+		if err != nil {
+			log.Printf("[PLAY] ❌ Failed to resolve stream URL after %.2fs: %v", time.Since(startTime).Seconds(), err)
+			http.Error(w, fmt.Sprintf("Stream resolution failed: %v", err), http.StatusBadGateway)
+			return
+		}
+		
+		elapsed = time.Since(startTime)
+		log.Printf("[PLAY] ✓ Redirecting to addon stream (%.2fs): %s", elapsed.Seconds(), finalURL)
+		http.Redirect(w, r, finalURL, http.StatusFound)
 	} else {
+		log.Printf("[PLAY] ❌ No stream URL or infohash available after %.2fs", elapsed.Seconds())
 		http.Error(w, "Stream URL not available", http.StatusNotFound)
 	}
 }

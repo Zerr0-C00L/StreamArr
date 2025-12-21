@@ -1,12 +1,16 @@
 package providers
 
 import (
+	"crypto/tls"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
+	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -47,12 +51,63 @@ type GenericStream struct {
 }
 
 func NewGenericStremioProvider(name, baseURL, rdAPIKey string) *GenericStremioProvider {
+	// Create custom transport to avoid Cloudflare bot detection
+	transport := &http.Transport{
+		Dial: (&net.Dialer{
+			Timeout:   30 * time.Second,
+			KeepAlive: 30 * time.Second,
+		}).Dial,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ResponseHeaderTimeout: 10 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
+		MaxIdleConns:          100,
+		IdleConnTimeout:       90 * time.Second,
+		TLSClientConfig: &tls.Config{
+			MinVersion: tls.VersionTLS12,
+		},
+		DisableCompression: true, // We'll handle compression manually via Accept-Encoding
+	}
+	
+	// Check for proxy configuration (for bypassing Cloudflare blocks)
+	// Set TORRENTIO_PROXY env var to use proxy for Torrentio
+	// Supports multiple proxies separated by comma for fallback: "http://proxy1,http://proxy2,http://proxy3"
+	if proxyEnv := os.Getenv("TORRENTIO_PROXY"); proxyEnv != "" && (strings.Contains(strings.ToLower(name), "torrentio") || strings.Contains(strings.ToLower(baseURL), "torrentio")) {
+		// Split by comma to get list of proxies
+		proxyURLs := strings.Split(proxyEnv, ",")
+		
+		// Use a round-robin proxy function that tries each proxy in order
+		transport.Proxy = func(r *http.Request) (*url.URL, error) {
+			for i, proxyURL := range proxyURLs {
+				proxyURL = strings.TrimSpace(proxyURL)
+				if proxyURL == "" {
+					continue
+				}
+				
+				proxy, err := url.Parse(proxyURL)
+				if err != nil {
+					log.Printf("[PROXY] Invalid proxy URL %s: %v", proxyURL, err)
+					continue
+				}
+				
+				// Return first valid proxy (Go will auto-fallback on connection errors)
+				if i == 0 {
+					log.Printf("[PROXY] Using primary proxy %s for %s (%d fallback proxies available)", proxyURL, name, len(proxyURLs)-1)
+				}
+				return proxy, nil
+			}
+			
+			log.Printf("[PROXY] All proxies failed for %s", name)
+			return nil, fmt.Errorf("all proxies failed")
+		}
+	}
+	
 	return &GenericStremioProvider{
 		Name:             name,
 		BaseURL:          baseURL,
 		RealDebridAPIKey: rdAPIKey,
 		Client: &http.Client{
-			Timeout: 120 * time.Second,
+			Timeout:   120 * time.Second,
+			Transport: transport,
 		},
 		Cache:       make(map[string]*GenericStreamCachedResponse),
 		rateLimiter: make(chan struct{}, 2), // Max 2 concurrent requests to avoid overwhelming addon
@@ -138,6 +193,8 @@ func (g *GenericStremioProvider) GetSeriesStreams(imdbID string, season, episode
 }
 
 func (g *GenericStremioProvider) fetchStreams(url, cacheKey string) ([]TorrentioStream, error) {
+	log.Printf("[FETCH] Requesting: %s", url)
+	
 	// Check cache
 	if cached, ok := g.Cache[cacheKey]; ok {
 		if time.Since(cached.Timestamp) < 30*time.Minute {
@@ -166,7 +223,11 @@ func (g *GenericStremioProvider) fetchStreams(url, cacheKey string) ([]Torrentio
 			return nil, fmt.Errorf("create request: %w", err)
 		}
 		
-		req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+		// Set browser-like headers to bypass Cloudflare
+		req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+		req.Header.Set("Accept", "application/json, text/plain, */*")
+		req.Header.Set("Accept-Language", "en-US,en;q=0.9")
+		req.Header.Set("Connection", "keep-alive")
 		
 		resp, err := g.Client.Do(req)
 		if err != nil {

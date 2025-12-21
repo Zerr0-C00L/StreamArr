@@ -185,66 +185,84 @@ func (c *RealDebridClient) UnrestrictLink(ctx context.Context, link string) (*rd
 
 // GetStreamURL gets a direct streaming URL for a torrent
 func (c *RealDebridClient) GetStreamURL(ctx context.Context, infoHash string) (string, error) {
-	// First check if torrent is available
-	available, err := c.CheckInstantAvailability(ctx, []string{infoHash})
-	if err != nil {
-		return "", err
-	}
 
-	if !available[infoHash] {
-		return "", fmt.Errorf("torrent not instantly available")
-	}
-
+	
 	// Build magnet link
 	magnetLink := fmt.Sprintf("magnet:?xt=urn:btih:%s", infoHash)
 
 	// Add magnet to Real-Debrid
 	torrentID, err := c.AddMagnet(ctx, magnetLink)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("failed to add magnet: %w", err)
 	}
+	fmt.Printf("[RD-DEBUG] Added magnet, torrent ID: %s\n", torrentID)
 
-	// Wait for torrent to be ready
+	// Wait for torrent to be ready (cached torrents are instant)
 	time.Sleep(2 * time.Second)
 
 	// Get torrent info to find the largest file
 	info, err := c.GetTorrentInfo(ctx, torrentID)
 	if err != nil {
-		return "", err
+		// Clean up the torrent if we can't get info
+		_ = c.DeleteTorrent(ctx, torrentID)
+		return "", fmt.Errorf("failed to get torrent info: %w", err)
 	}
+	fmt.Printf("[RD-DEBUG] Torrent status: %s, Links: %d, Bytes: %d\n", info.Status, len(info.Links), info.Bytes)
 
+	// Check if torrent is ready - should be "downloaded" for cached torrents
 	if info.Status != "downloaded" && info.Status != "waiting_files_selection" {
-		return "", fmt.Errorf("torrent not ready: %s", info.Status)
+		_ = c.DeleteTorrent(ctx, torrentID)
+		return "", fmt.Errorf("torrent not cached (status: %s)", info.Status)
 	}
 
 	// Select all files
 	if info.Status == "waiting_files_selection" {
+		fmt.Printf("[RD-DEBUG] Selecting files for torrent %s\n", torrentID)
 		if err := c.SelectFiles(ctx, torrentID, []int{1}); err != nil {
-			return "", err
+			_ = c.DeleteTorrent(ctx, torrentID)
+			return "", fmt.Errorf("failed to select files: %w", err)
 		}
 		time.Sleep(1 * time.Second)
 		
 		// Refresh info
 		info, err = c.GetTorrentInfo(ctx, torrentID)
 		if err != nil {
-			return "", err
+			_ = c.DeleteTorrent(ctx, torrentID)
+			return "", fmt.Errorf("failed to refresh torrent info: %w", err)
+		}
+		fmt.Printf("[RD-DEBUG] After file selection - Status: %s, Links: %d\n", info.Status, len(info.Links))
+		
+		// If still not downloaded after selection, it's not cached - delete it
+		if info.Status != "downloaded" {
+			fmt.Printf("[RD-DEBUG] Torrent not instantly cached (status: %s), deleting...\n", info.Status)
+			_ = c.DeleteTorrent(ctx, torrentID)
+			return "", fmt.Errorf("torrent not cached on RD (status: %s)", info.Status)
 		}
 	}
 
 	// Get the first link
 	if len(info.Links) == 0 {
-		return "", fmt.Errorf("no links available")
+		_ = c.DeleteTorrent(ctx, torrentID)
+		return "", fmt.Errorf("no download links available (status: %s)", info.Status)
 	}
 
+	fmt.Printf("[RD-DEBUG] Unrestricting link: %s\n", info.Links[0])
 	// Unrestrict the link to get direct download URL
 	unrestricted, err := c.UnrestrictLink(ctx, info.Links[0])
 	if err != nil {
-		return "", err
+		_ = c.DeleteTorrent(ctx, torrentID)
+		return "", fmt.Errorf("failed to unrestrict link: %w", err)
 	}
 
-	// Return streaming URL instead of direct download
-	// Format: https://real-debrid.com/streaming-{id}
-	return fmt.Sprintf("https://real-debrid.com/streaming-%s", unrestricted.ID), nil
+	// Return the direct download URL for streaming
+	// Use the 'download' field which is the actual streaming URL
+	if unrestricted.Download != "" {
+		fmt.Printf("[RD-DEBUG] Got download URL: %s\n", unrestricted.Download)
+		return unrestricted.Download, nil
+	}
+	
+	fmt.Printf("[RD-DEBUG] Got link URL: %s\n", unrestricted.Link)
+	return unrestricted.Link, nil
 }
 
 // DeleteTorrent removes a torrent from Real-Debrid

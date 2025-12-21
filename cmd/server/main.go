@@ -414,13 +414,14 @@ func main() {
 	}
 	log.Println("✓ Stremio Addons enabled:", enabledAddons)
 
-	// Create HTTP server
+	// Create HTTP server with extended timeouts for stream fetching
+	// Stremio addons can take up to 120 seconds to respond
 	server := &http.Server{
 		Addr:         fmt.Sprintf(":%d", cfg.ServerPort),
 		Handler:      router,
-		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 15 * time.Second,
-		IdleTimeout:  60 * time.Second,
+		ReadTimeout:  180 * time.Second, // 3 minutes for slow clients
+		WriteTimeout: 180 * time.Second, // 3 minutes to fetch and redirect streams
+		IdleTimeout:  120 * time.Second, // 2 minutes idle
 	}
 
 	// Start server in a goroutine
