@@ -3,8 +3,8 @@ import { useQuery } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
 import { streamarrApi, tmdbImageUrl } from '../services/api';
 import { 
-  Play, ChevronLeft, ChevronRight, X, Plus, 
-  Tv, Film, Loader2, ChevronDown, Search, Trash2
+  ChevronLeft, ChevronRight, ArrowLeft, X,
+  Tv, Film, Loader2, ChevronDown, Search, Trash2, Star, Calendar
 } from 'lucide-react';
 import type { Movie, Series, Episode } from '../types';
 
@@ -129,91 +129,105 @@ function DetailModal({
   }, [onClose]);
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto" onClick={onClose}>
-      <div className="min-h-screen bg-black/80 backdrop-blur-sm flex items-start justify-center py-8 px-4">
-        <div 
-          className="relative w-full max-w-5xl bg-[#181818] rounded-xl overflow-hidden shadow-2xl"
-          onClick={(e) => e.stopPropagation()}
+    <div className="fixed inset-0 z-50 bg-[#141414] overflow-y-auto">
+      {/* Full-screen hero section */}
+      <div className="relative min-h-[85vh] w-full">
+        {/* Background image */}
+        <div className="absolute inset-0">
+          {media.backdrop_path ? (
+            <img
+              src={tmdbImageUrl(media.backdrop_path, 'original')}
+              alt={media.title}
+              className="w-full h-full object-cover"
+            />
+          ) : media.poster_path ? (
+            <img
+              src={tmdbImageUrl(media.poster_path, 'original')}
+              alt={media.title}
+              className="w-full h-full object-cover object-top"
+            />
+          ) : (
+            <div className="w-full h-full bg-gradient-to-br from-slate-800 to-slate-950" />
+          )}
+          {/* Gradient overlays */}
+          <div className="absolute inset-0 bg-gradient-to-r from-[#141414] via-[#141414]/60 to-transparent" />
+          <div className="absolute inset-0 bg-gradient-to-t from-[#141414] via-transparent to-[#141414]/30" />
+          <div className="absolute bottom-0 left-0 right-0 h-64 bg-gradient-to-t from-[#141414] to-transparent" />
+        </div>
+
+        {/* Back button */}
+        <button
+          onClick={onClose}
+          className="absolute top-6 left-6 z-30 flex items-center gap-2 px-4 py-2 rounded-full bg-black/50 hover:bg-black/70 backdrop-blur-sm transition-all group"
         >
-          {/* Close button */}
-          <button
-            onClick={onClose}
-            className="absolute top-4 right-4 z-30 p-2 rounded-full bg-[#181818] hover:bg-[#282828] transition-colors"
-          >
-            <X className="w-6 h-6 text-white" />
-          </button>
+          <ArrowLeft className="w-5 h-5 text-white group-hover:scale-110 transition-transform" />
+          <span className="text-white font-medium">Back</span>
+        </button>
 
-          {/* Hero section */}
-          <div className="relative aspect-video max-h-[60vh]">
-            {media.backdrop_path ? (
-              <img
-                src={tmdbImageUrl(media.backdrop_path, 'w1280')}
-                alt={media.title}
-                className="w-full h-full object-cover"
-              />
-            ) : media.poster_path ? (
-              <img
-                src={tmdbImageUrl(media.poster_path, 'w780')}
-                alt={media.title}
-                className="w-full h-full object-cover"
-              />
-            ) : (
-              <div className="w-full h-full bg-gradient-to-br from-slate-700 to-slate-900" />
-            )}
-            <div className="absolute inset-0 bg-gradient-to-t from-[#181818] via-[#181818]/20 to-transparent" />
-            
-            {/* Title and buttons */}
-            <div className="absolute bottom-6 left-8 right-8">
-              <h1 className="text-3xl md:text-5xl font-black text-white mb-4 drop-shadow-lg">{media.title}</h1>
-              <div className="flex items-center gap-3 flex-wrap">
-                <button 
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    alert('⚠️ Playback temporarily disabled\n\nWe are working on fixing stream provider rate limiting issues. Please check back soon!');
-                  }}
-                  className="flex items-center gap-2 px-6 py-2 bg-gray-600 text-white font-bold rounded hover:bg-gray-500 transition-colors"
-                  title="Playback temporarily disabled"
-                >
-                  <Play className="w-5 h-5 fill-white" />
-                  Play
-                </button>
-                <button className="p-2 rounded-full border-2 border-gray-400 hover:border-white transition-colors" title="Add to My List">
-                  <Plus className="w-5 h-5 text-white" />
-                </button>
-                <button 
-                  onClick={() => setShowRemoveConfirm(true)}
-                  className="p-2 rounded-full border-2 border-red-600 hover:border-red-500 hover:bg-red-600/20 transition-colors" 
-                  title="Remove from Library"
-                >
-                  <Trash2 className="w-5 h-5 text-red-600" />
-                </button>
-              </div>
-            </div>
-          </div>
-
-          {/* Content section */}
-          <div className="p-6 md:p-8">
-            {/* Meta info */}
-            <div className="flex flex-wrap items-center gap-3 mb-4">
-              {media.vote_average && media.vote_average > 0 && (
-                <span className="text-green-400 font-bold text-lg">
-                  {(media.vote_average * 10).toFixed(0)}% Match
-                </span>
-              )}
-              {media.year && <span className="text-slate-400 text-lg">{media.year}</span>}
-              <span className={`px-2 py-1 rounded text-xs font-bold ${
+        {/* Content info - positioned at bottom left */}
+        <div className="absolute bottom-16 left-0 right-0 px-8 md:px-16 lg:px-20">
+          <div className="max-w-3xl">
+            {/* Type badge */}
+            <div className="flex items-center gap-3 mb-4">
+              <span className={`px-3 py-1 rounded-md text-sm font-bold uppercase tracking-wide ${
                 media.type === 'movie' ? 'bg-purple-600' : 'bg-green-600'
               } text-white`}>
-                {media.type === 'movie' ? 'MOVIE' : 'SERIES'}
+                {media.type === 'movie' ? 'Movie' : 'Series'}
               </span>
+            </div>
+
+            {/* Title */}
+            <h1 className="text-4xl md:text-6xl lg:text-7xl font-black text-white mb-6 drop-shadow-2xl leading-tight">
+              {media.title}
+            </h1>
+
+            {/* Meta info row */}
+            <div className="flex flex-wrap items-center gap-4 mb-6">
+              {media.vote_average && media.vote_average > 0 && (
+                <div className="flex items-center gap-1.5">
+                  <Star className="w-5 h-5 text-yellow-400 fill-yellow-400" />
+                  <span className="text-white font-bold text-lg">
+                    {media.vote_average.toFixed(1)}
+                  </span>
+                </div>
+              )}
+              {media.year && (
+                <div className="flex items-center gap-1.5">
+                  <Calendar className="w-5 h-5 text-slate-400" />
+                  <span className="text-slate-300 text-lg">{media.year}</span>
+                </div>
+              )}
+              {media.type === 'series' && seasons.length > 0 && (
+                <div className="flex items-center gap-1.5">
+                  <Tv className="w-5 h-5 text-slate-400" />
+                  <span className="text-slate-300 text-lg">{seasons.length} Season{seasons.length !== 1 ? 's' : ''}</span>
+                </div>
+              )}
             </div>
 
             {/* Overview */}
             {media.overview && (
-              <p className="text-slate-300 text-base md:text-lg mb-8 leading-relaxed max-w-4xl">
+              <p className="text-slate-200 text-lg md:text-xl leading-relaxed mb-8 line-clamp-4">
                 {media.overview}
               </p>
             )}
+
+            {/* Action buttons */}
+            <div className="flex items-center gap-4">
+              <button 
+                onClick={() => setShowRemoveConfirm(true)}
+                className="flex items-center gap-2 px-6 py-3 bg-red-600 hover:bg-red-500 text-white font-semibold rounded-lg transition-all hover:scale-105" 
+              >
+                <Trash2 className="w-5 h-5" />
+                Remove from Library
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Content sections - below the hero */}
+      <div className="relative z-10 px-8 md:px-16 lg:px-20 pb-20 -mt-8 bg-[#141414]">
 
             {/* Series Episodes */}
             {media.type === 'series' && (
@@ -285,53 +299,55 @@ function DetailModal({
                 ) : (
                   <div className="grid gap-2">
                     {streams.map((stream: any, index: number) => (
-                      <StreamCard key={index} stream={stream} forceFullName={showFullStreamNames} />
+                      <StreamCard 
+                        key={index} 
+                        stream={stream} 
+                        forceFullName={showFullStreamNames}
+                      />
                     ))}
                   </div>
                 )}
               </div>
             )}
-          </div>
-
-          {/* Remove Confirmation Dialog */}
-          {showRemoveConfirm && (
-            <div className="absolute inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-40" onClick={() => setShowRemoveConfirm(false)}>
-              <div className="bg-[#242424] rounded-lg p-6 max-w-md mx-4" onClick={(e) => e.stopPropagation()}>
-                <h3 className="text-xl font-bold text-white mb-2">Remove from Library?</h3>
-                <p className="text-slate-300 mb-4">
-                  This will permanently remove "{media.title}" from your library and add it to the blacklist to prevent re-importing.
-                </p>
-                <div className="flex gap-3 justify-end">
-                  <button
-                    onClick={() => setShowRemoveConfirm(false)}
-                    disabled={removing}
-                    className="px-4 py-2 bg-slate-600 hover:bg-slate-500 text-white rounded transition-colors disabled:opacity-50"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={handleRemoveAndBlacklist}
-                    disabled={removing}
-                    className="px-4 py-2 bg-red-600 hover:bg-red-500 text-white rounded transition-colors disabled:opacity-50 flex items-center gap-2"
-                  >
-                    {removing ? (
-                      <>
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                        Removing...
-                      </>
-                    ) : (
-                      <>
-                        <Trash2 className="w-4 h-4" />
-                        Remove & Blacklist
-                      </>
-                    )}
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
       </div>
+
+      {/* Remove Confirmation Dialog */}
+      {showRemoveConfirm && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[60]" onClick={() => setShowRemoveConfirm(false)}>
+          <div className="bg-[#242424] rounded-lg p-6 max-w-md mx-4" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-xl font-bold text-white mb-2">Remove from Library?</h3>
+            <p className="text-slate-300 mb-4">
+              This will permanently remove "{media.title}" from your library and add it to the blacklist to prevent re-importing.
+            </p>
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={() => setShowRemoveConfirm(false)}
+                disabled={removing}
+                className="px-4 py-2 bg-slate-600 hover:bg-slate-500 text-white rounded transition-colors disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleRemoveAndBlacklist}
+                disabled={removing}
+                className="px-4 py-2 bg-red-600 hover:bg-red-500 text-white rounded transition-colors disabled:opacity-50 flex items-center gap-2"
+              >
+                {removing ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Removing...
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="w-4 h-4" />
+                    Remove & Blacklist
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -393,12 +409,6 @@ function EpisodeCard({ episode, seriesImdbId }: { episode: Episode; seriesImdbId
               <Tv className="w-8 h-8 text-slate-600" />
             </div>
           )}
-          {/* Play overlay */}
-          <div className="absolute inset-0 flex items-center justify-center bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity">
-            <div className="p-3 rounded-full bg-white/20 backdrop-blur-sm border border-white/30">
-              <Play className="w-6 h-6 text-white fill-white" />
-            </div>
-          </div>
         </div>
 
         {/* Episode info */}
@@ -441,7 +451,12 @@ function EpisodeCard({ episode, seriesImdbId }: { episode: Episode; seriesImdbId
             <div className="space-y-2">
               <p className="text-sm text-slate-500 mb-3 font-medium">{streams.length} streams available</p>
               {streams.slice(0, 15).map((stream: any, index: number) => (
-                <StreamCard key={index} stream={stream} compact forceFullName={showFullStreamNames} />
+                <StreamCard 
+                  key={index} 
+                  stream={stream} 
+                  compact 
+                  forceFullName={showFullStreamNames}
+                />
               ))}
               {streams.length > 15 && (
                 <p className="text-sm text-slate-500 text-center pt-3">
@@ -537,17 +552,6 @@ function StreamCard({ stream, compact = false, forceFullName = false }: { stream
           )}
         </div>
       </div>
-
-      <button
-        onClick={(e) => {
-          e.stopPropagation();
-          alert('⚠️ Playback temporarily disabled\n\nWe are working on fixing stream provider rate limiting issues. Please check back soon!');
-        }}
-        className="flex-shrink-0 p-2.5 rounded-full bg-gray-600 hover:bg-gray-500 hover:scale-110 transition-all opacity-70 group-hover:opacity-100"
-        title="Playback temporarily disabled"
-      >
-        <Play className="w-4 h-4 text-white fill-white" />
-      </button>
     </div>
   );
 }
@@ -562,6 +566,10 @@ export default function Library() {
 
   // Get current view from URL params (default to 'all')
   const currentView = searchParams.get('view') || 'all';
+  
+  // Get direct media ID from URL params (for linking from dashboard)
+  const movieIdParam = searchParams.get('movie');
+  const seriesIdParam = searchParams.get('series');
 
   // Fetch movies
   const { data: movies = [], isLoading: moviesLoading } = useQuery({
@@ -660,6 +668,33 @@ export default function Library() {
   useEffect(() => {
     setCurrentPage(1);
   }, [currentView]);
+
+  // Auto-open detail modal when movie/series ID is in URL (from dashboard links)
+  useEffect(() => {
+    if (!isLoading && allMedia.length > 0) {
+      if (movieIdParam) {
+        const movie = allMedia.find(m => m.type === 'movie' && m.id === parseInt(movieIdParam));
+        if (movie) {
+          setSelectedMedia(movie);
+          // Clear the URL param after opening
+          setSearchParams(prev => {
+            prev.delete('movie');
+            return prev;
+          });
+        }
+      } else if (seriesIdParam) {
+        const show = allMedia.find(m => m.type === 'series' && m.id === parseInt(seriesIdParam));
+        if (show) {
+          setSelectedMedia(show);
+          // Clear the URL param after opening
+          setSearchParams(prev => {
+            prev.delete('series');
+            return prev;
+          });
+        }
+      }
+    }
+  }, [movieIdParam, seriesIdParam, allMedia, isLoading, setSearchParams]);
 
   // View titles
   const viewTitles: Record<string, string> = {

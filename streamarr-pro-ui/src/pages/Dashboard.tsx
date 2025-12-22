@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { streamarrApi, tmdbImageUrl } from '../services/api';
-import { Film, Tv, Layers, Radio, TrendingUp, Clock, Star, ChevronRight, Calendar, Play } from 'lucide-react';
+import { Film, Tv, Layers, Radio, TrendingUp, Clock, Star, ChevronRight, Calendar } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import type { Movie, Series, CalendarEntry } from '../types';
 import { useState } from 'react';
@@ -252,7 +252,7 @@ function ContentSection({
         {items.slice(0, 8).map((item) => (
           <Link
             key={item.id}
-            to={`/${type === 'movie' ? 'movies' : 'series'}/${item.tmdb_id || item.id}`}
+            to={`/library?${type === 'movie' ? 'movie' : 'series'}=${item.id}`}
             className="flex-shrink-0 w-36 group relative"
             onMouseEnter={() => setHoveredItem(item.id)}
             onMouseLeave={() => setHoveredItem(null)}
@@ -292,13 +292,8 @@ function ContentSection({
 
               {/* Hover overlay with info */}
               <div className={`absolute inset-0 bg-gradient-to-t from-black via-black/50 to-transparent flex flex-col justify-end p-3 transition-opacity duration-200 ${hoveredItem === item.id ? 'opacity-100' : 'opacity-0'}`}>
-                <div className="flex items-center justify-center mb-2">
-                  <div className="w-10 h-10 rounded-full bg-red-600 flex items-center justify-center">
-                    <Play className="w-5 h-5 text-white fill-white ml-0.5" />
-                  </div>
-                </div>
                 {item.overview && (
-                  <p className="text-white/80 text-xs line-clamp-3 text-center">{item.overview}</p>
+                  <p className="text-white/80 text-xs line-clamp-4 text-center">{item.overview}</p>
                 )}
               </div>
             </div>
