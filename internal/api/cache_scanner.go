@@ -151,7 +151,7 @@ func (cs *CacheScanner) ScanAndUpgrade(ctx context.Context) error {
 		if err != nil {
 			log.Printf("[CACHE-SCANNER] Error fetching streams for %s (%s): %v", movie.Title, imdbID, err)
 			// Add delay on error to avoid rate limiting
-			time.Sleep(5 * time.Second)
+			time.Sleep(10 * time.Second)
 			continue
 		}
 		if len(providerStreams) == 0 {
@@ -161,10 +161,10 @@ func (cs *CacheScanner) ScanAndUpgrade(ctx context.Context) error {
 			continue
 		}
 		
-		// Add small delay between requests to avoid rate limiting
-		time.Sleep(500 * time.Millisecond)
-		
 		log.Printf("[CACHE-SCANNER] Found %d streams for %s (%s)", len(providerStreams), movie.Title, imdbID)
+		
+		// Add delay between requests to avoid rate limiting (Torrentio has strict limits)
+		time.Sleep(2 * time.Second)
 
 		// Check which streams are cached in RD
 		// Extract hashes from URL if InfoHash is empty (happens with Torrentio+RD)
