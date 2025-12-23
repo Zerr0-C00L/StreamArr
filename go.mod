@@ -1,6 +1,6 @@
 module github.com/Zerr0-C00L/StreamArr
 
-go 1.24.0
+go 1.23
 
 require (
 	github.com/gorilla/mux v1.8.1
