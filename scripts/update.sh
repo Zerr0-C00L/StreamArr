@@ -69,11 +69,17 @@ if [ -f /.dockerenv ]; then
             # Fetch latest code and tags
             log "Fetching latest code and tags..."
             git fetch --all --tags --prune 2>&1 | tee -a "$LOG_FILE"
-            git reset --hard origin/$BRANCH 2>&1 | tee -a "$LOG_FILE"
             
-            # Ensure we're on the branch, not detached HEAD
-            git checkout $BRANCH 2>&1 | tee -a "$LOG_FILE" || true
-            git pull origin $BRANCH 2>&1 | tee -a "$LOG_FILE"
+            # Determine if BRANCH is a tag or a branch
+            if git show-ref --verify --quiet "refs/tags/$BRANCH"; then
+                log "Checking out tag: $BRANCH"
+                git checkout "tags/$BRANCH" 2>&1 | tee -a "$LOG_FILE"
+            else
+                log "Checking out branch: $BRANCH"
+                git reset --hard origin/$BRANCH 2>&1 | tee -a "$LOG_FILE"
+                git checkout $BRANCH 2>&1 | tee -a "$LOG_FILE" || true
+                git pull origin $BRANCH 2>&1 | tee -a "$LOG_FILE"
+            fi
             
             # Get version info from git after ensuring we have all tags
             VERSION=$(git describe --tags --abbrev=0 2>/dev/null || git describe --always 2>/dev/null || echo "main")
@@ -201,8 +207,16 @@ log "Using Go binary: $GO_BIN"
 
 # Pull latest changes
 log "Pulling latest changes from GitHub..."
-git fetch origin "$BRANCH"
-git reset --hard "origin/$BRANCH"
+git fetch --all --tags
+
+# Determine if BRANCH is a tag or a branch
+if git show-ref --verify --quiet "refs/tags/$BRANCH"; then
+    log "Checking out tag: $BRANCH"
+    git checkout "tags/$BRANCH"
+else
+    log "Resetting to branch: origin/$BRANCH"
+    git reset --hard "origin/$BRANCH"
+fi
 
 # Get version info
 COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
