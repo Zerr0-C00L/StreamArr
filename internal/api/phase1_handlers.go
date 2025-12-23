@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strconv"
 	
+	"github.com/gorilla/mux"
 	"github.com/Zerr0-C00L/StreamArr/internal/services/streams"
 )
 
@@ -230,5 +232,35 @@ func (h *Handler) CleanupUnreleasedCache(w http.ResponseWriter, r *http.Request)
 		"success": true,
 		"deleted": deleted,
 		"message": fmt.Sprintf("Cleaned up %d cached streams for unreleased movies", deleted),
+	})
+}
+
+// DeleteCachedStream deletes a cached stream by movie ID
+func (h *Handler) DeleteCachedStream(w http.ResponseWriter, r *http.Request) {
+	if h.streamCacheStore == nil {
+		respondError(w, http.StatusServiceUnavailable, "stream cache not enabled")
+		return
+	}
+
+	vars := mux.Vars(r)
+	movieIDStr := vars["id"]
+	
+	movieID, err := strconv.Atoi(movieIDStr)
+	if err != nil {
+		respondError(w, http.StatusBadRequest, "invalid movie ID")
+		return
+	}
+
+	ctx := r.Context()
+	if err := h.streamCacheStore.DeleteCachedStream(ctx, movieID); err != nil {
+		log.Printf("[DELETE-CACHE] Error deleting cache for movie %d: %v", movieID, err)
+		respondError(w, http.StatusInternalServerError, "failed to delete cached stream")
+		return
+	}
+
+	log.Printf("[DELETE-CACHE] Deleted cached stream for movie ID %d", movieID)
+	respondJSON(w, http.StatusOK, map[string]interface{}{
+		"success": true,
+		"message": fmt.Sprintf("Deleted cached stream for movie ID %d", movieID),
 	})
 }
