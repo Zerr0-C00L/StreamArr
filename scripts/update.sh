@@ -241,6 +241,17 @@ BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 # Package path for ldflags
 PKG="github.com/Zerr0-C00L/StreamArr/internal/api"
 
+# Build frontend if node is available
+if command -v npm &> /dev/null; then
+    log "Building frontend..."
+    cd streamarr-pro-ui
+    npm install >> "$LOG_FILE" 2>&1 || log "Warning: npm install failed"
+    npm run build >> "$LOG_FILE" 2>&1 || log "Warning: npm build failed"
+    cd ..
+else
+    log "Warning: npm not found, skipping frontend build"
+fi
+
 # Build new server binary with version info
 log "Building new server binary..."
 $GO_BIN build -ldflags "-X ${PKG}.Version=latest -X ${PKG}.Commit=${COMMIT} -X ${PKG}.BuildDate=${BUILD_DATE}" \
