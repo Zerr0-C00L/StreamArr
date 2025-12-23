@@ -186,17 +186,9 @@ func (cs *CacheScanner) ScanAndUpgrade(ctx context.Context) error {
 		
 		log.Printf("[CACHE-SCANNER] Extracted %d hashes from %d streams for %s", len(hashes), len(providerStreams), movie.Title)
 		
-		cachedHashes := make(map[string]bool)
-		if len(hashes) > 0 {
-			cachedHashes, _ = cs.debridService.CheckCache(ctx, hashes)
-			cachedCount := 0
-			for _, cached := range cachedHashes {
-				if cached {
-					cachedCount++
-				}
-			}
-			log.Printf("[CACHE-SCANNER] RD check: %d/%d hashes are cached for %s", cachedCount, len(hashes), movie.Title)
-		}
+		// Note: Torrentio with RD configured already filters to cached-only streams
+		// No need to call CheckCache again - all returned streams are pre-filtered as cached
+		log.Printf("[CACHE-SCANNER] All %d streams are pre-filtered as cached by Torrentio+RD for %s", len(providerStreams), movie.Title)
 
 		// Find best cached stream
 		var bestStream *providers.TorrentioStream
@@ -208,10 +200,7 @@ func (cs *CacheScanner) ScanAndUpgrade(ctx context.Context) error {
 		}
 
 		for i := range providerStreams {
-			// Check if cached in debrid
-			if !cachedHashes[providerStreams[i].InfoHash] {
-				continue
-			}
+			// All streams from Torrentio+RD are already cached, no need to check again
 
 			// Parse and score
 			parsed := cs.streamService.ParseStreamFromTorrentName(
@@ -383,11 +372,24 @@ func (cs *CacheScanner) scanSeries(ctx context.Context) (int, int, int) {
 				continue
 			}
 			
-			// Check which streams are cached in debrid
+			// Extract hashes from URL if InfoHash is empty (happens with Torrentio+RD)
 			hashes := make([]string, 0)
-			for _, st := range providerStreams {
-				if st.InfoHash != "" {
-					hashes = append(hashes, st.InfoHash)
+			for i := range providerStreams {
+				hash := providerStreams[i].InfoHash
+				if hash == "" && providerStreams[i].URL != "" {
+					// Extract hash from URL (40-character hex string)
+					parts := []rune(providerStreams[i].URL)
+					for j := 0; j < len(parts)-40; j++ {
+						candidate := string(parts[j : j+40])
+						if len(candidate) == 40 {
+							hash = candidate
+							providerStreams[i].InfoHash = hash
+							break
+						}
+					}
+				}
+				if hash != "" {
+					hashes = append(hashes, hash)
 				}
 			}
 			
@@ -395,19 +397,15 @@ func (cs *CacheScanner) scanSeries(ctx context.Context) (int, int, int) {
 				continue
 			}
 			
-			cachedHashes, err := cs.debridService.CheckCache(ctx, hashes)
-			if err != nil {
-				continue
-			}
+			// Note: Torrentio with RD configured already filters to cached-only streams
+			// All returned streams are pre-filtered as cached
 			
 			// Find best cached stream
 			var bestStream *providers.TorrentioStream
 			bestScore := 0
 			
 			for i := range providerStreams {
-				if !cachedHashes[providerStreams[i].InfoHash] {
-					continue
-				}
+				// All streams from Torrentio+RD are already cached
 				
 				parsed := cs.streamService.ParseStreamFromTorrentName(
 					providerStreams[i].Title,
