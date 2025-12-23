@@ -2440,6 +2440,43 @@ export default function Settings() {
                   {settings?.enable_release_filters && (
                     <div className="space-y-4 p-4 bg-white/5 rounded-lg">
                       <div>
+                        <div className="flex items-center gap-2 mb-3">
+                          <input
+                            type="checkbox"
+                            id="exclude_hdr"
+                            checked={settings?.excluded_qualities?.includes('HDR') || false}
+                            onChange={(e) => {
+                              const currentQualities = settings?.excluded_qualities || '';
+                              const hdrTerms = ['HDR', 'HDR10', 'HDR10+', 'DOLBY VISION', 'DV'];
+                              
+                              if (e.target.checked) {
+                                // Add HDR terms if not present
+                                const qualitiesArray = currentQualities.split(',').map(q => q.trim()).filter(q => q);
+                                hdrTerms.forEach(term => {
+                                  if (!qualitiesArray.includes(term)) {
+                                    qualitiesArray.push(term);
+                                  }
+                                });
+                                updateSetting('excluded_qualities', qualitiesArray.join(','));
+                              } else {
+                                // Remove HDR terms
+                                const qualitiesArray = currentQualities.split(',').map(q => q.trim()).filter(q => q);
+                                const filtered = qualitiesArray.filter(q => !hdrTerms.includes(q.toUpperCase()));
+                                updateSetting('excluded_qualities', filtered.join(','));
+                              }
+                            }}
+                            className="w-4 h-4 bg-[#2a2a2a] border-white/10 rounded focus:ring-blue-500"
+                          />
+                          <label htmlFor="exclude_hdr" className="text-sm font-medium text-slate-300">
+                            🚫 Exclude ALL HDR Content (HDR10, HDR10+, Dolby Vision)
+                          </label>
+                        </div>
+                        <p className="text-xs text-slate-500 ml-6">
+                          Block all HDR/Dolby Vision streams from searches and cache upgrades. Only SDR content will be cached.
+                        </p>
+                      </div>
+
+                      <div>
                         <label className="block text-sm font-medium text-slate-300 mb-2">
                           Blocked Release Groups
                         </label>
