@@ -1,6 +1,6 @@
 module github.com/Zerr0-C00L/StreamArr
 
-go 1.23
+go 1.24.0
 
 require (
 	github.com/gorilla/mux v1.8.1
@@ -12,4 +12,4 @@ require (
 	golang.org/x/crypto v0.46.0
 )
 
-require github.com/golang-jwt/jwt/v5 v5.3.0 // indirect
+require github.com/golang-jwt/jwt/v5 v5.3.0

@@ -308,6 +308,8 @@ export default function Settings() {
   }>>([]);
   const [cacheFilter, setCacheFilter] = useState<'all' | 'available' | 'unavailable' | 'upgrades'>('all');
   const [refreshingCache, setRefreshingCache] = useState(false);
+  const [selectedCacheIds, setSelectedCacheIds] = useState<Set<number>>(new Set());
+  const [deletingCache, setDeletingCache] = useState(false);
 
   // State - Services/Database
   const [services, setServices] = useState<ServiceStatus[]>([]);
@@ -526,6 +528,67 @@ export default function Settings() {
       setRefreshingCache(false);
     }
   };
+
+  // Cache selection functions
+  const toggleCacheSelection = (movieId: number) => {
+    const newSelected = new Set(selectedCacheIds);
+    if (newSelected.has(movieId)) {
+      newSelected.delete(movieId);
+    } else {
+      newSelected.add(movieId);
+    }
+    setSelectedCacheIds(newSelected);
+  };
+
+  const toggleSelectAllCache = () => {
+    const filtered = (cachedMovies || []).filter(movie => {
+      if (cacheFilter === 'available') return movie.is_available;
+      if (cacheFilter === 'unavailable') return !movie.is_available;
+      if (cacheFilter === 'upgrades') return movie.upgrade_available;
+      return true;
+    });
+    
+    if (selectedCacheIds.size === filtered.length) {
+      setSelectedCacheIds(new Set());
+    } else {
+      setSelectedCacheIds(new Set(filtered.map(m => m.movie_id)));
+    }
+  };
+
+  const deleteSelectedCached = async () => {
+    if (selectedCacheIds.size === 0) {
+      return;
+    }
+    
+    if (!confirm(`Delete ${selectedCacheIds.size} cached stream(s)? This cannot be undone.`)) {
+      return;
+    }
+    
+    try {
+      setDeletingCache(true);
+      const movieIds = Array.from(selectedCacheIds);
+      
+      await Promise.all(
+        movieIds.map(id => api.delete(`/streams/cache/${id}`))
+      );
+      
+      alert(`✅ Deleted ${selectedCacheIds.size} cached stream(s)`);
+      setSelectedCacheIds(new Set());
+      await fetchCacheData(); // Refresh the list
+    } catch (error) {
+      console.error('Failed to delete cached streams:', error);
+      alert('❌ Failed to delete cached streams');
+    } finally {
+      setDeletingCache(false);
+    }
+  };
+
+  const isAllCacheSelected = cachedMovies.length > 0 && selectedCacheIds.size === cachedMovies.filter(movie => {
+    if (cacheFilter === 'available') return movie.is_available;
+    if (cacheFilter === 'unavailable') return !movie.is_available;
+    if (cacheFilter === 'upgrades') return movie.upgrade_available;
+    return true;
+  }).length;
 
 
   // Auto-save on every setting change
@@ -4325,12 +4388,33 @@ export default function Settings() {
               </button>
             </div>
 
+            {/* Delete Selected Button */}
+            {selectedCacheIds.size > 0 && (
+              <button
+                onClick={deleteSelectedCached}
+                disabled={deletingCache}
+                className="px-4 py-2 bg-red-600 hover:bg-red-700 rounded-lg text-white flex items-center gap-2 disabled:opacity-50"
+              >
+                <Trash2 className="w-4 h-4" />
+                Delete Selected ({selectedCacheIds.size})
+              </button>
+            )}
+
             {/* Movies Table */}
             <div className="bg-[#1e1e1e] rounded-xl border border-white/10 overflow-hidden">
               <div className="overflow-x-auto">
                 <table className="w-full">
                   <thead className="bg-slate-800/50 border-b border-white/10">
                     <tr>
+                      <th className="px-4 py-3 text-left text-sm font-medium text-slate-300 w-10">
+                        <input
+                          type="checkbox"
+                          checked={isAllCacheSelected}
+                          onChange={toggleSelectAllCache}
+                          className="w-4 h-4 rounded cursor-pointer"
+                          title="Select all"
+                        />
+                      </th>
                       <th className="px-4 py-3 text-left text-sm font-medium text-slate-300">Movie</th>
                       <th className="px-4 py-3 text-left text-sm font-medium text-slate-300">Quality</th>
                       <th className="px-4 py-3 text-left text-sm font-medium text-slate-300">Resolution</th>
@@ -4372,7 +4456,7 @@ export default function Settings() {
                       if (filtered.length === 0) {
                         return (
                           <tr>
-                            <td colSpan={8} className="px-4 py-8 text-center text-slate-400">
+                            <td colSpan={9} className="px-4 py-8 text-center text-slate-400">
                               No cached streams found
                             </td>
                           </tr>
@@ -4380,7 +4464,19 @@ export default function Settings() {
                       }
 
                       return filtered.map((movie) => (
-                        <tr key={movie.movie_id} className="hover:bg-white/5 transition-colors">
+                        <tr key={movie.movie_id} className={`transition-colors ${
+                          selectedCacheIds.has(movie.movie_id)
+                            ? 'bg-blue-500/10'
+                            : 'hover:bg-white/5'
+                        }`}>
+                          <td className="px-4 py-3 text-center">
+                            <input
+                              type="checkbox"
+                              checked={selectedCacheIds.has(movie.movie_id)}
+                              onChange={() => toggleCacheSelection(movie.movie_id)}
+                              className="w-4 h-4 rounded cursor-pointer"
+                            />
+                          </td>
                           <td className="px-4 py-3">
                             <div>
                               <p className="text-white font-medium">{movie.title}</p>
