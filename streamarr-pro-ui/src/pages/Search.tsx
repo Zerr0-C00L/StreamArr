@@ -7,6 +7,7 @@ import {
   TrendingUp, Flame, ChevronLeft, ChevronRight, Star
 } from 'lucide-react';
 import type { SearchResult } from '../types';
+import MediaDetailsModal from '../components/MediaDetailsModal';
 
 export default function Search() {
   const [searchTerm, setSearchTerm] = useState('');
@@ -16,6 +17,7 @@ export default function Search() {
   const [addingId, setAddingId] = useState<number | null>(null);
   const [newlyAddedIds, setNewlyAddedIds] = useState<Set<number>>(new Set());
   const [trendingWindow, setTrendingWindow] = useState<'day' | 'week'>('day');
+  const [selectedMedia, setSelectedMedia] = useState<{ item: SearchResult | TrendingItem; mediaType: string } | null>(null);
 
   const queryClient = useQueryClient();
 
@@ -168,6 +170,7 @@ export default function Search() {
                     onAdd={handleAdd}
                     isAdding={addingId === (result.tmdb_id || result.id)}
                     isAdded={isInLibrary(result.tmdb_id || result.id)}
+                    onClick={setSelectedMedia}
                   />
                 ))}
               </div>
@@ -189,6 +192,7 @@ export default function Search() {
                     onAdd={handleAdd}
                     isAdding={addingId === (result.tmdb_id || result.id)}
                     isAdded={isInLibrary(result.tmdb_id || result.id)}
+                    onClick={setSelectedMedia}
                   />
                 ))}
               </div>
@@ -229,6 +233,7 @@ export default function Search() {
           onAdd={handleAdd}
           addingId={addingId}
           isInLibrary={isInLibrary}
+          onCardClick={setSelectedMedia}
         />
       </div>
 
@@ -244,6 +249,7 @@ export default function Search() {
           addingId={addingId}
           isInLibrary={isInLibrary}
           mediaType="movie"
+          onCardClick={setSelectedMedia}
         />
       </div>
 
@@ -259,8 +265,21 @@ export default function Search() {
           addingId={addingId}
           isInLibrary={isInLibrary}
           mediaType="tv"
+          onCardClick={setSelectedMedia}
         />
       </div>
+
+      {/* Media Details Modal */}
+      {selectedMedia && (
+        <MediaDetailsModal
+          item={selectedMedia.item}
+          mediaType={selectedMedia.mediaType}
+          onClose={() => setSelectedMedia(null)}
+          onAdd={handleAdd}
+          isAdding={addingId === (('tmdb_id' in selectedMedia.item && selectedMedia.item.tmdb_id) ? selectedMedia.item.tmdb_id : selectedMedia.item.id)}
+          isAdded={isInLibrary(('tmdb_id' in selectedMedia.item && selectedMedia.item.tmdb_id) ? selectedMedia.item.tmdb_id : selectedMedia.item.id)}
+        />
+      )}
     </div>
   );
 }
@@ -271,13 +290,15 @@ function ContentRow({
   onAdd, 
   addingId, 
   isInLibrary,
-  mediaType
+  mediaType,
+  onCardClick
 }: { 
   items: TrendingItem[]; 
   onAdd: (item: TrendingItem, type?: string) => void;
   addingId: number | null;
   isInLibrary: (id: number) => boolean;
   mediaType?: string;
+  onCardClick?: (media: { item: TrendingItem; mediaType: string }) => void;
 }) {
   const rowRef = useRef<HTMLDivElement>(null);
 
@@ -297,7 +318,7 @@ function ContentRow({
     <div className="relative group/row">
       <button
         onClick={() => scroll('left')}
-        className="absolute left-0 top-0 bottom-0 z-20 w-12 bg-gradient-to-r from-[#141414] to-transparent
+        className="absolute left-0 top-0 bottom-0 z-30 w-12 bg-gradient-to-r from-[#141414] to-transparent
                    flex items-center justify-center opacity-0 group-hover/row:opacity-100 transition-opacity"
       >
         <ChevronLeft className="w-8 h-8 text-white" />
@@ -316,13 +337,14 @@ function ContentRow({
             onAdd={onAdd}
             isAdding={addingId === item.id}
             isAdded={isInLibrary(item.id)}
+            onClick={onCardClick}
           />
         ))}
       </div>
 
       <button
         onClick={() => scroll('right')}
-        className="absolute right-0 top-0 bottom-0 z-20 w-12 bg-gradient-to-l from-[#141414] to-transparent
+        className="absolute right-0 top-0 bottom-0 z-30 w-12 bg-gradient-to-l from-[#141414] to-transparent
                    flex items-center justify-center opacity-0 group-hover/row:opacity-100 transition-opacity"
       >
         <ChevronRight className="w-8 h-8 text-white" />
@@ -337,13 +359,15 @@ function MediaCard({
   mediaType, 
   onAdd, 
   isAdding, 
-  isAdded 
+  isAdded,
+  onClick
 }: { 
   item: SearchResult | TrendingItem;
   mediaType: string;
   onAdd: (item: any, type: string) => void;
   isAdding: boolean;
   isAdded: boolean;
+  onClick?: (media: { item: SearchResult | TrendingItem; mediaType: string }) => void;
 }) {
   const title = item.title || item.name || 'Unknown';
   const posterPath = item.poster_path;
@@ -352,7 +376,10 @@ function MediaCard({
   const isMovie = mediaType === 'movie';
 
   return (
-    <div className="w-[150px] flex-shrink-0 group/card">
+    <div 
+      className="w-[150px] flex-shrink-0 group/card cursor-pointer"
+      onClick={() => onClick?.({ item, mediaType })}
+    >
       <div className="relative aspect-[2/3] rounded-lg overflow-hidden bg-[#333] mb-2">
         {posterPath ? (
           <img

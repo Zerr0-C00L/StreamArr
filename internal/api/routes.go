@@ -100,7 +100,6 @@ func SetupRoutes(handler *Handler) http.Handler {
 	api.HandleFunc("/settings", handler.GetSettings).Methods("GET")
 	api.HandleFunc("/settings", handler.UpdateSettings).Methods("PUT")
 
-
 	// Admin - System control
 	api.HandleFunc("/admin/restart", handler.Restart).Methods("POST")
 
@@ -339,6 +338,14 @@ func SetupRoutesWithXtream(handler *Handler, xtreamHandler interface{ RegisterRo
 
 	// Health check
 	api.HandleFunc("/health", handler.HealthCheck).Methods("GET")
+
+	// Phase 1: Stream Cache Monitoring
+	api.HandleFunc("/streams/cache/stats", handler.GetCacheStats).Methods("GET")
+	api.HandleFunc("/streams/cache/health", handler.GetLibraryHealth).Methods("GET")
+	api.HandleFunc("/streams/cache/duplicates", handler.GetDuplicates).Methods("GET")
+	api.HandleFunc("/streams/cache/upgrades", handler.GetUpgradesAvailable).Methods("GET")
+	api.HandleFunc("/streams/cache/list", handler.GetCachedMoviesList).Methods("GET")
+	api.HandleFunc("/streams/cache/scan", handler.TriggerCacheScan).Methods("POST")
 
 	// Movies
 	api.HandleFunc("/movies", handler.ListMovies).Methods("GET")

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -20,9 +21,12 @@ import (
 	"github.com/Zerr0-C00L/StreamArr/internal/database"
 	"github.com/Zerr0-C00L/StreamArr/internal/epg"
 	"github.com/Zerr0-C00L/StreamArr/internal/livetv"
+	"github.com/Zerr0-C00L/StreamArr/internal/models"
 	"github.com/Zerr0-C00L/StreamArr/internal/playlist"
 	"github.com/Zerr0-C00L/StreamArr/internal/providers"
 	"github.com/Zerr0-C00L/StreamArr/internal/services"
+	"github.com/Zerr0-C00L/StreamArr/internal/services/debrid"
+	"github.com/Zerr0-C00L/StreamArr/internal/services/streams"
 	"github.com/Zerr0-C00L/StreamArr/internal/settings"
 	"github.com/Zerr0-C00L/StreamArr/internal/xtream"
 )
@@ -58,6 +62,9 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to initialize user store: %v", err)
 	}
+	
+	// Initialize Phase 1 stream cache store
+	streamCacheStore := database.NewStreamCacheStore(db)
 	log.Println("Database stores initialized")
 
 	// Initialize settings manager and load from database
@@ -277,6 +284,52 @@ func main() {
 		}
 	}
 
+	// ============ PHASE 1: SMART STREAM CACHING SYSTEM ============
+	// Helper function to convert provider streams to Phase 1 format
+	convertProviderStreamsToPhase1 := func(providerStreams []providers.TorrentioStream) []models.TorrentStream {
+		phase1Streams := make([]models.TorrentStream, 0, len(providerStreams))
+		for _, ps := range providerStreams {
+			// Extract quality metadata from title/name
+			quality := ps.Quality
+			if quality == "" {
+				quality = "Unknown"
+			}
+			
+			// Convert size from bytes to GB
+			sizeGB := float64(ps.Size) / (1024 * 1024 * 1024)
+			
+			phase1Streams = append(phase1Streams, models.TorrentStream{
+				Hash:        ps.InfoHash,
+				Title:       ps.Title,
+				TorrentName: ps.Name,
+				Resolution:  quality,
+				SizeGB:      sizeGB,
+				Seeders:     ps.Seeders,
+				Indexer:     ps.Source,
+			})
+		}
+		return phase1Streams
+	}
+	
+	var debridService debrid.DebridService
+	var streamService *streams.StreamService
+	var streamChecker *streams.StreamChecker
+	
+	if cfg.RealDebridAPIKey != "" {
+		// Initialize Real-Debrid service
+		debridService = debrid.NewRealDebrid(cfg.RealDebridAPIKey, slog.Default())
+		log.Println("✓ Real-Debrid service initialized for Phase 1 caching")
+		
+		// Initialize stream service
+		streamService = streams.NewStreamService(debridService, slog.Default())
+		log.Println("✓ Stream service initialized with quality scoring")
+		
+		// Note: streamChecker will be initialized after multiProvider is created
+		log.Println("✓ Stream checker will be initialized with provider integration")
+	} else {
+		log.Println("⚠ Phase 1 caching disabled - Real-Debrid API key not configured")
+	}
+
 	// Initialize EPG manager
 	settings := settingsManager.Get()
 	epgManager := epg.NewEPGManager()
@@ -330,6 +383,70 @@ func main() {
 	// Create MultiProvider
 	multiProvider := providers.NewMultiProviderWithConfig(cfg.RealDebridAPIKey, stremioAddons, tmdbClient)
 	log.Printf("✓ Stream providers enabled: %v", multiProvider.ProviderNames)
+
+	// Phase 1: Initialize stream checker with provider integration
+	if cfg.RealDebridAPIKey != "" && debridService != nil && streamService != nil {
+		// Create indexer search function that uses multiProvider
+		indexerSearchFunc := func(ctx context.Context, movieID int) ([]models.TorrentStream, error) {
+			// Get movie from database to extract IMDB ID
+			movie, err := movieStore.Get(ctx, int64(movieID))
+			if err != nil {
+				return nil, fmt.Errorf("movie not found: %w", err)
+			}
+			
+			// Extract IMDB ID from metadata
+			var imdbID string
+			if movie.Metadata != nil {
+				if imdb, ok := movie.Metadata["imdb_id"].(string); ok {
+					imdbID = imdb
+				}
+			}
+			if imdbID == "" {
+				return nil, fmt.Errorf("movie has no IMDB ID")
+			}
+			
+			// Get release year for filtering
+			releaseYear := 0
+			if movie.ReleaseDate != nil && !movie.ReleaseDate.IsZero() {
+				releaseYear = movie.ReleaseDate.Year()
+			}
+			
+			// Fetch streams from providers
+			providerStreams, err := multiProvider.GetMovieStreamsWithYear(imdbID, releaseYear)
+			if err != nil {
+				return nil, fmt.Errorf("provider fetch failed: %w", err)
+			}
+			
+			// Convert provider format to Phase 1 TorrentStream format
+			return convertProviderStreamsToPhase1(providerStreams), nil
+		}
+		
+		// Initialize stream checker with settings from database
+		checkerConfig := streams.DefaultCheckerConfig()
+		checkerConfig.CheckIntervalMinutes = appSettings.CacheCheckIntervalMinutes
+		checkerConfig.BatchSize = appSettings.CacheCheckBatchSize
+		checkerConfig.AutoUpgrade = appSettings.CacheAutoUpgrade
+		checkerConfig.MinUpgradePoints = appSettings.CacheMinUpgradePoints
+		checkerConfig.MaxUpgradeSizeGB = appSettings.CacheMaxUpgradeSizeGB
+		
+		streamChecker = streams.NewStreamChecker(
+			checkerConfig,
+			streamCacheStore,
+			streamService,
+			debridService,
+			indexerSearchFunc,
+			slog.Default(),
+		)
+		
+		// Wire up filter settings for stream checker
+		streamChecker.SetSettingsGetter(func() (string, string, string, bool) {
+			s := settingsManager.Get()
+			return s.ExcludedReleaseGroups, s.ExcludedQualities, s.ExcludedLanguageTags, s.EnableReleaseFilters
+		})
+		
+		log.Printf("✓ Stream checker initialized (interval: %dm, batch: %d, auto-upgrade: %v)", 
+			checkerConfig.CheckIntervalMinutes, checkerConfig.BatchSize, checkerConfig.AutoUpgrade)
+	}
 
 	// Create Xtream handler
 	xtreamHandler := xtream.NewXtreamHandlerWithProvider(cfg, db, tmdbClient, rdClient, channelManager, epgManager, multiProvider)
@@ -573,9 +690,48 @@ func main() {
 		}
 	}()
 
+	// Worker: Phase 1 Stream Checker (every hour)
+	if streamChecker != nil {
+		go func() {
+			interval := time.Duration(streamChecker.GetConfig().CheckIntervalMinutes) * time.Minute
+			log.Printf("🔄 Stream Checker Worker: Starting (interval: %v)", interval)
+			
+			ticker := time.NewTicker(interval)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-workerCtx.Done():
+					log.Println("🛑 Stream Checker Worker: Shutting down")
+					return
+				case <-ticker.C:
+					log.Println("🔍 Stream Checker: Running availability checks...")
+					if err := streamChecker.RunCheck(workerCtx); err != nil {
+						log.Printf("❌ Stream Checker error: %v", err)
+					} else {
+						log.Println("✅ Stream Checker: Check complete")
+					}
+				}
+			}
+		}()
+	}
+
 	log.Println("✅ All background workers started")
 
-	// Initialize API handler with all components
+	// Initialize cache scanner service (finds upgrades and fills empty cache)
+	var cacheScanner *api.CacheScanner
+	if streamCacheStore != nil && streamService != nil && debridService != nil && multiProvider != nil {
+		cacheScanner = api.NewCacheScanner(
+			movieStore,
+			streamCacheStore,
+			streamService,
+			multiProvider,
+			debridService,
+		)
+		cacheScanner.Start() // Start automatic 7-day scanning
+		log.Println("✓ Cache scanner initialized (auto-scan: 7 days)")
+	}
+
+	// Initialize API handler with all components including Phase 1 services
 	handler := api.NewHandlerWithComponents(
 		movieStore,
 		seriesStore,
@@ -592,6 +748,9 @@ func main() {
 		epgManager,
 		multiProvider,
 		mdbSyncService,
+		streamCacheStore,
+		streamService,
+		cacheScanner,
 	)
 
 	// Create router and setup REST API routes

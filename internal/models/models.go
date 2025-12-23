@@ -134,3 +134,43 @@ type QualityProfile struct {
 	Qualities []string `json:"qualities"`
 	Cutoff    string   `json:"cutoff"`
 }
+
+// CachedStream represents a cached debrid stream for a movie
+type CachedStream struct {
+	ID               int       `json:"id"`
+	MovieID          int       `json:"movie_id"`
+	StreamURL        string    `json:"stream_url"`
+	StreamHash       string    `json:"stream_hash"`
+	QualityScore     int       `json:"quality_score"`
+	Resolution       string    `json:"resolution"`
+	HDRType          string    `json:"hdr_type"`
+	AudioFormat      string    `json:"audio_format"`
+	SourceType       string    `json:"source_type"`
+	FileSizeGB       float64   `json:"file_size_gb"`
+	Codec            string    `json:"codec"`
+	Indexer          string    `json:"indexer"`
+	CachedAt         time.Time `json:"cached_at"`
+	LastChecked      time.Time `json:"last_checked"`
+	CheckCount       int       `json:"check_count"`
+	IsAvailable      bool      `json:"is_available"`
+	UpgradeAvailable bool      `json:"upgrade_available"`
+	NextCheckAt      time.Time `json:"next_check_at"`
+	CreatedAt        time.Time `json:"created_at"`
+	UpdatedAt        time.Time `json:"updated_at"`
+}
+
+// TorrentStream represents a torrent stream with quality metadata for Phase 1
+type TorrentStream struct {
+	Hash         string  `json:"hash"`
+	Title        string  `json:"title"`
+	TorrentName  string  `json:"torrent_name"`
+	Resolution   string  `json:"resolution"`
+	HDRType      string  `json:"hdr_type"`
+	AudioFormat  string  `json:"audio_format"`
+	Source       string  `json:"source"`
+	Codec        string  `json:"codec"`
+	SizeGB       float64 `json:"size_gb"`
+	Seeders      int     `json:"seeders"`
+	Indexer      string  `json:"indexer"`
+	QualityScore int     `json:"quality_score"`
+}

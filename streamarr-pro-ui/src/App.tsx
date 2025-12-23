@@ -7,6 +7,7 @@ import Library from './pages/Library';
 import LiveTV from './pages/LiveTV';
 import Search from './pages/Search';
 import Settings from './pages/Settings';
+
 import ViewAll from './pages/ViewAll';
 import Login from './pages/Login';
 import ProtectedRoute from './components/ProtectedRoute';

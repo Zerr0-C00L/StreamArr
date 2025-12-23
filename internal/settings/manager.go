@@ -153,6 +153,13 @@ type Settings struct {
 	StreamSortOrder        string `json:"stream_sort_order"`        // Sort order: "quality,size,seeders" etc
 	StreamSortPrefer       string `json:"stream_sort_prefer"`       // Preference: "best", "smallest", "balanced"
 	
+	// Stream Checker (Phase 1 Cache) Settings
+	CacheCheckIntervalMinutes int  `json:"cache_check_interval_minutes"` // How often to check cached streams (default: 60)
+	CacheCheckBatchSize       int  `json:"cache_check_batch_size"`       // How many streams to check per batch (default: 50)
+	CacheAutoUpgrade          bool `json:"cache_auto_upgrade"`           // Automatically upgrade to better quality (default: true)
+	CacheMinUpgradePoints     int  `json:"cache_min_upgrade_points"`     // Minimum quality improvement required (default: 15)
+	CacheMaxUpgradeSizeGB     int  `json:"cache_max_upgrade_size_gb"`    // Max size increase for upgrades in GB (default: 20)
+	
 	// Update Settings
 	UpdateBranch string `json:"update_branch"` // GitHub branch for updates: main, dev, etc.
 	
@@ -271,6 +278,12 @@ func getDefaultSettings() *Settings {
 		ExcludedLanguageTags:   "",
 		ExcludedQualities:      "",
 		CustomExcludePatterns:  "",
+		// Stream Checker (Phase 1 Cache) defaults
+		CacheCheckIntervalMinutes: 60,   // Check every hour
+		CacheCheckBatchSize:       50,   // Check 50 streams per batch
+		CacheAutoUpgrade:          true, // Auto-upgrade enabled
+		CacheMinUpgradePoints:     15,   // Require 15+ point improvement
+		CacheMaxUpgradeSizeGB:     20,   // Max 20GB size increase
 	}
 }
 

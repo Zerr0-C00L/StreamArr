@@ -22,6 +22,7 @@ import (
 	"github.com/Zerr0-C00L/StreamArr/internal/models"
 	"github.com/Zerr0-C00L/StreamArr/internal/providers"
 	"github.com/Zerr0-C00L/StreamArr/internal/services"
+	"github.com/Zerr0-C00L/StreamArr/internal/services/streams"
 	"github.com/Zerr0-C00L/StreamArr/internal/settings"
 	"github.com/gorilla/mux"
 )
@@ -49,6 +50,10 @@ type Handler struct {
 	epgManager       *epg.Manager
 	streamProvider   *providers.MultiProvider
 	mdbSyncService   *services.MDBListSyncService
+	// Phase 1: Smart Stream Caching
+	streamCacheStore *database.StreamCacheStore
+	streamService    interface{} // Will be *streams.StreamService if initialized
+	cacheScanner     *CacheScanner
 }
 
 
@@ -91,23 +96,29 @@ func NewHandlerWithComponents(
 	epgManager *epg.Manager,
 	streamProvider *providers.MultiProvider,
 	mdbSyncService *services.MDBListSyncService,
+	streamCacheStore *database.StreamCacheStore,
+	streamService interface{},
+	cacheScanner *CacheScanner,
 ) *Handler {
 	return &Handler{
-		movieStore:      movieStore,
-		seriesStore:     seriesStore,
-		episodeStore:    episodeStore,
-		streamStore:     streamStore,
-		settingsStore:   settingsStore,
-		userStore:       userStore,
-		collectionStore: collectionStore,
-		blacklistStore:  blacklistStore,
-		tmdbClient:      tmdbClient,
-		rdClient:        rdClient,
-		channelManager:  channelManager,
-		settingsManager: settingsManager,
-		epgManager:      epgManager,
-		streamProvider:  streamProvider,
-		mdbSyncService:  mdbSyncService,
+		movieStore:       movieStore,
+		seriesStore:      seriesStore,
+		episodeStore:     episodeStore,
+		streamStore:      streamStore,
+		settingsStore:    settingsStore,
+		userStore:        userStore,
+		collectionStore:  collectionStore,
+		blacklistStore:   blacklistStore,
+		tmdbClient:       tmdbClient,
+		rdClient:         rdClient,
+		channelManager:   channelManager,
+		settingsManager:  settingsManager,
+		epgManager:       epgManager,
+		streamProvider:   streamProvider,
+		mdbSyncService:   mdbSyncService,
+		streamCacheStore: streamCacheStore,
+		streamService:    streamService,
+		cacheScanner:     cacheScanner,
 	}
 }
 
@@ -973,6 +984,30 @@ func (h *Handler) GetMovieStreams(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Phase 1: Check cache first for instant playback
+	if h.streamCacheStore != nil {
+		cached, err := h.streamCacheStore.GetCachedStream(ctx, int(id))
+		if err == nil && cached != nil && cached.IsAvailable {
+			log.Printf("[CACHE-HIT] ⚡ Instant cached stream for movie %d (quality: %d, checked: %v ago)",
+				id, cached.QualityScore, time.Since(cached.LastChecked).Round(time.Minute))
+			
+			// Return cached stream in API format
+			cachedStream := map[string]interface{}{
+				"title":         fmt.Sprintf("[CACHED] %s %s %s", cached.Resolution, cached.HDRType, cached.AudioFormat),
+				"url":           cached.StreamURL,
+				"quality":       cached.Resolution,
+				"size_gb":       cached.FileSizeGB,
+				"source":        "Phase1-Cache",
+				"cached":        true,
+				"quality_score": cached.QualityScore,
+				"last_checked":  cached.LastChecked,
+				"indexer":       cached.Indexer,
+			}
+			respondJSON(w, http.StatusOK, []interface{}{cachedStream})
+			return
+		}
+	}
+
 	// Get movie from database
 	movie, err := h.movieStore.Get(ctx, id)
 	if err != nil {
@@ -1055,10 +1090,11 @@ func (h *Handler) GetMovieStreams(w http.ResponseWriter, r *http.Request) {
 
 	// Streams are already filtered by year from GetMovieStreamsWithYear
 
-	// Check Real-Debrid instant availability for TorrentsDB streams
+	// Check Real-Debrid instant availability for TorrentsDB streams FIRST (needed for caching)
 	// This sets the Cached field based on actual Real-Debrid cache status
+	// Note: Torrentio streams already have Cached status from the [RD+] indicator
 	if h.rdClient != nil && len(providerStreams) > 0 {
-		// Collect all unique info hashes
+		// Collect all unique info hashes from TorrentsDB
 		hashes := make([]string, 0)
 		hashMap := make(map[string]int) // hash -> stream index
 		for i, s := range providerStreams {
@@ -1068,7 +1104,7 @@ func (h *Handler) GetMovieStreams(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		// Check availability in Real-Debrid
+		// Check availability in Real-Debrid for TorrentsDB streams only
 		if len(hashes) > 0 {
 			ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 			availability, err := h.rdClient.CheckInstantAvailability(ctx, hashes)
@@ -1085,6 +1121,148 @@ func (h *Handler) GetMovieStreams(w http.ResponseWriter, r *http.Request) {
 			} else {
 				log.Printf("[RD-CHECK] Error checking Real-Debrid availability: %v", err)
 			}
+		}
+	}
+
+	// Phase 1: Cache the best available stream BEFORE user filters (for instant playback next time)
+	// This ensures we always cache the best quality, regardless of user's filter preferences
+	if h.streamCacheStore != nil && h.streamService != nil && len(providerStreams) > 0 {
+		log.Printf("[CACHE-PHASE1] Checking %d streams for caching (movie ID: %d)", len(providerStreams), id)
+		// Find the best cached stream
+		var bestCached *providers.TorrentioStream
+		for i := range providerStreams {
+			if providerStreams[i].Cached {
+				bestCached = &providerStreams[i]
+				log.Printf("[CACHE-PHASE1] Found best cached stream: %s (source: %s, hash: %s)", 
+					bestCached.Name, bestCached.Source, bestCached.InfoHash)
+				break
+			}
+		}
+		
+		if bestCached != nil {
+			// Extract hash from URL if InfoHash is empty (Torrentio case)
+			hash := bestCached.InfoHash
+			// For Torrentio streams, Title contains the actual filename (set in stremio_generic.go)
+			// Name contains the formatted display text like "[RD+] Torrentio\n1080p"
+			torrentName := bestCached.Title
+			if hash == "" && bestCached.URL != "" {
+				// Torrentio URLs contain the hash in the path
+				// Example: /resolve/realdebrid/APIKEY/HASH/null/1/filename.mp4
+				parts := strings.Split(bestCached.URL, "/")
+				for _, part := range parts {
+					if len(part) == 40 { // Torrent hashes are 40 chars
+						hash = part
+						break
+					}
+				}
+			}
+			
+			log.Printf("[CACHE-PHASE1] Processing stream for caching: hash=%s, torrentName=%s", 
+				hash, torrentName)
+			// Convert to Phase 1 format
+			phase1Stream := models.TorrentStream{
+				Hash:        hash,
+				Title:       bestCached.Name, // Use Name for display title
+				TorrentName: torrentName,      // Use Title (which contains actual filename) for scoring
+				Resolution:  bestCached.Quality,
+				SizeGB:      float64(bestCached.Size) / (1024 * 1024 * 1024),
+				Seeders:     bestCached.Seeders,
+				Indexer:     bestCached.Source,
+			}
+			
+			// Score it using Phase 1 quality algorithm
+			if svc, ok := h.streamService.(*streams.StreamService); ok {
+				log.Printf("[CACHE-PHASE1] Calling ParseStreamFromTorrentName with name='%s', hash='%s', indexer='%s'", 
+					phase1Stream.TorrentName, phase1Stream.Hash, phase1Stream.Indexer)
+				scoredStream := svc.ParseStreamFromTorrentName(
+					phase1Stream.TorrentName,
+					phase1Stream.Hash,
+					phase1Stream.Indexer,
+					phase1Stream.Seeders,
+				)
+				
+				// Calculate the actual quality score
+				quality := streams.StreamQuality{
+					Resolution:  scoredStream.Resolution,
+					HDRType:     scoredStream.HDRType,
+					AudioFormat: scoredStream.AudioFormat,
+					Source:      scoredStream.Source,
+					Codec:       scoredStream.Codec,
+					SizeGB:      scoredStream.SizeGB,
+					Seeders:     scoredStream.Seeders,
+				}
+				scoreBreakdown := streams.CalculateScore(quality)
+				scoredStream.QualityScore = scoreBreakdown.TotalScore
+				
+				log.Printf("[CACHE-PHASE1] Scoring result: quality=%d, res=%s, hdr=%s, audio=%s, source=%s, codec=%s",
+					scoredStream.QualityScore, scoredStream.Resolution, scoredStream.HDRType, 
+					scoredStream.AudioFormat, scoredStream.Source, scoredStream.Codec)
+				phase1Stream.QualityScore = scoredStream.QualityScore
+				phase1Stream.Resolution = scoredStream.Resolution
+				phase1Stream.HDRType = scoredStream.HDRType
+				phase1Stream.AudioFormat = scoredStream.AudioFormat
+				phase1Stream.Source = scoredStream.Source
+				phase1Stream.Codec = scoredStream.Codec
+				
+				// Cache it with the stream URL (async to not block response)
+				go func() {
+					cacheCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+					defer cancel()
+					if err := h.streamCacheStore.CacheStream(cacheCtx, int(id), phase1Stream, bestCached.URL); err != nil {
+						log.Printf("[CACHE-WRITE] ❌ Failed to cache stream for movie %d: %v", id, err)
+					} else {
+						log.Printf("[CACHE-WRITE] ✅ Cached stream for movie %d (quality: %d, res: %s, hdr: %s)", 
+							id, phase1Stream.QualityScore, phase1Stream.Resolution, phase1Stream.HDRType)
+					}
+				}()
+			}
+		}
+	}
+
+	// Apply quality filters from user settings
+	if h.settingsManager != nil && h.streamService != nil {
+		settings := h.settingsManager.Get()
+		if settings.EnableReleaseFilters {
+			log.Printf("[FILTER] Applying quality filters: excludedGroups=%s, excludedQualities=%s, excludedLanguages=%s",
+				settings.ExcludedReleaseGroups, settings.ExcludedQualities, settings.ExcludedLanguageTags)
+			
+			// Convert provider streams to models.TorrentStream for filtering
+			filteredStreams := make([]providers.TorrentioStream, 0, len(providerStreams))
+			for _, ps := range providerStreams {
+				// Convert to TorrentStream for filtering
+				ts := models.TorrentStream{
+					Title:       ps.Title,
+					TorrentName: ps.Name,
+					Resolution:  ps.Quality,
+					Indexer:     ps.Source,
+				}
+				
+				// Parse stream details from torrent name for better filtering
+				if svc, ok := h.streamService.(*streams.StreamService); ok {
+					parsed := svc.ParseStreamFromTorrentName(ts.TorrentName, "", ts.Indexer, 0)
+					ts.Resolution = parsed.Resolution
+					ts.HDRType = parsed.HDRType
+					ts.AudioFormat = parsed.AudioFormat
+					ts.Source = parsed.Source
+					ts.Codec = parsed.Codec
+				}
+				
+				// Check if stream should be filtered
+				if svc, ok := h.streamService.(*streams.StreamService); ok {
+					if !svc.ShouldFilterStream(ts, settings.ExcludedReleaseGroups, settings.ExcludedQualities, settings.ExcludedLanguageTags) {
+						filteredStreams = append(filteredStreams, ps)
+					}
+				} else {
+					// No stream service, keep all streams
+					filteredStreams = append(filteredStreams, ps)
+				}
+			}
+			
+			if len(filteredStreams) < len(providerStreams) {
+				log.Printf("[FILTER] Filtered out %d streams (kept %d/%d)", 
+					len(providerStreams)-len(filteredStreams), len(filteredStreams), len(providerStreams))
+			}
+			providerStreams = filteredStreams
 		}
 	}
 
@@ -3217,6 +3395,12 @@ func (h *Handler) CheckForUpdates(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// If branch is "tag", fetch latest release tag instead of commit
+	if branch == "tag" {
+		h.checkForTagUpdates(w, r)
+		return
+	}
+
 	// Fetch latest commit from GitHub API
 	resp, err := http.Get(fmt.Sprintf("https://api.github.com/repos/Zerr0-C00L/StreamArr_Pro/commits/%s", branch))
 	if err != nil {
@@ -3280,12 +3464,100 @@ func (h *Handler) CheckForUpdates(w http.ResponseWriter, r *http.Request) {
 		"current_version":  Version,
 		"current_commit":   Commit,
 		"build_date":       BuildDate,
-		"latest_version":   "latest",
+		"latest_version":   branch,
 		"latest_commit":    commitData.SHA,
 		"latest_date":      commitData.Commit.Author.Date,
 		"update_available": updateAvailable,
 		"changelog":        changelog,
 		"update_branch":    branch,
+	})
+}
+
+// checkForTagUpdates checks GitHub for the latest tag/release
+func (h *Handler) checkForTagUpdates(w http.ResponseWriter, r *http.Request) {
+	// Fetch latest tags from GitHub API
+	resp, err := http.Get("https://api.github.com/repos/Zerr0-C00L/StreamArr_Pro/tags?per_page=1")
+	if err != nil {
+		respondJSON(w, http.StatusOK, map[string]interface{}{
+			"current_version": Version,
+			"current_commit":  Commit,
+			"build_date":      BuildDate,
+			"error":           "Failed to check for updates",
+		})
+		return
+	}
+	defer resp.Body.Close()
+
+	var tags []struct {
+		Name   string `json:"name"`
+		Commit struct {
+			SHA string `json:"sha"`
+		} `json:"commit"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&tags); err != nil || len(tags) == 0 {
+		respondJSON(w, http.StatusOK, map[string]interface{}{
+			"current_version": Version,
+			"current_commit":  Commit,
+			"build_date":      BuildDate,
+			"error":           "Failed to parse update info or no tags found",
+		})
+		return
+	}
+
+	latestTag := tags[0]
+	latestVersion := latestTag.Name
+	latestCommit := latestTag.Commit.SHA
+	latestCommitShort := latestCommit
+	if len(latestCommitShort) > 7 {
+		latestCommitShort = latestCommitShort[:7]
+	}
+
+	// Compare versions - update available if current version != latest tag
+	updateAvailable := false
+	if Version != "dev" && Version != "" {
+		// Compare version strings directly
+		updateAvailable = Version != latestVersion
+	} else {
+		// If version is dev or unknown, compare commits
+		if Commit != "unknown" && len(Commit) >= 7 {
+			currentShort := Commit
+			if len(currentShort) > 7 {
+				currentShort = currentShort[:7]
+			}
+			updateAvailable = currentShort != latestCommitShort
+		} else {
+			updateAvailable = true
+		}
+	}
+
+	// Get release info for changelog
+	changelog := ""
+	releaseResp, err := http.Get(fmt.Sprintf("https://api.github.com/repos/Zerr0-C00L/StreamArr_Pro/releases/tags/%s", latestVersion))
+	if err == nil {
+		defer releaseResp.Body.Close()
+		var releaseData struct {
+			Body        string `json:"body"`
+			PublishedAt string `json:"published_at"`
+		}
+		if json.NewDecoder(releaseResp.Body).Decode(&releaseData) == nil {
+			changelog = releaseData.Body
+			// Truncate changelog if too long
+			if len(changelog) > 500 {
+				changelog = changelog[:500] + "..."
+			}
+		}
+	}
+
+	respondJSON(w, http.StatusOK, map[string]interface{}{
+		"current_version":  Version,
+		"current_commit":   Commit,
+		"build_date":       BuildDate,
+		"latest_version":   latestVersion,
+		"latest_commit":    latestCommit,
+		"update_available": updateAvailable,
+		"changelog":        changelog,
+		"update_branch":    "tag",
 	})
 }
 
