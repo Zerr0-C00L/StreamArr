@@ -70,6 +70,14 @@ if [ -f /.dockerenv ]; then
             log "Fetching latest code and tags..."
             git fetch --all --tags --prune 2>&1 | tee -a "$LOG_FILE"
             
+            # Clean up untracked files that might conflict with checkout
+            log "Cleaning up untracked files that might conflict..."
+            git clean -fd migrations/ 2>/dev/null || true
+            git clean -fd internal/xtream/ 2>/dev/null || true
+            rm -f internal/xtream/._*.go 2>/dev/null || true
+            rm -f server-linux 2>/dev/null || true
+            rm -f channels/combined.m3u 2>/dev/null || true
+            
             # Determine if BRANCH is a tag or a branch
             if git show-ref --verify --quiet "refs/tags/$BRANCH"; then
                 log "Checking out tag: $BRANCH"
@@ -204,6 +212,14 @@ elif ! command -v go &> /dev/null; then
 fi
 
 log "Using Go binary: $GO_BIN"
+
+# Clean up untracked files that might conflict with checkout
+log "Cleaning up untracked files that might conflict..."
+git clean -fd migrations/ 2>/dev/null || true
+git clean -fd internal/xtream/ 2>/dev/null || true
+rm -f internal/xtream/._*.go 2>/dev/null || true
+rm -f server-linux 2>/dev/null || true
+rm -f channels/combined.m3u 2>/dev/null || true
 
 # Pull latest changes
 log "Pulling latest changes from GitHub..."
