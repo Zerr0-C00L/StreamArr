@@ -540,22 +540,6 @@ export default function Settings() {
     setLoadingBlacklist(false);
   };
 
-  const executeDbAction = async (action: string) => {
-    _setDbOperation(action);
-    _setConfirmDialog(null);
-    try {
-      const response = await api.post(`/database/${action}`);
-      setMessage(`✅ ${response.data.message}`);
-      setTimeout(() => setMessage(''), 5000);
-      fetchDbStats();
-      fetchServices();
-    } catch (error: any) {
-      setMessage(`❌ Failed: ${error.response?.data?.error || error.message}`);
-      setTimeout(() => setMessage(''), 5000);
-    }
-    _setDbOperation(null);
-  };
-
   const fetchVersionInfo = async () => {
     try {
       const response = await api.get('/version');
@@ -1056,10 +1040,6 @@ export default function Settings() {
   };
 
   // Helper functions
-  const showConfirmDialog = (action: string, title: string, message: string) => {
-    _setConfirmDialog({ action, title, message });
-  };
-
   const toggleServiceEnabled = async (serviceName: string, enabled: boolean) => {
     try {
       await api.put(`/services/${serviceName}?name=${serviceName}`, { enabled });
