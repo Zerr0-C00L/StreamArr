@@ -624,7 +624,7 @@ func (h *Handler) scanStreamAvailability(ctx context.Context) error {
 
 		// Update the database
 		updateQuery := `UPDATE library_movies SET available = $1, last_checked = NOW() WHERE id = $2`
-		if err := h.movieStore.GetDB().ExecContext(ctx, updateQuery, hasStreams, movie.ID); err != nil {
+		if _, err := h.movieStore.GetDB().ExecContext(ctx, updateQuery, hasStreams, movie.ID); err != nil {
 			fmt.Printf("[Stream Scan] Error updating movie %d: %v\n", movie.ID, err)
 		}
 
@@ -762,7 +762,7 @@ func (h *Handler) scanStreamAvailability(ctx context.Context) error {
 
 		// Update the episode
 		updateEpisodeQuery := `UPDATE library_episodes SET available = $1, last_checked = NOW() WHERE id = $2 AND series_id = $3`
-		if err := h.movieStore.GetDB().ExecContext(ctx, updateEpisodeQuery, hasStreams, ep.ID, ep.SeriesID); err != nil {
+		if _, err := h.movieStore.GetDB().ExecContext(ctx, updateEpisodeQuery, hasStreams, ep.ID, ep.SeriesID); err != nil {
 			fmt.Printf("[Stream Scan] Error updating episode %d: %v\n", ep.ID, err)
 		}
 
