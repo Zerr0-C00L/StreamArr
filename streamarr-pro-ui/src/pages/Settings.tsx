@@ -270,10 +270,33 @@ const Settings: React.FC = () => {
       });
   };
 
+  // Added a function to regenerate the M3U playlist
+  const regeneratePlaylist = async () => {
+    try {
+      const response = await fetch(
+        'http://77.42.16.119:8080/get.php?username=zeroq&password=streamarrpro&type=m3u_plus&output=ts'
+      );
+
+      if (!response.ok) {
+        throw new Error('Failed to regenerate playlist');
+      }
+
+      const playlist = await response.text();
+
+      // Save or process the playlist as needed
+      console.log('Playlist regenerated successfully:', playlist);
+      alert('Playlist regenerated successfully!');
+    } catch (error) {
+      console.error('Error regenerating playlist:', error);
+      alert('Failed to regenerate playlist. Please try again.');
+    }
+  };
+
   return (
     <div>
       <h1>Settings Page</h1>
       <p>Message: {message}</p>
+      <button onClick={regeneratePlaylist}>Regenerate Playlist</button>
     </div>
   );
 };
