@@ -6,9 +6,9 @@ import (
 	"log"
 	"net/http"
 	"strconv"
-	
-	"github.com/gorilla/mux"
+
 	"github.com/Zerr0-C00L/StreamArr/internal/services/streams"
+	"github.com/gorilla/mux"
 )
 
 // ============ PHASE 1: STREAM CACHE MONITORING ENDPOINTS ============
@@ -17,13 +17,13 @@ import (
 func (h *Handler) GetCacheStats(w http.ResponseWriter, r *http.Request) {
 	log.Printf("[DEBUG] GetCacheStats called")
 	ctx := r.Context()
-	
+
 	if h.streamCacheStore == nil {
 		log.Printf("[DEBUG] streamCacheStore is nil")
 		respondError(w, http.StatusServiceUnavailable, "stream cache not enabled")
 		return
 	}
-	
+
 	log.Printf("[DEBUG] Getting cache stats from store")
 	stats, err := h.streamCacheStore.GetCacheStats(ctx)
 	if err != nil {
@@ -31,7 +31,7 @@ func (h *Handler) GetCacheStats(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusInternalServerError, "failed to get cache stats")
 		return
 	}
-	
+
 	log.Printf("[DEBUG] Returning cache stats: %+v", stats)
 	respondJSON(w, http.StatusOK, stats)
 }
@@ -39,12 +39,12 @@ func (h *Handler) GetCacheStats(w http.ResponseWriter, r *http.Request) {
 // GetLibraryHealth returns health analysis of the cached streams
 func (h *Handler) GetLibraryHealth(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	
+
 	if h.streamCacheStore == nil {
 		respondError(w, http.StatusServiceUnavailable, "stream cache not enabled")
 		return
 	}
-	
+
 	// Get the database connection from the store
 	healthMonitor := streams.NewHealthMonitor(h.streamCacheStore.GetDB())
 	report, err := healthMonitor.GenerateHealthReport(ctx)
@@ -53,19 +53,19 @@ func (h *Handler) GetLibraryHealth(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusInternalServerError, "failed to generate health report")
 		return
 	}
-	
+
 	respondJSON(w, http.StatusOK, report)
 }
 
 // GetDuplicates returns potential duplicate streams in the cache
 func (h *Handler) GetDuplicates(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	
+
 	if h.streamCacheStore == nil {
 		respondError(w, http.StatusServiceUnavailable, "stream cache not enabled")
 		return
 	}
-	
+
 	// Get the database connection from the store
 	detector := streams.NewDuplicateDetector(h.streamCacheStore.GetDB())
 	duplicates, err := detector.FindDuplicates(ctx, 0.85)
@@ -74,7 +74,7 @@ func (h *Handler) GetDuplicates(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusInternalServerError, "failed to find duplicates")
 		return
 	}
-	
+
 	respondJSON(w, http.StatusOK, map[string]interface{}{
 		"total_duplicates": len(duplicates),
 		"duplicates":       duplicates,
@@ -84,19 +84,19 @@ func (h *Handler) GetDuplicates(w http.ResponseWriter, r *http.Request) {
 // GetUpgradesAvailable returns streams with better quality available
 func (h *Handler) GetUpgradesAvailable(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	
+
 	if h.streamCacheStore == nil {
 		respondError(w, http.StatusServiceUnavailable, "stream cache not enabled")
 		return
 	}
-	
+
 	upgrades, err := h.streamCacheStore.GetStreamsWithUpgradesAvailable(ctx, 100)
 	if err != nil {
 		log.Printf("Error getting upgrades: %v", err)
 		respondError(w, http.StatusInternalServerError, "failed to get upgrades")
 		return
 	}
-	
+
 	respondJSON(w, http.StatusOK, map[string]interface{}{
 		"total_upgrades": len(upgrades),
 		"upgrades":       upgrades,
@@ -107,18 +107,18 @@ func (h *Handler) GetUpgradesAvailable(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) GetCachedMoviesList(w http.ResponseWriter, r *http.Request) {
 	log.Printf("[DEBUG] GetCachedMoviesList called")
 	ctx := r.Context()
-	
+
 	if h.streamCacheStore == nil {
 		log.Printf("[DEBUG] streamCacheStore is nil in GetCachedMoviesList")
 		respondError(w, http.StatusServiceUnavailable, "stream cache not enabled")
 		return
 	}
-	
+
 	log.Printf("[DEBUG] Querying cached streams from database (movies and series)")
-	
+
 	// Get filter parameter (movies, series, or all)
 	mediaType := r.URL.Query().Get("type") // "movies", "series", or empty for all
-	
+
 	var query string
 	if mediaType == "series" {
 		// Only series
@@ -227,7 +227,7 @@ func (h *Handler) GetCachedMoviesList(w http.ResponseWriter, r *http.Request) {
 			LIMIT 1000
 		`
 	}
-	
+
 	rows, err := h.streamCacheStore.GetDB().QueryContext(ctx, query)
 	if err != nil {
 		log.Printf("Error querying cached movies: %v", err)
@@ -235,7 +235,7 @@ func (h *Handler) GetCachedMoviesList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer rows.Close()
-	
+
 	type CachedMovie struct {
 		MovieID          int     `json:"movie_id"`
 		Title            string  `json:"title"`
@@ -252,10 +252,10 @@ func (h *Handler) GetCachedMoviesList(w http.ResponseWriter, r *http.Request) {
 		CachedAt         string  `json:"cached_at"`
 		Indexer          string  `json:"indexer"`
 		MediaType        string  `json:"media_type"` // "movie" or "series"
-		Season           int     `json:"season"`      // 0 for movies
-		Episode          int     `json:"episode"`     // 0 for movies
+		Season           int     `json:"season"`     // 0 for movies
+		Episode          int     `json:"episode"`    // 0 for movies
 	}
-	
+
 	var movies []CachedMovie
 	for rows.Next() {
 		var m CachedMovie
@@ -284,7 +284,7 @@ func (h *Handler) GetCachedMoviesList(w http.ResponseWriter, r *http.Request) {
 		}
 		movies = append(movies, m)
 	}
-	
+
 	respondJSON(w, http.StatusOK, movies)
 }
 
@@ -304,7 +304,7 @@ func (h *Handler) TriggerCacheScan(w http.ResponseWriter, r *http.Request) {
 	}()
 
 	respondJSON(w, http.StatusOK, map[string]string{
-		"status": "started",
+		"status":  "started",
 		"message": "Cache scan started in background. Check logs for progress.",
 	})
 }
@@ -340,7 +340,7 @@ func (h *Handler) DeleteCachedStream(w http.ResponseWriter, r *http.Request) {
 
 	vars := mux.Vars(r)
 	movieIDStr := vars["id"]
-	
+
 	movieID, err := strconv.Atoi(movieIDStr)
 	if err != nil {
 		respondError(w, http.StatusBadRequest, "invalid movie ID")

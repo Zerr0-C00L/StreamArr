@@ -28,7 +28,7 @@ export default function Layout({ children }: LayoutProps) {
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [apiOnline, setApiOnline] = useState(false);
-  const [versionInfo, setVersionInfo] = useState<{ current_version: string; current_commit: string } | null>(null);
+  const [versionInfo, setVersionInfo] = useState<{ current_version: string; current_commit: string; build_date: string } | null>(null);
   const [profilePicture, setProfilePicture] = useState<string | null>(null);
   const username = localStorage.getItem('username') || 'User';
 
@@ -64,6 +64,7 @@ export default function Layout({ children }: LayoutProps) {
           setVersionInfo({
             current_version: res.data.current_version,
             current_commit: res.data.current_commit,
+            build_date: res.data.build_date,
           });
         }
       })
@@ -270,8 +271,10 @@ export default function Layout({ children }: LayoutProps) {
       {/* Tiny footer with version & commit */}
       {versionInfo && (
         <div className="fixed bottom-2 right-3 z-40 text-xs text-slate-400 bg-black/40 border border-white/10 rounded px-2 py-1 backdrop-blur-sm">
-          <span className="mr-2">v{versionInfo.current_version}</span>
-          <span title="Commit">{versionInfo.current_commit}</span>
+          <div title={`Version: ${versionInfo.current_version}\nCommit: ${versionInfo.current_commit}\nBuilt: ${versionInfo.build_date}`} className="cursor-help">
+            <span className="mr-2">v{versionInfo.current_version}</span>
+            <span className="text-slate-500">{versionInfo.current_commit}</span>
+          </div>
         </div>
       )}
     </div>

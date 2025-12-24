@@ -292,11 +292,205 @@ const Settings: React.FC = () => {
     }
   };
 
+  // State for version info and update check
+  const [versionInfo, setVersionInfo] = useState<any>(null);
+  const [updateInfo, setUpdateInfo] = useState<any>(null);
+  const [checkingUpdates, setCheckingUpdates] = useState(false);
+  const [activeTab, setActiveTab] = useState('general');
+
+  // Fetch version info
+  useEffect(() => {
+    const fetchVersionInfo = async () => {
+      try {
+        const response = await api.get('/version');
+        setVersionInfo(response.data);
+      } catch (error) {
+        console.error('Failed to fetch version info:', error);
+      }
+    };
+    fetchVersionInfo();
+  }, []);
+
+  // Check for updates
+  const handleCheckUpdates = async () => {
+    setCheckingUpdates(true);
+    try {
+      const response = await api.get('/version/check');
+      setUpdateInfo(response.data);
+    } catch (error) {
+      console.error('Failed to check for updates:', error);
+      setUpdateInfo({ error: 'Failed to check for updates' });
+    } finally {
+      setCheckingUpdates(false);
+    }
+  };
+
+  if (!settings) {
+    return (
+      <div className="min-h-screen bg-[#141414] flex items-center justify-center">
+        <p className="text-white">Loading settings...</p>
+      </div>
+    );
+  }
+
   return (
-    <div>
-      <h1>Settings Page</h1>
-      <p>Message: {message}</p>
-      <button onClick={regeneratePlaylist}>Regenerate Playlist</button>
+    <div className="min-h-screen bg-[#141414]">
+      <div className="max-w-6xl mx-auto p-6">
+        <h1 className="text-4xl font-bold text-white mb-8">Settings</h1>
+
+        {/* Tab Navigation */}
+        <div className="flex gap-2 mb-8 border-b border-white/10">
+          <button
+            onClick={() => setActiveTab('general')}
+            className={`px-4 py-2 font-medium transition-colors ${
+              activeTab === 'general'
+                ? 'text-white border-b-2 border-white'
+                : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            General
+          </button>
+          <button
+            onClick={() => setActiveTab('about')}
+            className={`px-4 py-2 font-medium transition-colors ${
+              activeTab === 'about'
+                ? 'text-white border-b-2 border-white'
+                : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            About
+          </button>
+        </div>
+
+        {/* Message Display */}
+        {message && (
+          <div className="mb-4 p-4 rounded bg-blue-900/30 text-blue-200">
+            {message}
+          </div>
+        )}
+
+        {/* General Tab */}
+        {activeTab === 'general' && (
+          <div className="space-y-6">
+            <div className="bg-slate-800/50 rounded-lg p-6">
+              <h2 className="text-xl font-semibold text-white mb-4">API Keys</h2>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-2">
+                    TMDB API Key
+                  </label>
+                  <input
+                    type="password"
+                    value={settings.tmdb_api_key || ''}
+                    onChange={(e) => autoSaveSetting('tmdb_api_key', e.target.value)}
+                    className="w-full px-4 py-2 bg-slate-900 text-white rounded border border-slate-700 focus:border-white focus:outline-none"
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* About Tab */}
+        {activeTab === 'about' && (
+          <div className="space-y-6">
+            {/* Version Information */}
+            <div className="bg-slate-800/50 rounded-lg p-6">
+              <h2 className="text-2xl font-semibold text-white mb-6">Version Information</h2>
+              
+              {versionInfo ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="bg-slate-900/50 rounded p-4">
+                    <p className="text-sm text-slate-400 mb-1">Version</p>
+                    <p className="text-2xl font-bold text-white">
+                      {versionInfo.current_version && versionInfo.current_version !== 'dev' 
+                        ? versionInfo.current_version 
+                        : 'Unknown'}
+                    </p>
+                  </div>
+                  <div className="bg-slate-900/50 rounded p-4">
+                    <p className="text-sm text-slate-400 mb-1">Commit</p>
+                    <p className="text-lg font-mono text-white">
+                      {versionInfo.current_commit && versionInfo.current_commit !== 'unknown' 
+                        ? versionInfo.current_commit 
+                        : 'Unknown'}
+                    </p>
+                  </div>
+                  <div className="bg-slate-900/50 rounded p-4">
+                    <p className="text-sm text-slate-400 mb-1">Build Date</p>
+                    <p className="text-lg text-white">
+                      {versionInfo.build_date && versionInfo.build_date !== 'unknown' 
+                        ? new Date(versionInfo.build_date).toLocaleString() 
+                        : 'Unknown'}
+                    </p>
+                  </div>
+                  <div className="bg-slate-900/50 rounded p-4">
+                    <p className="text-sm text-slate-400 mb-1">Update Channel</p>
+                    <p className="text-lg text-white capitalize">
+                      {settings.update_branch || 'main'}
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <p className="text-slate-400">Loading version information...</p>
+              )}
+            </div>
+
+            {/* Update Check */}
+            <div className="bg-slate-800/50 rounded-lg p-6">
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-2xl font-semibold text-white">Check for Updates</h2>
+                <button
+                  onClick={handleCheckUpdates}
+                  disabled={checkingUpdates}
+                  className="px-6 py-2 bg-white text-black font-semibold rounded-lg hover:bg-white/90 disabled:bg-slate-600 disabled:text-slate-400 transition-colors"
+                >
+                  {checkingUpdates ? 'Checking...' : 'Check for Update'}
+                </button>
+              </div>
+
+              {updateInfo ? (
+                <div className="bg-slate-900/50 rounded p-4">
+                  {updateInfo.error ? (
+                    <p className="text-red-400">{updateInfo.error}</p>
+                  ) : (
+                    <>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                        <div>
+                          <p className="text-sm text-slate-400">Current Version</p>
+                          <p className="text-lg text-white font-semibold">
+                            {updateInfo.current_version}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-sm text-slate-400">Latest Available</p>
+                          <p className="text-lg text-white font-semibold">
+                            {updateInfo.latest_version}
+                          </p>
+                        </div>
+                      </div>
+                      {updateInfo.update_available ? (
+                        <div className="p-3 rounded bg-blue-900/30 text-blue-200">
+                          <p className="font-semibold">Update Available</p>
+                          {updateInfo.changelog && (
+                            <p className="text-sm mt-1">{updateInfo.changelog}</p>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="p-3 rounded bg-green-900/30 text-green-200">
+                          <p className="font-semibold">✓ You are on the latest version!</p>
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+              ) : (
+                <p className="text-slate-400">Click "Check for Update" to see if a new version is available</p>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 };

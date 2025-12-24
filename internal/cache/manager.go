@@ -11,11 +11,11 @@ import (
 
 // Manager handles all caching operations
 type Manager struct {
-	db              *sql.DB
-	episodeCache    *EpisodeCache
-	rdURLCache      *RDURLCache
-	requestCache    *RequestCache
-	mu              sync.RWMutex
+	db           *sql.DB
+	episodeCache *EpisodeCache
+	rdURLCache   *RDURLCache
+	requestCache *RequestCache
+	mu           sync.RWMutex
 }
 
 // EpisodeCache stores episode metadata and availability
@@ -39,14 +39,14 @@ type EpisodeData struct {
 
 // StreamData represents a single stream source
 type StreamData struct {
-	Hash     string  `json:"hash"`
-	Title    string  `json:"title"`
-	Quality  string  `json:"quality"`
-	Size     int64   `json:"size"`
-	Cached   bool    `json:"cached"`
-	Provider string  `json:"provider"`
-	FileIdx  int     `json:"file_idx"`
-	FileName string  `json:"file_name"`
+	Hash     string `json:"hash"`
+	Title    string `json:"title"`
+	Quality  string `json:"quality"`
+	Size     int64  `json:"size"`
+	Cached   bool   `json:"cached"`
+	Provider string `json:"provider"`
+	FileIdx  int    `json:"file_idx"`
+	FileName string `json:"file_name"`
 }
 
 // RDURLCache stores Real-Debrid resolved URLs
@@ -58,12 +58,12 @@ type RDURLCache struct {
 
 // RDURLData represents a cached RD URL
 type RDURLData struct {
-	Hash        string    `json:"hash"`
-	FileID      string    `json:"file_id"`
-	URL         string    `json:"url"`
-	ExpiresAt   time.Time `json:"expires_at"`
-	Quality     string    `json:"quality"`
-	Size        int64     `json:"size"`
+	Hash      string    `json:"hash"`
+	FileID    string    `json:"file_id"`
+	URL       string    `json:"url"`
+	ExpiresAt time.Time `json:"expires_at"`
+	Quality   string    `json:"quality"`
+	Size      int64     `json:"size"`
 }
 
 // RequestCache stores generic HTTP request results
@@ -88,15 +88,15 @@ func NewManager(db *sql.DB) *Manager {
 		rdURLCache:   NewRDURLCache(db),
 		requestCache: NewRequestCache(db),
 	}
-	
+
 	// Initialize tables
 	if err := manager.initTables(); err != nil {
 		panic(fmt.Sprintf("Failed to initialize cache tables: %v", err))
 	}
-	
+
 	// Start cleanup worker
 	go manager.cleanupWorker()
-	
+
 	return manager
 }
 
@@ -112,7 +112,7 @@ func (m *Manager) initTables() error {
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_episode_cache_imdb ON episode_cache(imdb_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_episode_cache_updated ON episode_cache(last_updated)`,
-		
+
 		`CREATE TABLE IF NOT EXISTS rd_url_cache (
 			hash TEXT NOT NULL,
 			file_id TEXT NOT NULL,
@@ -124,7 +124,7 @@ func (m *Manager) initTables() error {
 			PRIMARY KEY (hash, file_id)
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_rd_url_expires ON rd_url_cache(expires_at)`,
-		
+
 		`CREATE TABLE IF NOT EXISTS request_cache (
 			key TEXT PRIMARY KEY,
 			data BYTEA NOT NULL,
@@ -133,20 +133,20 @@ func (m *Manager) initTables() error {
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_request_expires ON request_cache(expires_at)`,
 	}
-	
+
 	for _, query := range queries {
 		if _, err := m.db.Exec(query); err != nil {
 			return fmt.Errorf("failed to create table: %w", err)
 		}
 	}
-	
+
 	return nil
 }
 
 func (m *Manager) cleanupWorker() {
 	ticker := time.NewTicker(1 * time.Hour)
 	defer ticker.Stop()
-	
+
 	for range ticker.C {
 		m.Cleanup()
 	}
@@ -155,17 +155,17 @@ func (m *Manager) cleanupWorker() {
 // Cleanup removes expired entries
 func (m *Manager) Cleanup() {
 	ctx := context.Background()
-	
+
 	// Clean RD URLs
 	if _, err := m.db.ExecContext(ctx, "DELETE FROM rd_url_cache WHERE expires_at < NOW()"); err != nil {
 		fmt.Printf("Error cleaning RD URL cache: %v\n", err)
 	}
-	
+
 	// Clean requests
 	if _, err := m.db.ExecContext(ctx, "DELETE FROM request_cache WHERE expires_at < NOW()"); err != nil {
 		fmt.Printf("Error cleaning request cache: %v\n", err)
 	}
-	
+
 	// Clean old episode cache (>30 days)
 	if _, err := m.db.ExecContext(ctx, "DELETE FROM episode_cache WHERE last_updated < NOW() - INTERVAL '30 days'"); err != nil {
 		fmt.Printf("Error cleaning episode cache: %v\n", err)
@@ -189,34 +189,34 @@ func (ec *EpisodeCache) Get(imdbID string, season, episode int) (*EpisodeData, e
 		return data, nil
 	}
 	ec.mu.RUnlock()
-	
+
 	// Load from database
 	var dataJSON []byte
 	var lastUpdated time.Time
-	
+
 	err := ec.db.QueryRow(
 		"SELECT data, last_updated FROM episode_cache WHERE imdb_id = $1 AND season = $2 AND episode = $3",
 		imdbID, season, episode,
 	).Scan(&dataJSON, &lastUpdated)
-	
+
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
 	}
-	
+
 	var data EpisodeData
 	if err := json.Unmarshal(dataJSON, &data); err != nil {
 		return nil, err
 	}
 	data.LastUpdated = lastUpdated
-	
+
 	// Cache in memory
 	ec.mu.Lock()
 	ec.memory[key] = &data
 	ec.mu.Unlock()
-	
+
 	return &data, nil
 }
 
@@ -225,7 +225,7 @@ func (ec *EpisodeCache) Set(data *EpisodeData) error {
 	if err != nil {
 		return err
 	}
-	
+
 	_, err = ec.db.Exec(
 		`INSERT INTO episode_cache (imdb_id, season, episode, data, last_updated)
 		 VALUES ($1, $2, $3, $4, NOW())
@@ -233,18 +233,18 @@ func (ec *EpisodeCache) Set(data *EpisodeData) error {
 		 DO UPDATE SET data = $4, last_updated = NOW()`,
 		data.IMDBID, data.Season, data.Episode, dataJSON,
 	)
-	
+
 	if err != nil {
 		return err
 	}
-	
+
 	// Update memory cache
 	key := fmt.Sprintf("%s:%d:%d", data.IMDBID, data.Season, data.Episode)
 	ec.mu.Lock()
 	data.LastUpdated = time.Now()
 	ec.memory[key] = data
 	ec.mu.Unlock()
-	
+
 	return nil
 }
 
@@ -257,16 +257,16 @@ func (ec *EpisodeCache) GetBySeries(imdbID string) ([]*EpisodeData, error) {
 		return nil, err
 	}
 	defer rows.Close()
-	
+
 	var episodes []*EpisodeData
 	for rows.Next() {
 		var dataJSON []byte
 		var lastUpdated time.Time
-		
+
 		if err := rows.Scan(&dataJSON, &lastUpdated); err != nil {
 			continue
 		}
-		
+
 		var data EpisodeData
 		if err := json.Unmarshal(dataJSON, &data); err != nil {
 			continue
@@ -274,7 +274,7 @@ func (ec *EpisodeCache) GetBySeries(imdbID string) ([]*EpisodeData, error) {
 		data.LastUpdated = lastUpdated
 		episodes = append(episodes, &data)
 	}
-	
+
 	return episodes, nil
 }
 
@@ -297,26 +297,26 @@ func (rc *RDURLCache) Get(hash, fileID string) (*RDURLData, error) {
 		}
 	}
 	rc.mu.RUnlock()
-	
+
 	// Load from database
 	var data RDURLData
 	err := rc.db.QueryRow(
 		"SELECT hash, file_id, url, expires_at, quality, size FROM rd_url_cache WHERE hash = $1 AND file_id = $2 AND expires_at > NOW()",
 		hash, fileID,
 	).Scan(&data.Hash, &data.FileID, &data.URL, &data.ExpiresAt, &data.Quality, &data.Size)
-	
+
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
 	}
-	
+
 	// Cache in memory
 	rc.mu.Lock()
 	rc.memory[key] = &data
 	rc.mu.Unlock()
-	
+
 	return &data, nil
 }
 
@@ -328,17 +328,17 @@ func (rc *RDURLCache) Set(data *RDURLData) error {
 		 DO UPDATE SET url = $3, expires_at = $4, quality = $5, size = $6`,
 		data.Hash, data.FileID, data.URL, data.ExpiresAt, data.Quality, data.Size,
 	)
-	
+
 	if err != nil {
 		return err
 	}
-	
+
 	// Update memory cache
 	key := fmt.Sprintf("%s:%s", data.Hash, data.FileID)
 	rc.mu.Lock()
 	rc.memory[key] = data
 	rc.mu.Unlock()
-	
+
 	return nil
 }
 
@@ -360,32 +360,32 @@ func (rc *RequestCache) Get(key string) (*RequestData, error) {
 		}
 	}
 	rc.mu.RUnlock()
-	
+
 	// Load from database
 	var data RequestData
 	err := rc.db.QueryRow(
 		"SELECT key, data, expires_at FROM request_cache WHERE key = $1 AND expires_at > NOW()",
 		key,
 	).Scan(&data.Key, &data.Data, &data.ExpiresAt)
-	
+
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
 	}
-	
+
 	// Cache in memory
 	rc.mu.Lock()
 	rc.memory[key] = &data
 	rc.mu.Unlock()
-	
+
 	return &data, nil
 }
 
 func (rc *RequestCache) Set(key string, data []byte, ttl time.Duration) error {
 	expiresAt := time.Now().Add(ttl)
-	
+
 	_, err := rc.db.Exec(
 		`INSERT INTO request_cache (key, data, expires_at)
 		 VALUES ($1, $2, $3)
@@ -393,11 +393,11 @@ func (rc *RequestCache) Set(key string, data []byte, ttl time.Duration) error {
 		 DO UPDATE SET data = $2, expires_at = $3`,
 		key, data, expiresAt,
 	)
-	
+
 	if err != nil {
 		return err
 	}
-	
+
 	// Update memory cache
 	rc.mu.Lock()
 	rc.memory[key] = &RequestData{
@@ -406,7 +406,7 @@ func (rc *RequestCache) Set(key string, data []byte, ttl time.Duration) error {
 		ExpiresAt: expiresAt,
 	}
 	rc.mu.Unlock()
-	
+
 	return nil
 }
 

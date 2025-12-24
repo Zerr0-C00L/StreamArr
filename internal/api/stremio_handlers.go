@@ -12,46 +12,46 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gorilla/mux"
 	"github.com/Zerr0-C00L/StreamArr/internal/providers"
+	"github.com/gorilla/mux"
 )
 
 // StremioManifest represents the Stremio addon manifest
 type StremioManifest struct {
-	ID          string            `json:"id"`
-	Version     string            `json:"version"`
-	Name        string            `json:"name"`
-	Description string            `json:"description"`
-	Resources   []string          `json:"resources"`
-	Types       []string          `json:"types"`
-	Catalogs    []StremioCatalog  `json:"catalogs,omitempty"`
-	IDPrefixes  []string          `json:"idPrefixes"`
-	Background  string            `json:"background,omitempty"`
-	Logo        string            `json:"logo,omitempty"`
+	ID          string           `json:"id"`
+	Version     string           `json:"version"`
+	Name        string           `json:"name"`
+	Description string           `json:"description"`
+	Resources   []string         `json:"resources"`
+	Types       []string         `json:"types"`
+	Catalogs    []StremioCatalog `json:"catalogs,omitempty"`
+	IDPrefixes  []string         `json:"idPrefixes"`
+	Background  string           `json:"background,omitempty"`
+	Logo        string           `json:"logo,omitempty"`
 }
 
 // StremioCatalog represents a catalog in Stremio
 type StremioCatalog struct {
-	Type  string                 `json:"type"`
-	ID    string                 `json:"id"`
-	Name  string                 `json:"name"`
-	Extra []StremioCatalogExtra  `json:"extra,omitempty"`
+	Type  string                `json:"type"`
+	ID    string                `json:"id"`
+	Name  string                `json:"name"`
+	Extra []StremioCatalogExtra `json:"extra,omitempty"`
 }
 
 // StremioCatalogExtra represents extra catalog options
 type StremioCatalogExtra struct {
-	Name     string   `json:"name"`
-	IsRequired bool   `json:"isRequired,omitempty"`
-	Options  []string `json:"options,omitempty"`
+	Name       string   `json:"name"`
+	IsRequired bool     `json:"isRequired,omitempty"`
+	Options    []string `json:"options,omitempty"`
 }
 
 // StremioStream represents a stream response for Stremio
 type StremioStream struct {
-	Name          string                    `json:"name,omitempty"`
-	Description   string                    `json:"description,omitempty"`
-	URL           string                    `json:"url"`
-	InfoHash      string                    `json:"infoHash,omitempty"`
-	FileIdx       int                       `json:"fileIdx,omitempty"`
+	Name          string                     `json:"name,omitempty"`
+	Description   string                     `json:"description,omitempty"`
+	URL           string                     `json:"url"`
+	InfoHash      string                     `json:"infoHash,omitempty"`
+	FileIdx       int                        `json:"fileIdx,omitempty"`
 	BehaviorHints StremioStreamBehaviorHints `json:"behaviorHints,omitempty"`
 }
 
@@ -66,7 +66,7 @@ type StremioStreamBehaviorHints struct {
 func filterValidStreams(streams []providers.TorrentioStream) []providers.TorrentioStream {
 	valid := make([]providers.TorrentioStream, 0)
 	filtered := 0
-	
+
 	for _, s := range streams {
 		// Skip empty URLs
 		if s.URL == "" || s.URL == "null" {
@@ -74,31 +74,31 @@ func filterValidStreams(streams []providers.TorrentioStream) []providers.Torrent
 			log.Printf("[Stremio] Filtered: Empty URL - %s", s.Name)
 			continue
 		}
-		
+
 		// Skip invalid URL schemes
-		if !strings.HasPrefix(s.URL, "http://") && 
-		   !strings.HasPrefix(s.URL, "https://") &&
-		   !strings.HasPrefix(s.URL, "magnet:") {
+		if !strings.HasPrefix(s.URL, "http://") &&
+			!strings.HasPrefix(s.URL, "https://") &&
+			!strings.HasPrefix(s.URL, "magnet:") {
 			filtered++
 			log.Printf("[Stremio] Filtered: Invalid URL scheme - %s", s.URL)
 			continue
 		}
-		
+
 		// Skip uncached magnet links (they will timeout in IPTV players)
 		if strings.Contains(s.URL, "magnet:") && !s.Cached {
 			filtered++
 			log.Printf("[Stremio] Filtered: Uncached magnet - %s", s.Name)
 			continue
 		}
-		
+
 		// Valid stream - keep it
 		valid = append(valid, s)
 	}
-	
+
 	if filtered > 0 {
 		log.Printf("[Stremio] Filtered out %d invalid streams, %d valid streams remain", filtered, len(valid))
 	}
-	
+
 	return valid
 }
 
@@ -107,7 +107,7 @@ func getStremioProxyPosterURL(r *http.Request, posterPath string) string {
 	if posterPath == "" {
 		return ""
 	}
-	
+
 	// Build base URL from request
 	proto := r.Header.Get("X-Forwarded-Proto")
 	if proto == "" {
@@ -120,16 +120,16 @@ func getStremioProxyPosterURL(r *http.Request, posterPath string) string {
 	if host == "" {
 		host = "localhost:8080"
 	}
-	
+
 	// Add TMDB poster size prefix if not already present
 	// posterPath comes as /filename.jpg, we need to make it /w500/filename.jpg
 	if !strings.Contains(posterPath, "/w") && !strings.Contains(posterPath, "/h") && !strings.Contains(posterPath, "/original") {
 		posterPath = "/w500" + posterPath
 	}
-	
+
 	// URL-encode the poster path to preserve slashes and other characters
 	encodedPath := strings.ReplaceAll(posterPath, "/", "%2F")
-	
+
 	// Return proxy URL
 	proxyURL := fmt.Sprintf("%s://%s/stremio/poster/%s", proto, host, encodedPath)
 	log.Printf("[Stremio] Generated proxy URL for %s -> %s", posterPath, proxyURL)
@@ -146,7 +146,7 @@ func (h *Handler) StremioManifestHandler(w http.ResponseWriter, r *http.Request)
 
 	settings := h.settingsManager.Get()
 	log.Printf("[Stremio] StremioManifestHandler: enabled=%v, token=%s, query_token=%s", settings.StremioAddon.Enabled, settings.StremioAddon.SharedToken, r.URL.Query().Get("token"))
-	
+
 	// Allow if either: addon is explicitly enabled OR a token has been generated
 	if !settings.StremioAddon.Enabled && settings.StremioAddon.SharedToken == "" {
 		respondError(w, http.StatusNotFound, "Stremio addon is not configured")
@@ -174,10 +174,10 @@ func (h *Handler) StremioManifestHandler(w http.ResponseWriter, r *http.Request)
 	// Add catalogs based on configuration
 	if len(settings.StremioAddon.Catalogs) > 0 {
 		catalogs := []StremioCatalog{}
-		
+
 		placement := settings.StremioAddon.CatalogPlacement
 		extra := []StremioCatalogExtra{}
-		
+
 		// Add skip parameter for pagination
 		if placement == "home" || placement == "both" {
 			extra = append(extra, StremioCatalogExtra{
@@ -209,7 +209,7 @@ func (h *Handler) StremioManifestHandler(w http.ResponseWriter, r *http.Request)
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set("Access-Control-Allow-Headers", "*")
-	
+
 	json.NewEncoder(w).Encode(manifest)
 }
 
@@ -217,11 +217,11 @@ func (h *Handler) StremioManifestHandler(w http.ResponseWriter, r *http.Request)
 func (h *Handler) StremioCatalogHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	vars := mux.Vars(r)
-	
-	catalogID := vars["id"]      // catalog ID
-	
+
+	catalogID := vars["id"] // catalog ID
+
 	log.Printf("[Stremio] StremioCatalogHandler: catalogID=%s, token=%s", catalogID, r.URL.Query().Get("token"))
-	
+
 	if h.settingsManager == nil {
 		log.Printf("[Stremio] StremioCatalogHandler: settingsManager is nil")
 		respondError(w, http.StatusServiceUnavailable, "settings not configured")
@@ -279,7 +279,7 @@ func (h *Handler) StremioCatalogHandler(w http.ResponseWriter, r *http.Request) 
 			Runtime     int
 			Metadata    map[string]interface{}
 		}
-		
+
 		// Type assertion based on actual movie type - will be models.Movie from database
 		if mv, err := json.Marshal(movie); err == nil {
 			json.Unmarshal(mv, &m)
@@ -340,17 +340,17 @@ func (h *Handler) StremioCatalogHandler(w http.ResponseWriter, r *http.Request) 
 		if m.ReleaseDate != nil {
 			meta["releaseInfo"] = m.ReleaseDate.Format("2006")
 		}
-		
+
 		// Include description
 		if m.Overview != "" {
 			meta["description"] = m.Overview
 		}
-		
+
 		// Include genres
 		if len(m.Genres) > 0 {
 			meta["genres"] = m.Genres
 		}
-		
+
 		// Include runtime
 		if m.Runtime > 0 {
 			meta["runtime"] = fmt.Sprintf("%d min", m.Runtime)
@@ -362,7 +362,7 @@ func (h *Handler) StremioCatalogHandler(w http.ResponseWriter, r *http.Request) 
 			if rating, ok := m.Metadata["vote_average"].(float64); ok && rating > 0 {
 				meta["imdbRating"] = fmt.Sprintf("%.1f", rating)
 			}
-			
+
 			// Cast
 			if cast, ok := m.Metadata["cast"].([]interface{}); ok && len(cast) > 0 {
 				castNames := []string{}
@@ -380,7 +380,7 @@ func (h *Handler) StremioCatalogHandler(w http.ResponseWriter, r *http.Request) 
 					meta["cast"] = castNames
 				}
 			}
-			
+
 			// Director
 			if crew, ok := m.Metadata["crew"].([]interface{}); ok && len(crew) > 0 {
 				directors := []string{}
@@ -416,7 +416,7 @@ func (h *Handler) StremioCatalogHandler(w http.ResponseWriter, r *http.Request) 
 			Genres       []string
 			Metadata     map[string]interface{}
 		}
-		
+
 		// Type assertion - will be models.Series from database
 		if sv, err := json.Marshal(series); err == nil {
 			json.Unmarshal(sv, &s)
@@ -470,12 +470,12 @@ func (h *Handler) StremioCatalogHandler(w http.ResponseWriter, r *http.Request) 
 		if s.FirstAirDate != nil {
 			meta["releaseInfo"] = s.FirstAirDate.Format("2006")
 		}
-		
+
 		// Include description
 		if s.Overview != "" {
 			meta["description"] = s.Overview
 		}
-		
+
 		// Include genres
 		if len(s.Genres) > 0 {
 			meta["genres"] = s.Genres
@@ -487,7 +487,7 @@ func (h *Handler) StremioCatalogHandler(w http.ResponseWriter, r *http.Request) 
 			if rating, ok := s.Metadata["vote_average"].(float64); ok && rating > 0 {
 				meta["imdbRating"] = fmt.Sprintf("%.1f", rating)
 			}
-			
+
 			// Cast
 			if cast, ok := s.Metadata["cast"].([]interface{}); ok && len(cast) > 0 {
 				castNames := []string{}
@@ -505,7 +505,7 @@ func (h *Handler) StremioCatalogHandler(w http.ResponseWriter, r *http.Request) 
 					meta["cast"] = castNames
 				}
 			}
-			
+
 			// Creator (for series)
 			if creators, ok := s.Metadata["created_by"].([]interface{}); ok && len(creators) > 0 {
 				creatorNames := []string{}
@@ -646,10 +646,10 @@ func (h *Handler) StremioCatalogHandler(w http.ResponseWriter, r *http.Request) 
 // StremioStreamHandler serves streams for Stremio
 func (h *Handler) StremioStreamHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
-	
+
 	contentType := vars["type"] // movie or series
 	id := vars["id"]            // IMDB ID (tt123456 or tt123456:1:2 for series)
-	
+
 	if h.settingsManager == nil {
 		respondError(w, http.StatusServiceUnavailable, "settings not configured")
 		return
@@ -692,11 +692,7 @@ func (h *Handler) StremioStreamHandler(w http.ResponseWriter, r *http.Request) {
 			log.Printf("[Stremio] GetMovieStreams returned %d streams", len(streams))
 		}
 		if err == nil && len(streams) > 0 {
-			// Filter out invalid streams first
-			streams = filterValidStreams(streams)
-			
-			// Apply release filters
-			
+			// No app-side filtering: use streams as provided by the addon
 			for _, ps := range streams {
 				stream := StremioStream{
 					Name:        fmt.Sprintf("StreamArr - %s", ps.Quality),
@@ -707,18 +703,18 @@ func (h *Handler) StremioStreamHandler(w http.ResponseWriter, r *http.Request) {
 						Filename:    ps.Title,
 					},
 				}
-				
+
 				if ps.Cached {
 					stream.Name += " ⚡"
 				}
-				
+
 				providerStreams = append(providerStreams, stream)
 			}
 		}
 	} else if contentType == "series" && len(parts) == 3 {
 		season, _ := strconv.Atoi(parts[1])
 		episode, _ := strconv.Atoi(parts[2])
-		
+
 		log.Printf("[Stremio] Fetching streams for series %s S%02dE%02d", imdbID, season, episode)
 		streams, streamErr := h.streamProvider.GetSeriesStreams(imdbID, season, episode)
 		err = streamErr
@@ -728,11 +724,7 @@ func (h *Handler) StremioStreamHandler(w http.ResponseWriter, r *http.Request) {
 			log.Printf("[Stremio] GetSeriesStreams returned %d streams", len(streams))
 		}
 		if err == nil && len(streams) > 0 {
-			// Filter out invalid streams first
-			streams = filterValidStreams(streams)
-			
-			// Apply release filters
-			
+			// No app-side filtering: use streams as provided by the addon
 			for _, ps := range streams {
 				stream := StremioStream{
 					Name:        fmt.Sprintf("StreamArr - %s", ps.Quality),
@@ -744,11 +736,11 @@ func (h *Handler) StremioStreamHandler(w http.ResponseWriter, r *http.Request) {
 						BingeGroup:  fmt.Sprintf("streamarr-%s", imdbID),
 					},
 				}
-				
+
 				if ps.Cached {
 					stream.Name += " ⚡"
 				}
-				
+
 				providerStreams = append(providerStreams, stream)
 			}
 		}
@@ -773,9 +765,9 @@ func (h *Handler) GenerateStremioToken(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusInternalServerError, "failed to generate token")
 		return
 	}
-	
+
 	token := hex.EncodeToString(tokenBytes)
-	
+
 	// Update settings with new token
 	if h.settingsManager != nil {
 		settings := h.settingsManager.Get()
@@ -785,7 +777,7 @@ func (h *Handler) GenerateStremioToken(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	
+
 	respondJSON(w, http.StatusOK, map[string]string{
 		"token": token,
 	})
@@ -801,7 +793,7 @@ func (h *Handler) GetStremioManifestURL(w http.ResponseWriter, r *http.Request) 
 
 	settings := h.settingsManager.Get()
 	log.Printf("[Stremio] GetStremioManifestURL: enabled=%v, token=%s, addon=%+v", settings.StremioAddon.Enabled, settings.StremioAddon.SharedToken, settings.StremioAddon)
-	
+
 	// Allow if either: addon is explicitly enabled OR a token has been generated
 	if !settings.StremioAddon.Enabled && settings.StremioAddon.SharedToken == "" {
 		respondError(w, http.StatusBadRequest, "Stremio addon is not configured - generate a token first")
@@ -845,15 +837,15 @@ func (h *Handler) GetStremioManifestURL(w http.ResponseWriter, r *http.Request) 
 func (h *Handler) StremioPostersProxyHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	posterPath := vars["path"]
-	
+
 	// URL-decode the poster path (slashes were encoded as %2F)
 	posterPath = strings.ReplaceAll(posterPath, "%2F", "/")
-	
+
 	log.Printf("[Stremio] StremioPostersProxyHandler: proxying poster %s", posterPath)
-	
+
 	// Construct TMDB poster URL
 	tmdbURL := fmt.Sprintf("https://image.tmdb.org/t/p/%s", posterPath)
-	
+
 	// Fetch the poster from TMDB
 	resp, err := http.Get(tmdbURL)
 	if err != nil {
@@ -864,19 +856,19 @@ func (h *Handler) StremioPostersProxyHandler(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	defer resp.Body.Close()
-	
+
 	if resp.StatusCode != http.StatusOK {
 		log.Printf("[Stremio] TMDB returned status %d for poster %s", resp.StatusCode, posterPath)
 		w.WriteHeader(resp.StatusCode)
 		return
 	}
-	
+
 	// Copy response headers
 	w.Header().Set("Content-Type", resp.Header.Get("Content-Type"))
 	w.Header().Set("Cache-Control", "public, max-age=86400") // Cache for 24 hours
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set("Content-Length", resp.Header.Get("Content-Length"))
-	
+
 	// Copy status and body
 	w.WriteHeader(http.StatusOK)
 	_, err = io.CopyN(w, resp.Body, 50*1024*1024) // 50MB max

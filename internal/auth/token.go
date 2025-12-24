@@ -39,7 +39,7 @@ func GetJWTSecret() string {
 // GenerateToken creates a new JWT token for a user
 func GenerateToken(userID int, username string, isAdmin bool, rememberMe bool) (string, error) {
 	secret := GetJWTSecret()
-	
+
 	// Set expiration: 24 hours for normal, 30 days for remember me
 	expiration := time.Hour * 24
 	if rememberMe {

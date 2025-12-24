@@ -13,6 +13,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -23,7 +24,10 @@ type GenericStremioProvider struct {
 	RealDebridAPIKey string
 	Client           *http.Client
 	Cache            map[string]*GenericStreamCachedResponse
-	rateLimiter      chan struct{} // Semaphore to limit concurrent requests
+	rateLimiter      chan struct{}  // Semaphore to limit concurrent requests
+	proxyURLs        []string       // List of proxy URLs for rotation
+	proxyIndex       int            // Current proxy index for round-robin
+	proxyMu          sync.Mutex     // Mutex for proxy rotation
 }
 
 type GenericStreamCachedResponse struct {
@@ -68,50 +72,66 @@ func NewGenericStremioProvider(name, baseURL, rdAPIKey string) *GenericStremioPr
 		DisableCompression: true, // We'll handle compression manually via Accept-Encoding
 	}
 	
+	provider := &GenericStremioProvider{
+		Name:             name,
+		BaseURL:          baseURL,
+		RealDebridAPIKey: rdAPIKey,
+		Cache:            make(map[string]*GenericStreamCachedResponse),
+		rateLimiter:      make(chan struct{}, 2),
+		proxyURLs:        []string{},
+		proxyIndex:       0,
+	}
+	
 	// Check for proxy configuration (for bypassing Cloudflare blocks)
 	// Set TORRENTIO_PROXY env var to use proxy for Torrentio
 	// Supports multiple proxies separated by comma for fallback: "http://proxy1,http://proxy2,http://proxy3"
 	if proxyEnv := os.Getenv("TORRENTIO_PROXY"); proxyEnv != "" && (strings.Contains(strings.ToLower(name), "torrentio") || strings.Contains(strings.ToLower(baseURL), "torrentio")) {
 		// Split by comma to get list of proxies
-		proxyURLs := strings.Split(proxyEnv, ",")
+		for _, p := range strings.Split(proxyEnv, ",") {
+			p = strings.TrimSpace(p)
+			if p != "" {
+				provider.proxyURLs = append(provider.proxyURLs, p)
+			}
+		}
 		
-		// Use a round-robin proxy function that tries each proxy in order
-		transport.Proxy = func(r *http.Request) (*url.URL, error) {
-			for i, proxyURL := range proxyURLs {
-				proxyURL = strings.TrimSpace(proxyURL)
-				if proxyURL == "" {
-					continue
-				}
+		if len(provider.proxyURLs) > 0 {
+			log.Printf("[PROXY] Configured %d proxies for %s", len(provider.proxyURLs), name)
+			
+			// Use dynamic proxy selection
+			transport.Proxy = func(r *http.Request) (*url.URL, error) {
+				provider.proxyMu.Lock()
+				proxyURL := provider.proxyURLs[provider.proxyIndex]
+				provider.proxyMu.Unlock()
 				
 				proxy, err := url.Parse(proxyURL)
 				if err != nil {
 					log.Printf("[PROXY] Invalid proxy URL %s: %v", proxyURL, err)
-					continue
+					return nil, err
 				}
 				
-				// Return first valid proxy (Go will auto-fallback on connection errors)
-				if i == 0 {
-					log.Printf("[PROXY] Using primary proxy %s for %s (%d fallback proxies available)", proxyURL, name, len(proxyURLs)-1)
-				}
+				log.Printf("[PROXY] Using proxy %d/%d: %s", provider.proxyIndex+1, len(provider.proxyURLs), proxyURL)
 				return proxy, nil
 			}
-			
-			log.Printf("[PROXY] All proxies failed for %s", name)
-			return nil, fmt.Errorf("all proxies failed")
 		}
 	}
 	
-	return &GenericStremioProvider{
-		Name:             name,
-		BaseURL:          baseURL,
-		RealDebridAPIKey: rdAPIKey,
-		Client: &http.Client{
-			Timeout:   120 * time.Second,
-			Transport: transport,
-		},
-		Cache:       make(map[string]*GenericStreamCachedResponse),
-		rateLimiter: make(chan struct{}, 2), // Max 2 concurrent requests to avoid overwhelming addon
+	provider.Client = &http.Client{
+		Timeout:   120 * time.Second,
+		Transport: transport,
 	}
+	
+	return provider
+}
+
+// rotateProxy switches to the next proxy in the list (for 429 rate limits)
+func (g *GenericStremioProvider) rotateProxy() {
+	if len(g.proxyURLs) <= 1 {
+		return
+	}
+	g.proxyMu.Lock()
+	g.proxyIndex = (g.proxyIndex + 1) % len(g.proxyURLs)
+	log.Printf("[PROXY] Rotated to proxy %d/%d due to rate limit", g.proxyIndex+1, len(g.proxyURLs))
+	g.proxyMu.Unlock()
 }
 
 // buildConfigURL builds the appropriate URL based on addon type
@@ -154,9 +174,9 @@ func (g *GenericStremioProvider) buildConfigURL(contentType, imdbID string, seas
 		}
 		configJSON, _ = json.Marshal(config)
 	} else if strings.Contains(lowerName, "torrentio") || strings.Contains(lowerURL, "torrentio") {
-		// Torrentio format - full configuration matching your working setup
-		// Excludes: BRREMUX, HDRALL (all HDR), Dolby Vision, 3D, SCR, CAM, UNKNOWN quality
-		configPath := fmt.Sprintf("providers=yts,eztv,rarbg,1337x,thepiratebay,kickasstorrents,torrentgalaxy,magnetdl,horriblesubs,nyaasi,tokyotosho,anidex|sort=qualitysize|qualityfilter=brremux,hdrall,dolbyvision,dolbyvisionwithhdr,threed,scr,cam,unknown|debridoptions=nodownloadlinks,nocatalog|realdebrid=%s", g.RealDebridAPIKey)
+		// Torrentio format with explicit quality filters
+		// Excludes: BRREMUX, all HDR, Dolby Vision, 3D, SCR (screener), CAM, TS/HDTS/TC (telecine), UNKNOWN
+		configPath := fmt.Sprintf("providers=yts,eztv,rarbg,1337x,thepiratebay,kickasstorrents,torrentgalaxy,magnetdl,horriblesubs,nyaasi,tokyotosho,anidex|sort=qualitysize|qualityfilter=brremux,hdrall,dolbyvision,dolbyvisionwithhdr,threed,scr,cam,hdts,hd-ts,hdtc,hd-tc,ts,tc,unknown|debridoptions=nodownloadlinks,nocatalog|realdebrid=%s", g.RealDebridAPIKey)
 		return fmt.Sprintf("%s/%s/%s", g.BaseURL, configPath, contentPath)
 	} else if strings.Contains(lowerName, "mediafusion") || strings.Contains(lowerURL, "mediafusion") {
 		// MediaFusion format
@@ -232,6 +252,7 @@ func (g *GenericStremioProvider) fetchStreams(url, cacheKey string) ([]Torrentio
 		resp, err := g.Client.Do(req)
 		if err != nil {
 			lastErr = err
+			g.rotateProxy() // Try different proxy on connection error
 			continue
 		}
 		defer resp.Body.Close()
@@ -239,6 +260,7 @@ func (g *GenericStremioProvider) fetchStreams(url, cacheKey string) ([]Torrentio
 		// Retry on 429 (rate limit) or 503 (service unavailable)
 		if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode == http.StatusServiceUnavailable {
 			lastErr = fmt.Errorf("rate limited/service unavailable: %d", resp.StatusCode)
+			g.rotateProxy() // Switch to next proxy on rate limit
 			if attempt < maxRetries-1 {
 				continue
 			}

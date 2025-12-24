@@ -85,7 +85,7 @@ func (e *EpisodeStore) AddBatch(ctx context.Context, episodes []*models.Episode)
 			// Ignore duplicate errors, continue with others
 			continue
 		}
-		
+
 		if id > 0 {
 			episode.ID = id
 		}
@@ -487,4 +487,3 @@ func (e *EpisodeStore) ListAll(ctx context.Context) ([]*models.Episode, error) {
 	result := make([]*models.Episode, count)
 	return result, nil
 }
-

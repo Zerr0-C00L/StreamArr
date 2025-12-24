@@ -222,6 +222,13 @@ func (eg *EnhancedGenerator) GenerateMoviePlaylistEnhanced(ctx context.Context) 
 				continue
 			}
 			
+			// Added stricter filtering for unreleased movies
+			if movie.ReleaseDate.After(time.Now()) {
+				log.Printf("DEBUG: Skipping unreleased movie: %s (Release Date: %v)", movie.Title, movie.ReleaseDate)
+				skippedCount++
+				continue
+			}
+			
 			// Check if movie has cached stream (if OnlyCachedStreams is enabled)
 			if eg.cfg.OnlyCachedStreams {
 				imdbID, ok := movie.Metadata["imdb_id"].(string)

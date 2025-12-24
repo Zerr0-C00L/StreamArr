@@ -12,9 +12,9 @@ import (
 func AuthMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Skip auth for health check and public endpoints
-		if r.URL.Path == "/api/v1/health" || 
-		   strings.HasPrefix(r.URL.Path, "/player_api.php") ||
-		   strings.HasPrefix(r.URL.Path, "/get.php") {
+		if r.URL.Path == "/api/v1/health" ||
+			strings.HasPrefix(r.URL.Path, "/player_api.php") ||
+			strings.HasPrefix(r.URL.Path, "/get.php") {
 			next.ServeHTTP(w, r)
 			return
 		}

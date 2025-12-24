@@ -264,7 +264,6 @@ func (s *SeriesStore) GetByIMDBID(ctx context.Context, imdbID string) (*models.S
 	return &series, nil
 }
 
-
 // List returns paginated series with optional filtering
 func (s *SeriesStore) List(ctx context.Context, offset, limit int, monitored *bool) ([]*models.Series, error) {
 	query := `
@@ -508,8 +507,8 @@ func (s *SeriesStore) ResetStatus(ctx context.Context) error {
 
 // DeleteBySource removes all series from a specific source
 func (s *SeriesStore) DeleteBySource(ctx context.Context, source string) (int64, error) {
-	result, err := s.db.ExecContext(ctx, 
-		"DELETE FROM library_series WHERE metadata->>'source' = $1", 
+	result, err := s.db.ExecContext(ctx,
+		"DELETE FROM library_series WHERE metadata->>'source' = $1",
 		source)
 	if err != nil {
 		return 0, err

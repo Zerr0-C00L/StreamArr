@@ -23,13 +23,13 @@ type Config struct {
 	RedisURL string
 
 	// API Keys
-	TMDBAPIKey        string
-	RealDebridAPIKey  string
-	PremiumizeAPIKey  string
-	MDBListAPIKey     string
+	TMDBAPIKey       string
+	RealDebridAPIKey string
+	PremiumizeAPIKey string
+	MDBListAPIKey    string
 
 	// Services
-	CometURL     string
+	CometURL string
 
 	// Features
 	EnableNotifications bool
@@ -38,29 +38,29 @@ type Config struct {
 	TelegramChatID      string
 
 	// Playlist Settings
-	TotalPages                 int
-	MinYear                    int
-	MinRuntime                 int
-	Language                   string
-	SeriesOriginCountry        string
-	MoviesOriginCountry        string
-	MaxResolution              int
-	MaxFileSize                int
-	AutoCacheIntervalHours     int
-	UserCreatePlaylist         bool
-	IncludeAdultVOD            bool
-	EnableQualityVariants      bool
-	ShowFullStreamName         bool
-	OnlyCachedStreams          bool   // Only include media with cached streams
+	TotalPages             int
+	MinYear                int
+	MinRuntime             int
+	Language               string
+	SeriesOriginCountry    string
+	MoviesOriginCountry    string
+	MaxResolution          int
+	MaxFileSize            int
+	AutoCacheIntervalHours int
+	UserCreatePlaylist     bool
+	IncludeAdultVOD        bool
+	EnableQualityVariants  bool
+	ShowFullStreamName     bool
+	OnlyCachedStreams      bool // Only include media with cached streams
 
 	// Provider Settings
-	UseRealDebrid             bool
-	UsePremiumize             bool
-	StremioAddons             []StremioAddon
+	UseRealDebrid bool
+	UsePremiumize bool
+	StremioAddons []StremioAddon
 
 	// Proxy Settings
-	HTTPProxy      string
-	UseHTTPProxy   bool
+	HTTPProxy    string
+	UseHTTPProxy bool
 
 	// HeadlessVidX Settings
 	HeadlessVidXAddress    string
@@ -78,24 +78,24 @@ func Load() *Config {
 		// Server defaults
 		ServerPort: 8080,
 		Host:       "0.0.0.0",
-		
+
 		// Database URL can be set via environment for initial connection
 		// After that, all settings come from the database
 		DatabaseURL: getEnv("DATABASE_URL", "postgres://streamarr:streamarr_password@localhost:5432/streamarr?sslmode=disable"),
 		RedisURL:    "redis://localhost:6379/0",
-		
+
 		// API Keys - empty by default, set via Web UI
 		TMDBAPIKey:       "",
 		RealDebridAPIKey: "",
 		PremiumizeAPIKey: "",
 		MDBListAPIKey:    "",
-		
+
 		// Notifications - disabled by default
 		EnableNotifications: false,
 		DiscordWebhookURL:   "",
 		TelegramBotToken:    "",
 		TelegramChatID:      "",
-		
+
 		// Playlist defaults
 		TotalPages:             5,
 		MinYear:                1970,
@@ -111,20 +111,20 @@ func Load() *Config {
 		EnableQualityVariants:  false,
 		ShowFullStreamName:     false,
 		OnlyCachedStreams:      false,
-		
+
 		// Provider defaults
-		UseRealDebrid:      true,
-		UsePremiumize:      false,
-		StremioAddons:      []StremioAddon{}, // Empty by default - users must configure their own addons
-		
+		UseRealDebrid: true,
+		UsePremiumize: false,
+		StremioAddons: []StremioAddon{}, // Empty by default - users must configure their own addons
+
 		// Proxy - disabled by default
 		HTTPProxy:    "",
 		UseHTTPProxy: false,
-		
+
 		// HeadlessVidX defaults
 		HeadlessVidXAddress:    "localhost:3202",
 		HeadlessVidXMaxThreads: 5,
-		
+
 		// Debug - disabled by default
 		Debug: false,
 	}

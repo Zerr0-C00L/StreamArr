@@ -46,10 +46,10 @@ func main() {
 	if err := settingsManager.Load(); err != nil {
 		log.Printf("Warning: Could not load settings: %v, using defaults", err)
 	}
-	
+
 	// Override config with ALL settings from database
 	appSettings := settingsManager.Get()
-	
+
 	// API Keys
 	if appSettings.TMDBAPIKey != "" {
 		cfg.TMDBAPIKey = appSettings.TMDBAPIKey
@@ -69,7 +69,7 @@ func main() {
 		cfg.MDBListAPIKey = appSettings.MDBListAPIKey
 		log.Println("✓ MDBList API key loaded from settings")
 	}
-	
+
 	// Provider settings
 	cfg.UseRealDebrid = appSettings.UseRealDebrid
 	cfg.UsePremiumize = appSettings.UsePremiumize
@@ -84,7 +84,7 @@ func main() {
 			}
 		}
 	}
-	
+
 	// Playlist settings
 	if appSettings.TotalPages > 0 {
 		cfg.TotalPages = appSettings.TotalPages
@@ -92,12 +92,12 @@ func main() {
 	if appSettings.MinYear > 0 {
 		cfg.MinYear = appSettings.MinYear
 	}
-	
+
 	log.Println("✓ All settings loaded from database")
 
 	// Initialize components
 	tmdbClient := services.NewTMDBClient(cfg.TMDBAPIKey)
-	
+
 	// Initialize providers
 	// Convert config.StremioAddon to providers.StremioAddon
 	stremioAddons := make([]providers.StremioAddon, len(cfg.StremioAddons))
@@ -113,16 +113,16 @@ func main() {
 		stremioAddons,
 		tmdbClient,
 	)
-	
+
 	// Initialize cache manager
 	cacheManager := cache.NewManager(db)
-	
+
 	// Initialize playlist generator
 	playlistGen := playlist.NewEnhancedGenerator(cfg, db, tmdbClient, multiProvider)
-	
+
 	// Initialize channel manager
 	channelManager := livetv.NewChannelManager()
-	
+
 	// Initialize EPG manager
 	epgManager := epg.NewEPGManager()
 
@@ -141,16 +141,16 @@ func main() {
 
 	// Start workers
 	log.Println("Starting workers...")
-	
+
 	// Worker 1: Playlist Regeneration (every 12 hours)
 	go playlistWorker(ctx, playlistGen, 12*time.Hour)
-	
+
 	// Worker 2: Cache Cleanup (every hour)
 	go cacheCleanupWorker(ctx, cacheManager, 1*time.Hour)
-	
+
 	// Worker 3: EPG Update (every 6 hours)
 	go epgUpdateWorker(ctx, epgManager, channelManager, 6*time.Hour)
-	
+
 	// Worker 4: Channel Refresh (every hour)
 	go channelRefreshWorker(ctx, channelManager, 1*time.Hour)
 
@@ -185,17 +185,17 @@ func main() {
 
 func playlistWorker(ctx context.Context, gen *playlist.EnhancedGenerator, interval time.Duration) {
 	log.Printf("📋 Playlist Worker: Starting (interval: %v)", interval)
-	
+
 	// Run immediately on startup
 	if err := gen.GenerateComplete(ctx); err != nil {
 		log.Printf("❌ Playlist generation error: %v", err)
 	} else {
 		log.Println("✅ Initial playlist generation complete")
 	}
-	
+
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
-	
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -214,10 +214,10 @@ func playlistWorker(ctx context.Context, gen *playlist.EnhancedGenerator, interv
 
 func cacheCleanupWorker(ctx context.Context, manager *cache.Manager, interval time.Duration) {
 	log.Printf("🧹 Cache Cleanup Worker: Starting (interval: %v)", interval)
-	
+
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
-	
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -233,13 +233,13 @@ func cacheCleanupWorker(ctx context.Context, manager *cache.Manager, interval ti
 
 func epgUpdateWorker(ctx context.Context, epgManager *epg.Manager, channelManager *livetv.ChannelManager, interval time.Duration) {
 	log.Printf("📺 EPG Update Worker: Starting (interval: %v)", interval)
-	
+
 	// Run immediately on startup
 	updateEPG(epgManager, channelManager)
-	
+
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
-	
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -258,7 +258,7 @@ func updateEPG(epgManager *epg.Manager, channelManager *livetv.ChannelManager) {
 	for i, ch := range channels {
 		channelList[i] = *ch
 	}
-	
+
 	if err := epgManager.UpdateEPG(channelList); err != nil {
 		log.Printf("❌ EPG update error: %v", err)
 	} else {
@@ -268,17 +268,17 @@ func updateEPG(epgManager *epg.Manager, channelManager *livetv.ChannelManager) {
 
 func channelRefreshWorker(ctx context.Context, manager *livetv.ChannelManager, interval time.Duration) {
 	log.Printf("📡 Channel Refresh Worker: Starting (interval: %v)", interval)
-	
+
 	// Run immediately on startup
 	if err := manager.LoadChannels(); err != nil {
 		log.Printf("❌ Initial channel load error: %v", err)
 	} else {
 		log.Println("✅ Initial channel load complete")
 	}
-	
+
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
-	
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -297,7 +297,7 @@ func channelRefreshWorker(ctx context.Context, manager *livetv.ChannelManager, i
 
 func mdblistSyncWorker(ctx context.Context, syncService *services.MDBListSyncService, db *sql.DB, interval time.Duration) {
 	log.Printf("📋 MDBList Sync Worker: Starting (interval: %v)", interval)
-	
+
 	// Run immediately on startup
 	log.Println("📋 MDBList Sync Worker: Running initial sync...")
 	if err := syncService.SyncAllLists(ctx); err != nil {
@@ -312,10 +312,10 @@ func mdblistSyncWorker(ctx context.Context, syncService *services.MDBListSyncSer
 	if err := syncService.EnrichExistingItems(ctx); err != nil {
 		log.Printf("⚠️ MDBList enrichment error: %v", err)
 	}
-	
+
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
-	
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -339,13 +339,13 @@ func mdblistSyncWorker(ctx context.Context, syncService *services.MDBListSyncSer
 
 func collectionSyncWorker(ctx context.Context, collectionStore *database.CollectionStore, movieStore *database.MovieStore, tmdbClient *services.TMDBClient, settingsManager *settings.Manager, interval time.Duration) {
 	log.Printf("📦 Collection Sync Worker: Starting (interval: %v)", interval)
-	
+
 	// Run immediately on startup
 	runCollectionSync(ctx, collectionStore, movieStore, tmdbClient, settingsManager)
-	
+
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
-	
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -359,63 +359,63 @@ func collectionSyncWorker(ctx context.Context, collectionStore *database.Collect
 
 func runCollectionSync(ctx context.Context, collectionStore *database.CollectionStore, movieStore *database.MovieStore, tmdbClient *services.TMDBClient, settingsManager *settings.Manager) {
 	log.Println("📦 Collection Sync Worker: Phase 1 - Scanning movies for collections...")
-	
+
 	// Phase 1: Scan and link movies to collections
 	movies, err := movieStore.ListUncheckedForCollection(ctx)
 	if err != nil {
 		log.Printf("❌ Collection Sync Phase 1 error: %v", err)
 		return
 	}
-	
+
 	totalMovies := len(movies)
 	if totalMovies == 0 {
 		log.Println("✅ Collection Sync Phase 1: All movies already checked")
 	} else {
 		log.Printf("📦 Scanning %d unchecked movies...\n", totalMovies)
 		linked := 0
-		
+
 		for i, movie := range movies {
 			if i%10 == 0 {
 				log.Printf("📦 Progress: %d/%d movies scanned\n", i, totalMovies)
 			}
-			
+
 			_, collection, err := tmdbClient.GetMovieWithCollection(ctx, movie.TMDBID)
 			if err != nil {
 				movieStore.MarkCollectionChecked(ctx, movie.ID)
 				continue
 			}
-			
+
 			if collection != nil {
 				fullCollection, _, err := tmdbClient.GetCollection(ctx, collection.TMDBID)
 				if err != nil {
 					movieStore.MarkCollectionChecked(ctx, movie.ID)
 					continue
 				}
-				
+
 				if err := collectionStore.Create(ctx, fullCollection); err != nil {
 					movieStore.MarkCollectionChecked(ctx, movie.ID)
 					continue
 				}
-				
+
 				if err := collectionStore.UpdateMovieCollection(ctx, movie.ID, fullCollection.ID); err != nil {
 					movieStore.MarkCollectionChecked(ctx, movie.ID)
 					continue
 				}
-				
+
 				linked++
 			}
-			
+
 			movieStore.MarkCollectionChecked(ctx, movie.ID)
 		}
-		
+
 		log.Printf("✅ Collection Sync Phase 1 complete: %d movies linked to collections\n", linked)
 	}
-	
+
 	// Phase 2: Sync incomplete collections if auto-add is enabled
 	settings := settingsManager.Get()
 	if settings.AutoAddCollections {
 		log.Println("📦 Collection Sync Phase 2: Adding missing movies from incomplete collections...")
-		
+
 		collections, _, _ := collectionStore.GetCollectionsWithProgress(ctx, 1000, 0)
 		var incompleteColls []*models.Collection
 		for _, coll := range collections {
@@ -423,7 +423,7 @@ func runCollectionSync(ctx context.Context, collectionStore *database.Collection
 				incompleteColls = append(incompleteColls, coll)
 			}
 		}
-		
+
 		if len(incompleteColls) == 0 {
 			log.Println("✅ Collection Sync Phase 2: All collections complete!")
 		} else {
@@ -436,13 +436,13 @@ func runCollectionSync(ctx context.Context, collectionStore *database.Collection
 }
 func episodeScanWorker(ctx context.Context, seriesStore *database.SeriesStore, episodeStore *database.EpisodeStore, tmdbClient *services.TMDBClient, interval time.Duration) {
 	log.Printf("📺 Episode Scan Worker: Starting (interval: %v)", interval)
-	
+
 	// Run immediately on startup
 	runEpisodeScan(ctx, seriesStore, episodeStore, tmdbClient)
-	
+
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
-	
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -456,73 +456,73 @@ func episodeScanWorker(ctx context.Context, seriesStore *database.SeriesStore, e
 
 func runEpisodeScan(ctx context.Context, seriesStore *database.SeriesStore, episodeStore *database.EpisodeStore, tmdbClient *services.TMDBClient) {
 	log.Println("📺 Episode Scan Worker: Scanning episodes for all series...")
-	
+
 	allSeries, err := seriesStore.List(ctx, 0, 10000, nil)
 	if err != nil {
 		log.Printf("❌ Episode Scan error: %v", err)
 		return
 	}
-	
+
 	totalSeries := len(allSeries)
 	if totalSeries == 0 {
 		log.Println("✅ Episode Scan: No series in library")
 		return
 	}
-	
+
 	log.Printf("📺 Found %d series to scan\n", totalSeries)
 	totalEpisodes := 0
 	errors := 0
-	
+
 	for i, series := range allSeries {
 		if i%5 == 0 {
 			log.Printf("📺 Progress: %d/%d series scanned\n", i, totalSeries)
 		}
-		
+
 		// Get series details from TMDB
 		tmdbSeries, err := tmdbClient.GetSeries(ctx, series.TMDBID)
 		if err != nil {
 			errors++
 			continue
 		}
-		
+
 		numSeasons := tmdbSeries.Seasons
 		if numSeasons == 0 {
 			continue
 		}
-		
+
 		// Get all episodes for this series
 		episodes, err := tmdbClient.GetEpisodes(ctx, series.ID, series.TMDBID, numSeasons)
 		if err != nil {
 			errors++
 			continue
 		}
-		
+
 		// Set the series ID for all episodes
 		for _, ep := range episodes {
 			ep.SeriesID = series.ID
 			ep.Monitored = series.Monitored
 		}
-		
+
 		// Add episodes to database (batch insert)
 		if len(episodes) > 0 {
 			if err := episodeStore.AddBatch(ctx, episodes); err == nil {
 				totalEpisodes += len(episodes)
 			}
 		}
-		
+
 		time.Sleep(200 * time.Millisecond) // Rate limit
 	}
-	
+
 	log.Printf("✅ Episode Scan complete: %d episodes for %d series (%d errors)\n", totalEpisodes, totalSeries, errors)
 }
 
 func streamSearchWorker(ctx context.Context, movieStore *database.MovieStore, settingsManager *settings.Manager, interval time.Duration) {
 	log.Printf("🔍 Stream Search Worker: Starting (interval: %v)", interval)
-	
+
 	// Wait one interval before first run to avoid startup load
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
-	
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -536,7 +536,7 @@ func streamSearchWorker(ctx context.Context, movieStore *database.MovieStore, se
 
 func runStreamSearch(ctx context.Context, movieStore *database.MovieStore, settingsManager *settings.Manager) {
 	log.Println("🔍 Stream Search Worker: Checking stream availability...")
-	
+
 	// Query for monitored movies that need checking
 	query := `
 		SELECT id, tmdb_id, imdb_id, title 
@@ -546,21 +546,21 @@ func runStreamSearch(ctx context.Context, movieStore *database.MovieStore, setti
 		AND (last_checked IS NULL OR last_checked < NOW() - INTERVAL '7 days')
 		ORDER BY added_at DESC
 	`
-	
+
 	rows, err := movieStore.GetDB().QueryContext(ctx, query)
 	if err != nil {
 		log.Printf("❌ Stream Search error: %v", err)
 		return
 	}
 	defer rows.Close()
-	
+
 	type movieToScan struct {
 		ID     int64
 		TMDBID int
 		IMDBID string
 		Title  string
 	}
-	
+
 	var movies []movieToScan
 	for rows.Next() {
 		var m movieToScan
@@ -571,15 +571,15 @@ func runStreamSearch(ctx context.Context, movieStore *database.MovieStore, setti
 			movies = append(movies, m)
 		}
 	}
-	
+
 	total := len(movies)
 	if total == 0 {
 		log.Println("✅ Stream Search: No movies to scan")
 		return
 	}
-	
+
 	log.Printf("🔍 Found %d movies to check\n", total)
-	
+
 	// Get provider settings
 	appSettings := settingsManager.Get()
 	stremioAddons := appSettings.StremioAddons
@@ -587,26 +587,26 @@ func runStreamSearch(ctx context.Context, movieStore *database.MovieStore, setti
 		log.Println("⚠️  No Stremio addons configured - please add addons in Settings")
 		return
 	}
-	
+
 	foundStreams := 0
-	
+
 	for i, movie := range movies {
 		if i%10 == 0 {
 			log.Printf("🔍 Progress: %d/%d movies checked\n", i, total)
 		}
-		
+
 		hasStreams := false
-		
+
 		// Check each enabled addon for streams
 		for _, addon := range stremioAddons {
 			if !addon.Enabled {
 				continue
 			}
-			
+
 			// Strip /manifest.json suffix if present
 			addonBaseURL := strings.TrimSuffix(addon.URL, "/manifest.json")
 			url := fmt.Sprintf("%s/stream/movie/%s.json", addonBaseURL, movie.IMDBID)
-			
+
 			client := &http.Client{Timeout: 5 * time.Second}
 			resp, err := client.Get(url)
 			if err == nil {
@@ -627,15 +627,15 @@ func runStreamSearch(ctx context.Context, movieStore *database.MovieStore, setti
 							continue
 						}
 						// Skip invalid URL schemes
-						if stream.URL != "" && !strings.HasPrefix(stream.URL, "http://") && 
-						   !strings.HasPrefix(stream.URL, "https://") && 
-						   !strings.HasPrefix(stream.URL, "magnet:") {
+						if stream.URL != "" && !strings.HasPrefix(stream.URL, "http://") &&
+							!strings.HasPrefix(stream.URL, "https://") &&
+							!strings.HasPrefix(stream.URL, "magnet:") {
 							continue
 						}
 						// Count as valid
 						validStreams++
 					}
-					
+
 					if validStreams > 0 {
 						hasStreams = true
 						log.Printf("  ✓ %s - Found %d valid streams", movie.Title, validStreams)
@@ -648,31 +648,31 @@ func runStreamSearch(ctx context.Context, movieStore *database.MovieStore, setti
 				log.Printf("  ⚠️  %s - Error checking addon %s: %v", movie.Title, addon.Name, err)
 			}
 		}
-		
+
 		if hasStreams {
 			foundStreams++
 		}
-		
+
 		// Update movie availability
 		updateQuery := `UPDATE library_movies SET available = $1, last_checked = NOW() WHERE id = $2`
 		movieStore.GetDB().ExecContext(ctx, updateQuery, hasStreams, movie.ID)
-		
+
 		time.Sleep(500 * time.Millisecond) // Rate limit
 	}
-	
+
 	log.Printf("✅ Stream Search complete: %d/%d movies have available streams\n", foundStreams, total)
 }
 
 func balkanVODSyncWorker(ctx context.Context, movieStore *database.MovieStore, seriesStore *database.SeriesStore, tmdbClient *services.TMDBClient, settingsManager *settings.Manager, interval time.Duration) {
 	log.Printf("🇧🇦 Balkan VOD Sync Worker: Starting (interval: %v)", interval)
-	
+
 	// Run initial sync
 	log.Println("🇧🇦 Balkan VOD Sync Worker: Running initial sync...")
 	runBalkanVODSync(ctx, movieStore, seriesStore, tmdbClient, settingsManager)
-	
+
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
-	
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -686,35 +686,34 @@ func balkanVODSyncWorker(ctx context.Context, movieStore *database.MovieStore, s
 
 func runBalkanVODSync(ctx context.Context, movieStore *database.MovieStore, seriesStore *database.SeriesStore, tmdbClient *services.TMDBClient, settingsManager *settings.Manager) {
 	appSettings := settingsManager.Get()
-	
+
 	if !appSettings.BalkanVODEnabled {
 		log.Println("🇧🇦 Balkan VOD Sync: Disabled in settings")
 		return
 	}
-	
+
 	if !appSettings.BalkanVODAutoSync {
 		log.Println("🇧🇦 Balkan VOD Sync: Auto-sync disabled")
 		return
 	}
-	
+
 	log.Println("🇧🇦 Balkan VOD Sync: Starting import from GitHub repos...")
 	services.GlobalScheduler.MarkRunning(services.ServiceBalkanVODSync)
-	
+
 	importer := services.NewBalkanVODImporter(movieStore, seriesStore, tmdbClient, appSettings)
 	err := importer.ImportBalkanVOD(ctx)
-	
+
 	// Get configured interval from settings
 	syncInterval := time.Duration(appSettings.BalkanVODSyncIntervalHours) * time.Hour
 	if syncInterval < 1*time.Hour {
 		syncInterval = 24 * time.Hour // Default to 24 hours if invalid
 	}
-	
+
 	services.GlobalScheduler.MarkComplete(services.ServiceBalkanVODSync, err, syncInterval)
-	
+
 	if err != nil {
 		log.Printf("❌ Balkan VOD Sync error: %v", err)
 	} else {
 		log.Println("✅ Balkan VOD Sync complete")
 	}
 }
-

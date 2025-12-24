@@ -34,20 +34,20 @@ func (a *AdminHandler) RegisterAdminRoutes(r *mux.Router) {
 	admin.HandleFunc("/sync/now", a.SyncNow).Methods("POST")
 	admin.HandleFunc("/playlist/generate", a.GeneratePlaylist).Methods("POST")
 	admin.HandleFunc("/cache/episodes", a.CacheEpisodes).Methods("POST")
-	
+
 	// Logs
 	admin.HandleFunc("/logs/{file}", a.GetLogs).Methods("GET")
-	
+
 	// Settings management
 	admin.HandleFunc("/settings", a.GetAdminSettings).Methods("GET")
 	admin.HandleFunc("/settings", a.SaveAdminSettings).Methods("POST")
-	
+
 	// User management
 	admin.HandleFunc("/users", a.GetUsers).Methods("GET")
 	admin.HandleFunc("/users", a.CreateUser).Methods("POST")
 	admin.HandleFunc("/users/{id}", a.UpdateUser).Methods("PUT")
 	admin.HandleFunc("/users/{id}", a.DeleteUser).Methods("DELETE")
-	
+
 	// System info
 	admin.HandleFunc("/info", a.GetSystemInfo).Methods("GET")
 	admin.HandleFunc("/stats", a.GetStatistics).Methods("GET")
@@ -58,7 +58,7 @@ func (a *AdminHandler) GetSystemStatus(w http.ResponseWriter, r *http.Request) {
 	// Check worker status
 	workerStatus := "stopped"
 	workerPID := ""
-	
+
 	// Try to read worker PID
 	pidOutput, err := exec.Command("pgrep", "-f", "./bin/worker").Output()
 	if err == nil && len(pidOutput) > 0 {
@@ -130,7 +130,7 @@ func (a *AdminHandler) StopDaemon(w http.ResponseWriter, r *http.Request) {
 	}
 
 	pid := strings.TrimSpace(string(pidOutput))
-	
+
 	// Send SIGTERM to worker
 	if err := exec.Command("kill", "-TERM", pid).Run(); err != nil {
 		respondJSON(w, http.StatusOK, map[string]interface{}{
@@ -176,7 +176,7 @@ func (a *AdminHandler) CacheEpisodes(w http.ResponseWriter, r *http.Request) {
 func (a *AdminHandler) GetLogs(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	logFile := vars["file"]
-	
+
 	linesStr := r.URL.Query().Get("lines")
 	lines := 100
 	if linesStr != "" {
@@ -386,10 +386,10 @@ func (a *AdminHandler) DeleteUser(w http.ResponseWriter, r *http.Request) {
 func (a *AdminHandler) GetSystemInfo(w http.ResponseWriter, r *http.Request) {
 	// Get system info using uname
 	unameOutput, _ := exec.Command("uname", "-a").Output()
-	
+
 	// Get Go version
 	goVersion, _ := exec.Command("go", "version").Output()
-	
+
 	// Get uptime
 	uptimeOutput, _ := exec.Command("uptime").Output()
 
@@ -406,7 +406,7 @@ func (a *AdminHandler) GetSystemInfo(w http.ResponseWriter, r *http.Request) {
 // GetStatistics returns system statistics
 func (a *AdminHandler) GetStatistics(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	
+
 	// Get movie count
 	movieCount := 0
 	if a.handler.movieStore != nil {
@@ -433,7 +433,7 @@ func (a *AdminHandler) GetStatistics(w http.ResponseWriter, r *http.Request) {
 		channels := a.handler.channelManager.GetAllChannels()
 		channelCount = len(channels)
 	}
-	
+
 	// Get user count
 	userCount := 0
 	if a.handler.userStore != nil {

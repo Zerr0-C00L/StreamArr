@@ -84,23 +84,23 @@ func (cs *CacheScanner) Stop() {
 // ScanAndUpgrade scans all movies for cache upgrades and empty entries
 func (cs *CacheScanner) ScanAndUpgrade(ctx context.Context) error {
 	log.Println("[CACHE-SCANNER] Starting library scan for upgrades and empty cache...")
-	
+
 	// Mark service as running
 	services.GlobalScheduler.MarkRunning(services.ServiceStreamSearch)
 	defer func() {
 		services.GlobalScheduler.MarkComplete(services.ServiceStreamSearch, nil, 24*time.Hour)
 	}()
-	
+
 	upgraded := 0
 	cached := 0
 	skipped := 0
 	errors := 0
 	totalProcessed := 0
-	
+
 	// Process in batches of 5000 to handle large libraries (100k+ movies)
 	batchSize := 5000
 	offset := 0
-	
+
 	for {
 		// Get batch of movies
 		movies, err := cs.movieStore.List(ctx, offset, batchSize, nil)
@@ -108,179 +108,179 @@ func (cs *CacheScanner) ScanAndUpgrade(ctx context.Context) error {
 			log.Printf("[CACHE-SCANNER] Error getting movies at offset %d: %v", offset, err)
 			return err
 		}
-		
+
 		if len(movies) == 0 {
 			break // No more movies
 		}
-		
+
 		log.Printf("[CACHE-SCANNER] Processing batch %d-%d (%d movies)...", offset, offset+len(movies), len(movies))
 
-	for _, movie := range movies {
-		// Log progress every 100 movies
-		if totalProcessed > 0 && totalProcessed%100 == 0 {
-			log.Printf("[CACHE-SCANNER] Progress: %d movies scanned (%d cached, %d upgraded, %d skipped)", 
-				totalProcessed, cached, upgraded, skipped)
-			// Update service progress
-			services.GlobalScheduler.UpdateProgress(
-				services.ServiceStreamSearch,
-				totalProcessed,
-				0, // We don't know total yet, will update at end
-				fmt.Sprintf("Scanned %d movies (%d cached, %d upgraded)", totalProcessed, cached, upgraded),
-			)
-		}
-		totalProcessed++
-		
-		// Get IMDB ID - log if missing but don't skip
-		imdbID, ok := movie.Metadata["imdb_id"].(string)
-		if !ok || imdbID == "" {
-			log.Printf("[CACHE-SCANNER] ⚠️  Movie %d (%s) missing IMDB ID - skipping", movie.ID, movie.Title)
-			skipped++
-			continue
-		}
-
-		// Check existing cache
-		existingCache, err := cs.cacheStore.GetCachedStream(ctx, int(movie.ID))
-		if err != nil {
-			log.Printf("[CACHE-SCANNER] Error checking cache for movie %d: %v", movie.ID, err)
-			errors++
-			continue
-		}
-
-		// If movie already has cached streams, check if we should upgrade
-		if existingCache != nil {
-			log.Printf("[CACHE-SCANNER] Movie %d (%s) already cached, skipping (upgrade scanning coming soon)", movie.ID, movie.Title)
-			skipped++
-			continue
-		}
-		
-		log.Printf("[CACHE-SCANNER] Movie %d (%s) has no cache, attempting to populate...", movie.ID, movie.Title)
-
-		// Get release year for Torrentio
-		releaseYear := 0
-		if movie.ReleaseDate != nil && !movie.ReleaseDate.IsZero() {
-			releaseYear = movie.ReleaseDate.Year()
-		}
-
-		// Use Torrentio with RD integration (pre-filtered for RD availability)
-		// Note: RD's instant availability API is currently disabled, so we must use Torrentio
-		// which handles RD checking internally via their proxy
-		time.Sleep(2 * time.Second) // Rate limit protection
-		
-		providerStreams, err := cs.provider.GetMovieStreamsWithYear(imdbID, releaseYear)
-		if err != nil {
-			log.Printf("[CACHE-SCANNER] Error fetching streams for %s (%s): %v", movie.Title, imdbID, err)
-			// On error, wait longer before continuing
-			if strings.Contains(err.Error(), "429") || strings.Contains(err.Error(), "too_many_requests") {
-				log.Printf("[CACHE-SCANNER] Rate limit hit, waiting 30 seconds...")
-				time.Sleep(30 * time.Second)
-			} else {
-				time.Sleep(5 * time.Second)
+		for _, movie := range movies {
+			// Log progress every 100 movies
+			if totalProcessed > 0 && totalProcessed%100 == 0 {
+				log.Printf("[CACHE-SCANNER] Progress: %d movies scanned (%d cached, %d upgraded, %d skipped)",
+					totalProcessed, cached, upgraded, skipped)
+				// Update service progress
+				services.GlobalScheduler.UpdateProgress(
+					services.ServiceStreamSearch,
+					totalProcessed,
+					0, // We don't know total yet, will update at end
+					fmt.Sprintf("Scanned %d movies (%d cached, %d upgraded)", totalProcessed, cached, upgraded),
+				)
 			}
-			errors++
-			continue
-		}
-		
-		if len(providerStreams) == 0 {
-			continue
-		}
-		
-		log.Printf("[CACHE-SCANNER] Found %d RD-cached streams for %s", len(providerStreams), movie.Title)
-		
-		// Addon URL already filters content - accept whatever it returns
-		log.Printf("[CACHE-SCANNER] Processing %d streams from addon (addon-level filtering already applied)", len(providerStreams))
-		
-		// Find best stream (no existing cache since we skip those above)
-		var bestStream *providers.TorrentioStream
-		bestScore := 0
+			totalProcessed++
 
-		for i := range providerStreams {
-			// Parse and score
-			parsed := cs.streamService.ParseStreamFromTorrentName(
-				providerStreams[i].Title,
-				providerStreams[i].InfoHash,
-				providerStreams[i].Source,
-				0,
-			)
-			
-			quality := streams.StreamQuality{
-				Resolution:  parsed.Resolution,
-				HDRType:     parsed.HDRType,
-				AudioFormat: parsed.AudioFormat,
-				Source:      parsed.Source,
-				Codec:       parsed.Codec,
-				SizeGB:      parsed.SizeGB,
+			// Get IMDB ID - log if missing but don't skip
+			imdbID, ok := movie.Metadata["imdb_id"].(string)
+			if !ok || imdbID == "" {
+				log.Printf("[CACHE-SCANNER] ⚠️  Movie %d (%s) missing IMDB ID - skipping", movie.ID, movie.Title)
+				skipped++
+				continue
 			}
-			score := streams.CalculateScore(quality).TotalScore
 
-			// Accept any stream with positive score
-			if score > bestScore {
-				bestScore = score
-				bestStream = &providerStreams[i]
+			// Check existing cache
+			existingCache, err := cs.cacheStore.GetCachedStream(ctx, int(movie.ID))
+			if err != nil {
+				log.Printf("[CACHE-SCANNER] Error checking cache for movie %d: %v", movie.ID, err)
+				errors++
+				continue
 			}
-		}
 
-		// Cache or upgrade if we found a better stream
-		if bestStream != nil {
-			// Extract hash from URL if needed
-			hash := bestStream.InfoHash
-			if hash == "" && bestStream.URL != "" {
-				parts := []rune(bestStream.URL)
-				for i := 0; i < len(parts)-40; i++ {
-					candidate := string(parts[i : i+40])
-					if len(candidate) == 40 {
-						hash = candidate
-						break
-					}
+			// If movie already has cached streams, check if we should upgrade
+			if existingCache != nil {
+				log.Printf("[CACHE-SCANNER] Movie %d (%s) already cached, skipping (upgrade scanning coming soon)", movie.ID, movie.Title)
+				skipped++
+				continue
+			}
+
+			log.Printf("[CACHE-SCANNER] Movie %d (%s) has no cache, attempting to populate...", movie.ID, movie.Title)
+
+			// Get release year for Torrentio
+			releaseYear := 0
+			if movie.ReleaseDate != nil && !movie.ReleaseDate.IsZero() {
+				releaseYear = movie.ReleaseDate.Year()
+			}
+
+			// Use Torrentio with RD integration (pre-filtered for RD availability)
+			// Note: RD's instant availability API is currently disabled, so we must use Torrentio
+			// which handles RD checking internally via their proxy
+			time.Sleep(2 * time.Second) // Rate limit protection
+
+			providerStreams, err := cs.provider.GetMovieStreamsWithYear(imdbID, releaseYear)
+			if err != nil {
+				log.Printf("[CACHE-SCANNER] Error fetching streams for %s (%s): %v", movie.Title, imdbID, err)
+				// On error, wait longer before continuing
+				if strings.Contains(err.Error(), "429") || strings.Contains(err.Error(), "too_many_requests") {
+					log.Printf("[CACHE-SCANNER] Rate limit hit, waiting 30 seconds...")
+					time.Sleep(30 * time.Second)
+				} else {
+					time.Sleep(5 * time.Second)
+				}
+				errors++
+				continue
+			}
+
+			if len(providerStreams) == 0 {
+				continue
+			}
+
+			log.Printf("[CACHE-SCANNER] Found %d RD-cached streams for %s", len(providerStreams), movie.Title)
+
+			// Addon URL already filters content - accept whatever it returns
+			log.Printf("[CACHE-SCANNER] Processing %d streams from addon (addon-level filtering already applied)", len(providerStreams))
+
+			// Find best stream (no existing cache since we skip those above)
+			var bestStream *providers.TorrentioStream
+			bestScore := 0
+
+			for i := range providerStreams {
+				// Parse and score
+				parsed := cs.streamService.ParseStreamFromTorrentName(
+					providerStreams[i].Title,
+					providerStreams[i].InfoHash,
+					providerStreams[i].Source,
+					0,
+				)
+
+				quality := streams.StreamQuality{
+					Resolution:  parsed.Resolution,
+					HDRType:     parsed.HDRType,
+					AudioFormat: parsed.AudioFormat,
+					Source:      parsed.Source,
+					Codec:       parsed.Codec,
+					SizeGB:      parsed.SizeGB,
+				}
+				score := streams.CalculateScore(quality).TotalScore
+
+				// Accept any stream with positive score
+				if score > bestScore {
+					bestScore = score
+					bestStream = &providerStreams[i]
 				}
 			}
 
-			stream := models.TorrentStream{
-				Hash:        hash,
-				Title:       bestStream.Name,
-				TorrentName: bestStream.Title,
-				Resolution:  bestStream.Quality,
-				SizeGB:      float64(bestStream.Size) / (1024 * 1024 * 1024),
-				Indexer:     bestStream.Source,
-			}
+			// Cache or upgrade if we found a better stream
+			if bestStream != nil {
+				// Extract hash from URL if needed
+				hash := bestStream.InfoHash
+				if hash == "" && bestStream.URL != "" {
+					parts := []rune(bestStream.URL)
+					for i := 0; i < len(parts)-40; i++ {
+						candidate := string(parts[i : i+40])
+						if len(candidate) == 40 {
+							hash = candidate
+							break
+						}
+					}
+				}
 
-			// Parse for quality details
-			parsed := cs.streamService.ParseStreamFromTorrentName(stream.TorrentName, stream.Hash, stream.Indexer, 0)
-			quality := streams.StreamQuality{
-				Resolution:  parsed.Resolution,
-				HDRType:     parsed.HDRType,
-				AudioFormat: parsed.AudioFormat,
-				Source:      parsed.Source,
-				Codec:       parsed.Codec,
-				SizeGB:      parsed.SizeGB,
-			}
-			stream.QualityScore = streams.CalculateScore(quality).TotalScore
-			stream.Resolution = parsed.Resolution
-			stream.HDRType = parsed.HDRType
-			stream.AudioFormat = parsed.AudioFormat
-			stream.Source = parsed.Source
-			stream.Codec = parsed.Codec
+				stream := models.TorrentStream{
+					Hash:        hash,
+					Title:       bestStream.Name,
+					TorrentName: bestStream.Title,
+					Resolution:  bestStream.Quality,
+					SizeGB:      float64(bestStream.Size) / (1024 * 1024 * 1024),
+					Indexer:     bestStream.Source,
+				}
 
-			// Save to cache
-			if err := cs.cacheStore.CacheStream(ctx, int(movie.ID), stream, bestStream.URL); err != nil {
-				log.Printf("[CACHE-SCANNER] ❌ Error caching stream for movie %d (%s): %v", movie.ID, movie.Title, err)
-				errors++
-			} else {
-				cached++
-				log.Printf("[CACHE-SCANNER] ✅ Cached: %s | %s | Score: %d", movie.Title, stream.Resolution, stream.QualityScore)
+				// Parse for quality details
+				parsed := cs.streamService.ParseStreamFromTorrentName(stream.TorrentName, stream.Hash, stream.Indexer, 0)
+				quality := streams.StreamQuality{
+					Resolution:  parsed.Resolution,
+					HDRType:     parsed.HDRType,
+					AudioFormat: parsed.AudioFormat,
+					Source:      parsed.Source,
+					Codec:       parsed.Codec,
+					SizeGB:      parsed.SizeGB,
+				}
+				stream.QualityScore = streams.CalculateScore(quality).TotalScore
+				stream.Resolution = parsed.Resolution
+				stream.HDRType = parsed.HDRType
+				stream.AudioFormat = parsed.AudioFormat
+				stream.Source = parsed.Source
+				stream.Codec = parsed.Codec
+
+				// Save to cache
+				if err := cs.cacheStore.CacheStream(ctx, int(movie.ID), stream, bestStream.URL); err != nil {
+					log.Printf("[CACHE-SCANNER] ❌ Error caching stream for movie %d (%s): %v", movie.ID, movie.Title, err)
+					errors++
+				} else {
+					cached++
+					log.Printf("[CACHE-SCANNER] ✅ Cached: %s | %s | Score: %d", movie.Title, stream.Resolution, stream.QualityScore)
+				}
 			}
 		}
-	}
-	
+
 		// Move to next batch
 		offset += batchSize
-		
+
 		// Short break between batches to avoid overwhelming the system
 		time.Sleep(2 * time.Second)
 	}
 
-	log.Printf("[CACHE-SCANNER] Movies scan complete: %d total movies processed, %d newly cached, %d skipped, %d errors", 
+	log.Printf("[CACHE-SCANNER] Movies scan complete: %d total movies processed, %d newly cached, %d skipped, %d errors",
 		totalProcessed, cached, skipped, errors)
-	
+
 	// Now scan series (scan first episode of first season for each series as a sample)
 	log.Println("[CACHE-SCANNER] Starting series scan...")
 	services.GlobalScheduler.UpdateProgress(
@@ -290,14 +290,14 @@ func (cs *CacheScanner) ScanAndUpgrade(ctx context.Context) error {
 		"Starting series scan...",
 	)
 	seriesScanned, seriesCached, seriesErrors := cs.scanSeries(ctx)
-	log.Printf("[CACHE-SCANNER] Series scan complete: %d series scanned, %d cached, %d errors", 
+	log.Printf("[CACHE-SCANNER] Series scan complete: %d series scanned, %d cached, %d errors",
 		seriesScanned, seriesCached, seriesErrors)
-	
+
 	log.Printf("[CACHE-SCANNER] === FULL SCAN COMPLETE ===")
 	log.Printf("[CACHE-SCANNER] Movies: %d processed, %d newly cached, %d skipped", totalProcessed, cached, skipped)
 	log.Printf("[CACHE-SCANNER] Series: %d scanned, %d cached", seriesScanned, seriesCached)
 	log.Printf("[CACHE-SCANNER] Total errors: %d", errors+seriesErrors)
-	
+
 	return nil
 }
 
@@ -306,26 +306,26 @@ func (cs *CacheScanner) scanSeries(ctx context.Context) (int, int, int) {
 	scanned := 0
 	cached := 0
 	errors := 0
-	
+
 	batchSize := 5000
 	offset := 0
-	
+
 	for {
 		series, err := cs.seriesStore.List(ctx, offset, batchSize, nil)
 		if err != nil {
 			log.Printf("[CACHE-SCANNER] Error getting series at offset %d: %v", offset, err)
 			return scanned, cached, errors + 1
 		}
-		
+
 		if len(series) == 0 {
 			break
 		}
-		
+
 		log.Printf("[CACHE-SCANNER] Processing series batch %d-%d (%d series)...", offset, offset+len(series), len(series))
-		
+
 		for _, s := range series {
 			scanned++
-			
+
 			if scanned > 0 && scanned%100 == 0 {
 				log.Printf("[CACHE-SCANNER] Series progress: %d scanned, %d cached", scanned, cached)
 				services.GlobalScheduler.UpdateProgress(
@@ -335,29 +335,29 @@ func (cs *CacheScanner) scanSeries(ctx context.Context) (int, int, int) {
 					fmt.Sprintf("Series: %d scanned, %d cached", scanned, cached),
 				)
 			}
-			
+
 			// Get IMDB ID
 			imdbID, ok := s.Metadata["imdb_id"].(string)
 			if !ok || imdbID == "" {
 				continue
 			}
-			
+
 			// For now, cache S01E01 as a sample (in future: scan all episodes)
 			season, episode := 1, 1
-			
+
 			// Check if already cached
 			existsQuery := `SELECT COUNT(*) FROM media_streams WHERE series_id = $1 AND season = $2 AND episode = $3`
 			var count int
 			if err := cs.cacheStore.GetDB().QueryRowContext(ctx, existsQuery, s.ID, season, episode).Scan(&count); err == nil && count > 0 {
 				continue // Already cached
 			}
-			
+
 			// Fetch streams for this episode
 			providerStreams, err := cs.provider.GetSeriesStreams(imdbID, season, episode)
 			if err != nil || len(providerStreams) == 0 {
 				continue
 			}
-			
+
 			// Extract hashes from URL if InfoHash is empty (happens with Torrentio+RD)
 			hashes := make([]string, 0)
 			for i := range providerStreams {
@@ -378,21 +378,21 @@ func (cs *CacheScanner) scanSeries(ctx context.Context) (int, int, int) {
 					hashes = append(hashes, hash)
 				}
 			}
-			
+
 			if len(hashes) == 0 {
 				continue
 			}
-			
+
 			// Note: Torrentio with RD configured already filters to cached-only streams
 			// All returned streams are pre-filtered as cached
-			
+
 			// Find best cached stream
 			var bestStream *providers.TorrentioStream
 			bestScore := 0
-			
+
 			for i := range providerStreams {
 				// All streams from Torrentio+RD are already cached
-				
+
 				parsed := cs.streamService.ParseStreamFromTorrentName(
 					providerStreams[i].Title,
 					providerStreams[i].InfoHash,
@@ -408,17 +408,17 @@ func (cs *CacheScanner) scanSeries(ctx context.Context) (int, int, int) {
 					SizeGB:      parsed.SizeGB,
 				}
 				score := streams.CalculateScore(quality).TotalScore
-				
+
 				if score > bestScore {
 					bestScore = score
 					bestStream = &providerStreams[i]
 				}
 			}
-			
+
 			if bestStream == nil {
 				continue
 			}
-			
+
 			// Extract hash
 			hash := bestStream.InfoHash
 			if hash == "" && bestStream.URL != "" {
@@ -431,7 +431,7 @@ func (cs *CacheScanner) scanSeries(ctx context.Context) (int, int, int) {
 					}
 				}
 			}
-			
+
 			// Parse quality details
 			parsed := cs.streamService.ParseStreamFromTorrentName(bestStream.Title, hash, bestStream.Source, 0)
 			quality := streams.StreamQuality{
@@ -443,7 +443,7 @@ func (cs *CacheScanner) scanSeries(ctx context.Context) (int, int, int) {
 				SizeGB:      parsed.SizeGB,
 			}
 			qualityScore := streams.CalculateScore(quality).TotalScore
-			
+
 			// Insert into media_streams for series
 			insertQuery := `
 				INSERT INTO media_streams (
@@ -465,27 +465,27 @@ func (cs *CacheScanner) scanSeries(ctx context.Context) (int, int, int) {
 					indexer = EXCLUDED.indexer,
 					updated_at = NOW()
 			`
-			
+
 			_, err = cs.cacheStore.GetDB().ExecContext(ctx, insertQuery,
 				s.ID, season, episode, bestStream.URL, hash,
 				qualityScore, parsed.Resolution, parsed.HDRType, parsed.AudioFormat,
 				parsed.Source, parsed.SizeGB, parsed.Codec, bestStream.Source,
 			)
-			
+
 			if err != nil {
 				log.Printf("[CACHE-SCANNER] ❌ Error caching series %s S%02dE%02d: %v", s.Title, season, episode, err)
 				errors++
 			} else {
 				cached++
-				log.Printf("[CACHE-SCANNER] ✅ Cached series: %s S%02dE%02d | %s | Score: %d", 
+				log.Printf("[CACHE-SCANNER] ✅ Cached series: %s S%02dE%02d | %s | Score: %d",
 					s.Title, season, episode, parsed.Resolution, qualityScore)
 			}
 		}
-		
+
 		offset += batchSize
 		time.Sleep(2 * time.Second)
 	}
-	
+
 	return scanned, cached, errors
 }
 
@@ -505,7 +505,7 @@ func isValidHash(hash string) bool {
 // CleanupUnreleasedCache removes cached streams for unreleased movies
 func (cs *CacheScanner) CleanupUnreleasedCache(ctx context.Context) (int, error) {
 	log.Println("[CACHE-SCANNER] Starting cleanup of unreleased content cache...")
-	
+
 	// Query to delete streams for movies with future release dates
 	query := `
 		DELETE FROM media_streams
@@ -515,19 +515,19 @@ func (cs *CacheScanner) CleanupUnreleasedCache(ctx context.Context) (int, error)
 			AND (metadata->>'release_date')::date > CURRENT_DATE
 		)
 	`
-	
+
 	result, err := cs.cacheStore.GetDB().ExecContext(ctx, query)
 	if err != nil {
 		log.Printf("[CACHE-SCANNER] ❌ Error cleaning unreleased cache: %v", err)
 		return 0, err
 	}
-	
+
 	rowsDeleted, err := result.RowsAffected()
 	if err != nil {
 		log.Printf("[CACHE-SCANNER] ❌ Error getting rows affected: %v", err)
 		return 0, err
 	}
-	
+
 	log.Printf("[CACHE-SCANNER] ✅ Cleaned up %d cached streams for unreleased movies", rowsDeleted)
 	return int(rowsDeleted), nil
 }

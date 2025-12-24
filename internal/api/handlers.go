@@ -35,27 +35,26 @@ var (
 )
 
 type Handler struct {
-	movieStore       *database.MovieStore
-	seriesStore      *database.SeriesStore
-	episodeStore     *database.EpisodeStore
-	streamStore      *database.StreamStore
-	settingsStore    *database.SettingsStore
-	userStore        *database.UserStore
-	collectionStore  *database.CollectionStore
-	blacklistStore   *database.BlacklistStore
-	tmdbClient       *services.TMDBClient
-	rdClient         *services.RealDebridClient
-	channelManager   *livetv.ChannelManager
-	settingsManager  *settings.Manager
-	epgManager       *epg.Manager
-	streamProvider   *providers.MultiProvider
-	mdbSyncService   *services.MDBListSyncService
+	movieStore      *database.MovieStore
+	seriesStore     *database.SeriesStore
+	episodeStore    *database.EpisodeStore
+	streamStore     *database.StreamStore
+	settingsStore   *database.SettingsStore
+	userStore       *database.UserStore
+	collectionStore *database.CollectionStore
+	blacklistStore  *database.BlacklistStore
+	tmdbClient      *services.TMDBClient
+	rdClient        *services.RealDebridClient
+	channelManager  *livetv.ChannelManager
+	settingsManager *settings.Manager
+	epgManager      *epg.Manager
+	streamProvider  *providers.MultiProvider
+	mdbSyncService  *services.MDBListSyncService
 	// Phase 1: Smart Stream Caching
 	streamCacheStore *database.StreamCacheStore
 	streamService    interface{} // Will be *streams.StreamService if initialized
 	cacheScanner     *CacheScanner
 }
-
 
 func NewHandler(
 	movieStore *database.MovieStore,
@@ -599,15 +598,15 @@ func (h *Handler) scanStreamAvailability(ctx context.Context) error {
 							continue
 						}
 						// Skip invalid URL schemes
-						if stream.URL != "" && !strings.HasPrefix(stream.URL, "http://") && 
-						   !strings.HasPrefix(stream.URL, "https://") && 
-						   !strings.HasPrefix(stream.URL, "magnet:") {
+						if stream.URL != "" && !strings.HasPrefix(stream.URL, "http://") &&
+							!strings.HasPrefix(stream.URL, "https://") &&
+							!strings.HasPrefix(stream.URL, "magnet:") {
 							continue
 						}
 						// Count as valid
 						validStreams++
 					}
-					
+
 					if validStreams > 0 {
 						hasStreams = true
 						fmt.Printf("[Stream Scan] ✓ %s - Found %d valid streams\n", movie.Title, validStreams)
@@ -625,7 +624,9 @@ func (h *Handler) scanStreamAvailability(ctx context.Context) error {
 
 		// Update the database
 		updateQuery := `UPDATE library_movies SET available = $1, last_checked = NOW() WHERE id = $2`
-		h.movieStore.GetDB().ExecContext(ctx, updateQuery, hasStreams, movie.ID)
+		if err := h.movieStore.GetDB().ExecContext(ctx, updateQuery, hasStreams, movie.ID); err != nil {
+			fmt.Printf("[Stream Scan] Error updating movie %d: %v\n", movie.ID, err)
+		}
 
 		if hasStreams {
 			available++
@@ -741,15 +742,15 @@ func (h *Handler) scanStreamAvailability(ctx context.Context) error {
 							continue
 						}
 						// Skip invalid URL schemes
-						if stream.URL != "" && !strings.HasPrefix(stream.URL, "http://") && 
-						   !strings.HasPrefix(stream.URL, "https://") && 
-						   !strings.HasPrefix(stream.URL, "magnet:") {
+						if stream.URL != "" && !strings.HasPrefix(stream.URL, "http://") &&
+							!strings.HasPrefix(stream.URL, "https://") &&
+							!strings.HasPrefix(stream.URL, "magnet:") {
 							continue
 						}
 						// Count as valid
 						validStreams++
 					}
-					
+
 					if validStreams > 0 {
 						hasStreams = true
 					}
@@ -761,7 +762,9 @@ func (h *Handler) scanStreamAvailability(ctx context.Context) error {
 
 		// Update the episode
 		updateEpisodeQuery := `UPDATE library_episodes SET available = $1, last_checked = NOW() WHERE id = $2 AND series_id = $3`
-		h.movieStore.GetDB().ExecContext(ctx, updateEpisodeQuery, hasStreams, ep.ID, ep.SeriesID)
+		if err := h.movieStore.GetDB().ExecContext(ctx, updateEpisodeQuery, hasStreams, ep.ID, ep.SeriesID); err != nil {
+			fmt.Printf("[Stream Scan] Error updating episode %d: %v\n", ep.ID, err)
+		}
 
 		if hasStreams {
 			epAvailable++
@@ -874,9 +877,9 @@ func sortStreams(streams []providers.TorrentioStream, sortOrder, sortPrefer stri
 	if sortPrefer == "" {
 		sortPrefer = "best"
 	}
-	
+
 	sortFields := strings.Split(sortOrder, ",")
-	
+
 	sort.Slice(streams, func(i, j int) bool {
 		for _, field := range sortFields {
 			field = strings.TrimSpace(field)
@@ -951,7 +954,7 @@ func compareStreamsByField(a, b providers.TorrentioStream, field string, prefer 
 // parseQualityValue converts a quality string to an integer value for comparison
 func parseQualityValue(quality string) int {
 	q := strings.ToUpper(quality)
-	
+
 	// Check for resolution-based quality indicators
 	if strings.Contains(q, "4K") || strings.Contains(q, "2160") {
 		return 2160
@@ -968,7 +971,7 @@ func parseQualityValue(quality string) int {
 	if strings.Contains(q, "360") {
 		return 360
 	}
-	
+
 	// Default to 0 for unknown quality
 	return 0
 }
@@ -991,7 +994,7 @@ func (h *Handler) GetMovieStreams(w http.ResponseWriter, r *http.Request) {
 		if err == nil && cached != nil && cached.IsAvailable {
 			log.Printf("[CACHE-HIT] ⚡ Cached stream available for movie %d (quality: %d, checked: %v ago)",
 				id, cached.QualityScore, time.Since(cached.LastChecked).Round(time.Minute))
-			
+
 			// Prepare cached stream in API format (will be returned with live streams)
 			cachedStreamObj = map[string]interface{}{
 				"title":         fmt.Sprintf("⚡ [CACHED] %s %s %s", cached.Resolution, cached.HDRType, cached.AudioFormat),
@@ -1047,7 +1050,7 @@ func (h *Handler) GetMovieStreams(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusBadRequest, "movie has no IMDB ID")
 		return
 	}
-	
+
 	// Validate IMDb ID format (should be tt followed by digits)
 	if !strings.HasPrefix(imdbID, "tt") {
 		log.Printf("[WARNING] Movie %d (%s) has invalid IMDB ID format: %s", id, movie.Title, imdbID)
@@ -1061,14 +1064,14 @@ func (h *Handler) GetMovieStreams(w http.ResponseWriter, r *http.Request) {
 	}
 
 	log.Printf("[STREAM-FETCH] Fetching streams for movie %d (%s) with IMDB ID: %s", id, movie.Title, imdbID)
-	
+
 	// Extract release year for filtering
 	releaseYear := 0
 	if movie.ReleaseDate != nil && !movie.ReleaseDate.IsZero() {
 		releaseYear = movie.ReleaseDate.Year()
 	}
 	log.Printf("[STREAM-FETCH] Movie %s (%s) release year: %d", movie.Title, imdbID, releaseYear)
-	
+
 	// Use the new year-aware method
 	providerStreams, err := h.streamProvider.GetMovieStreamsWithYear(imdbID, releaseYear)
 	if err != nil {
@@ -1082,7 +1085,7 @@ func (h *Handler) GetMovieStreams(w http.ResponseWriter, r *http.Request) {
 	// Validate streams match the requested movie by checking title
 	validatedStreams := validateMovieStreams(providerStreams, movie.Title, releaseYear)
 	if len(validatedStreams) < len(providerStreams) {
-		log.Printf("[VALIDATION] Removed %d streams with mismatched titles (kept %d)", 
+		log.Printf("[VALIDATION] Removed %d streams with mismatched titles (kept %d)",
 			len(providerStreams)-len(validatedStreams), len(validatedStreams))
 	}
 	providerStreams = validatedStreams
@@ -1108,7 +1111,7 @@ func (h *Handler) GetMovieStreams(w http.ResponseWriter, r *http.Request) {
 			ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 			availability, err := h.rdClient.CheckInstantAvailability(ctx, hashes)
 			cancel()
-			
+
 			if err == nil {
 				// Update cached status based on Real-Debrid availability
 				for hash, isAvailable := range availability {
@@ -1132,12 +1135,12 @@ func (h *Handler) GetMovieStreams(w http.ResponseWriter, r *http.Request) {
 		for i := range providerStreams {
 			if providerStreams[i].Cached {
 				bestCached = &providerStreams[i]
-				log.Printf("[CACHE-PHASE1] Found best cached stream: %s (source: %s, hash: %s)", 
+				log.Printf("[CACHE-PHASE1] Found best cached stream: %s (source: %s, hash: %s)",
 					bestCached.Name, bestCached.Source, bestCached.InfoHash)
 				break
 			}
 		}
-		
+
 		if bestCached != nil {
 			// Extract hash from URL if InfoHash is empty (Torrentio case)
 			hash := bestCached.InfoHash
@@ -1155,23 +1158,23 @@ func (h *Handler) GetMovieStreams(w http.ResponseWriter, r *http.Request) {
 					}
 				}
 			}
-			
-			log.Printf("[CACHE-PHASE1] Processing stream for caching: hash=%s, torrentName=%s", 
+
+			log.Printf("[CACHE-PHASE1] Processing stream for caching: hash=%s, torrentName=%s",
 				hash, torrentName)
 			// Convert to Phase 1 format
 			phase1Stream := models.TorrentStream{
 				Hash:        hash,
 				Title:       bestCached.Name, // Use Name for display title
-				TorrentName: torrentName,      // Use Title (which contains actual filename) for scoring
+				TorrentName: torrentName,     // Use Title (which contains actual filename) for scoring
 				Resolution:  bestCached.Quality,
 				SizeGB:      float64(bestCached.Size) / (1024 * 1024 * 1024),
 				Seeders:     bestCached.Seeders,
 				Indexer:     bestCached.Source,
 			}
-			
+
 			// Score it using Phase 1 quality algorithm
 			if svc, ok := h.streamService.(*streams.StreamService); ok {
-				log.Printf("[CACHE-PHASE1] Calling ParseStreamFromTorrentName with name='%s', hash='%s', indexer='%s'", 
+				log.Printf("[CACHE-PHASE1] Calling ParseStreamFromTorrentName with name='%s', hash='%s', indexer='%s'",
 					phase1Stream.TorrentName, phase1Stream.Hash, phase1Stream.Indexer)
 				scoredStream := svc.ParseStreamFromTorrentName(
 					phase1Stream.TorrentName,
@@ -1179,7 +1182,7 @@ func (h *Handler) GetMovieStreams(w http.ResponseWriter, r *http.Request) {
 					phase1Stream.Indexer,
 					phase1Stream.Seeders,
 				)
-				
+
 				// Calculate the actual quality score
 				quality := streams.StreamQuality{
 					Resolution:  scoredStream.Resolution,
@@ -1192,9 +1195,9 @@ func (h *Handler) GetMovieStreams(w http.ResponseWriter, r *http.Request) {
 				}
 				scoreBreakdown := streams.CalculateScore(quality)
 				scoredStream.QualityScore = scoreBreakdown.TotalScore
-				
+
 				log.Printf("[CACHE-PHASE1] Scoring result: quality=%d, res=%s, hdr=%s, audio=%s, source=%s, codec=%s",
-					scoredStream.QualityScore, scoredStream.Resolution, scoredStream.HDRType, 
+					scoredStream.QualityScore, scoredStream.Resolution, scoredStream.HDRType,
 					scoredStream.AudioFormat, scoredStream.Source, scoredStream.Codec)
 				phase1Stream.QualityScore = scoredStream.QualityScore
 				phase1Stream.Resolution = scoredStream.Resolution
@@ -1202,7 +1205,7 @@ func (h *Handler) GetMovieStreams(w http.ResponseWriter, r *http.Request) {
 				phase1Stream.AudioFormat = scoredStream.AudioFormat
 				phase1Stream.Source = scoredStream.Source
 				phase1Stream.Codec = scoredStream.Codec
-				
+
 				// Cache it with the stream URL (async to not block response)
 				go func() {
 					cacheCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -1210,7 +1213,7 @@ func (h *Handler) GetMovieStreams(w http.ResponseWriter, r *http.Request) {
 					if err := h.streamCacheStore.CacheStream(cacheCtx, int(id), phase1Stream, bestCached.URL); err != nil {
 						log.Printf("[CACHE-WRITE] ❌ Failed to cache stream for movie %d: %v", id, err)
 					} else {
-						log.Printf("[CACHE-WRITE] ✅ Cached stream for movie %d (quality: %d, res: %s, hdr: %s)", 
+						log.Printf("[CACHE-WRITE] ✅ Cached stream for movie %d (quality: %d, res: %s, hdr: %s)",
 							id, phase1Stream.QualityScore, phase1Stream.Resolution, phase1Stream.HDRType)
 					}
 				}()
@@ -1224,7 +1227,7 @@ func (h *Handler) GetMovieStreams(w http.ResponseWriter, r *http.Request) {
 		if settings.EnableReleaseFilters {
 			log.Printf("[FILTER] Applying quality filters: excludedGroups=%s, excludedQualities=%s, excludedLanguages=%s",
 				settings.ExcludedReleaseGroups, settings.ExcludedQualities, settings.ExcludedLanguageTags)
-			
+
 			// Convert provider streams to models.TorrentStream for filtering
 			filteredStreams := make([]providers.TorrentioStream, 0, len(providerStreams))
 			for _, ps := range providerStreams {
@@ -1235,7 +1238,7 @@ func (h *Handler) GetMovieStreams(w http.ResponseWriter, r *http.Request) {
 					Resolution:  ps.Quality,
 					Indexer:     ps.Source,
 				}
-				
+
 				// Parse stream details from torrent name for quality scoring
 				if svc, ok := h.streamService.(*streams.StreamService); ok {
 					parsed := svc.ParseStreamFromTorrentName(ts.TorrentName, "", ts.Indexer, 0)
@@ -1245,13 +1248,13 @@ func (h *Handler) GetMovieStreams(w http.ResponseWriter, r *http.Request) {
 					ts.Source = parsed.Source
 					ts.Codec = parsed.Codec
 				}
-				
+
 				// Accept all streams - addon URL already filters
 				filteredStreams = append(filteredStreams, ps)
 			}
-			
+
 			if len(filteredStreams) < len(providerStreams) {
-				log.Printf("[FILTER] Filtered out %d streams (kept %d/%d)", 
+				log.Printf("[FILTER] Filtered out %d streams (kept %d/%d)",
 					len(providerStreams)-len(filteredStreams), len(filteredStreams), len(providerStreams))
 			}
 			providerStreams = filteredStreams
@@ -1268,7 +1271,7 @@ func (h *Handler) GetMovieStreams(w http.ResponseWriter, r *http.Request) {
 			cachedCount++
 		}
 	}
-	log.Printf("✅ Found %d streams for movie %d (%s) → %d CACHED, %d UNCACHED", 
+	log.Printf("✅ Found %d streams for movie %d (%s) → %d CACHED, %d UNCACHED",
 		len(providerStreams), id, movie.Title, cachedCount, len(providerStreams)-cachedCount)
 
 	// Apply user's sorting preferences to streams
@@ -1304,7 +1307,7 @@ func (h *Handler) GetMovieStreams(w http.ResponseWriter, r *http.Request) {
 		if !ps.Cached {
 			cachedStr = "⏳ UNCACHED"
 		}
-		log.Printf("[STREAM-DETAIL] %s | %s | %s | Size: %.2f GB", 
+		log.Printf("[STREAM-DETAIL] %s | %s | %s | Size: %.2f GB",
 			cachedStr, ps.Quality, ps.Title, float64(ps.Size)/(1024*1024*1024))
 
 		stream := map[string]interface{}{
@@ -1664,7 +1667,7 @@ func (h *Handler) GetSeriesEpisodes(w http.ResponseWriter, r *http.Request) {
 	// Check if this is a Balkan VOD series - if so, build episodes from metadata
 	if isBalkanVODSeries(series) {
 		episodes := buildBalkanVODEpisodes(series)
-		
+
 		// Filter by season if provided
 		if seasonParam != "" {
 			season, err := strconv.Atoi(seasonParam)
@@ -1678,7 +1681,7 @@ func (h *Handler) GetSeriesEpisodes(w http.ResponseWriter, r *http.Request) {
 				episodes = filtered
 			}
 		}
-		
+
 		log.Printf("Returning %d Balkan VOD episodes for series %d", len(episodes), id)
 		respondJSON(w, http.StatusOK, episodes)
 		return
@@ -2331,7 +2334,7 @@ func (h *Handler) GetTVGuide(w http.ResponseWriter, r *http.Request) {
 			}
 
 			isLive := now.After(p.StartTime) && now.Before(p.EndTime)
-			
+
 			gp := GuideProgram{
 				Title:       p.Title,
 				Description: p.Description,
@@ -2459,7 +2462,7 @@ func (h *Handler) UpdateSettings(w http.ResponseWriter, r *http.Request) {
 
 		// Get old settings to detect changes
 		oldSettings := h.settingsManager.Get()
-		
+
 		if err := h.settingsManager.Update(&newSettings); err != nil {
 			respondError(w, http.StatusInternalServerError, "failed to update settings")
 			return
@@ -3468,11 +3471,8 @@ func (h *Handler) CheckForUpdates(w http.ResponseWriter, r *http.Request) {
 			currentShort = currentShort[:7]
 		}
 		updateAvailable = currentShort != latestCommitShort
-	} else {
-		// If commit is unknown, always show update available
-		// so user can update to get proper version tracking
-		updateAvailable = true
 	}
+	// Only show update available if commits actually differ, don't assume unknown needs updating
 
 	// Get first line of commit message as changelog
 	changelog := commitData.Commit.Message
@@ -3611,9 +3611,9 @@ func (h *Handler) InstallUpdate(w http.ResponseWriter, r *http.Request) {
 			var tags []struct {
 				Name string `json:"name"`
 			}
-			if json.NewDecoder(resp.Body).Decode(&tags) == nil && len(tags) > 0 {
+			if json.NewDecoder(resp.Body).Decode(&tags); err == nil && len(tags) > 0 {
 				branch = tags[0].Name
-				log.Printf("[Update] Using latest tag: %s", branch)
+				log.Printf("[Update] Using script: %s", branch)
 			} else {
 				log.Println("[Update] Warning: Failed to fetch latest tag, falling back to 'main'")
 				branch = "main"
@@ -3733,11 +3733,11 @@ func (h *Handler) InstallUpdate(w http.ResponseWriter, r *http.Request) {
 	} else {
 		// Non-Docker environment - use update.sh (already set at the top)
 		// updateScript is already "./scripts/update.sh"
-		
+
 		log.Printf("[Update] Using script: %s with branch: %s", updateScript, branch)
-		
+
 		cmd := exec.Command("/bin/bash", "-c",
-			fmt.Sprintf("cd %s && nohup setsid /bin/bash %s %s > logs/update.log 2>&1 &", 
+			fmt.Sprintf("cd %s && nohup setsid /bin/bash %s %s > logs/update.log 2>&1 &",
 				".", updateScript, branch))
 		cmd.Dir = "."
 
@@ -3749,7 +3749,7 @@ func (h *Handler) InstallUpdate(w http.ResponseWriter, r *http.Request) {
 
 		// Detach from the process immediately
 		go cmd.Wait()
-		
+
 		log.Println("[Update] Update script started in background")
 	}
 
@@ -3810,28 +3810,59 @@ func shouldIncludeCategory(category, url, importMode string) bool {
 	if importMode == "both" {
 		return true
 	}
-	
+
 	lowerURL := strings.ToLower(url)
 	lowerCategory := strings.ToLower(category)
-	
+
 	// Check if it's VOD content
-	isVOD := strings.Contains(lowerURL, "/movie/") || 
-		strings.Contains(lowerURL, "/series/") || 
+	isVOD := strings.Contains(lowerURL, "/movie/") ||
+		strings.Contains(lowerURL, "/series/") ||
 		strings.Contains(lowerURL, "/serije/") ||
-		strings.HasSuffix(lowerURL, ".mp4") || 
-		strings.HasSuffix(lowerURL, ".mkv") || 
+		strings.HasSuffix(lowerURL, ".mp4") ||
+		strings.HasSuffix(lowerURL, ".mkv") ||
 		strings.HasSuffix(lowerURL, ".avi") ||
-		strings.Contains(lowerCategory, "vod") || 
-		strings.Contains(lowerCategory, "movie") || 
-		strings.Contains(lowerCategory, "series") || 
+		strings.Contains(lowerCategory, "vod") ||
+		strings.Contains(lowerCategory, "movie") ||
+		strings.Contains(lowerCategory, "series") ||
 		strings.Contains(lowerCategory, "film")
-	
+
 	if importMode == "vod_only" {
 		return isVOD
 	} else if importMode == "live_only" {
 		return !isVOD
 	}
-	
+
+	// Enforce allowed platforms
+	allowedPlatforms := []string{"digital", "tv", "streaming", "physical"}
+	isAllowedPlatform := false
+	for _, platform := range allowedPlatforms {
+		if strings.Contains(lowerCategory, platform) {
+			isAllowedPlatform = true
+			break
+		}
+	}
+
+	if !isAllowedPlatform {
+		return false
+	}
+
+	// Check if the content is a series or episode
+	isSeriesOrEpisode := strings.Contains(lowerURL, "/series/") ||
+		strings.Contains(lowerCategory, "series") ||
+		strings.Contains(lowerCategory, "episode")
+
+	if isSeriesOrEpisode {
+		// Extract release date from metadata (if available)
+		releaseDate := extractReleaseDateFromMetadata(lowerURL, lowerCategory)
+		if releaseDate != "" {
+			currentDate := time.Now()
+			releaseTime, err := time.Parse("2006-01-02", releaseDate)
+			if err == nil && releaseTime.After(currentDate) {
+				return false // Exclude if release date is in the future
+			}
+		}
+	}
+
 	return true
 }
 
@@ -3841,22 +3872,22 @@ func (h *Handler) PreviewM3UCategories(w http.ResponseWriter, r *http.Request) {
 		URL        string `json:"url"`
 		ImportMode string `json:"import_mode"` // "vod_only", "live_only", or "both"
 	}
-	
+
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		respondError(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
-	
+
 	if req.URL == "" {
 		respondError(w, http.StatusBadRequest, "URL is required")
 		return
 	}
-	
+
 	// Default to "both" if not specified
 	if req.ImportMode == "" {
 		req.ImportMode = "both"
 	}
-	
+
 	// Fetch M3U file
 	client := &http.Client{Timeout: 30 * time.Second}
 	httpReq, err := http.NewRequest("GET", req.URL, nil)
@@ -3865,24 +3896,24 @@ func (h *Handler) PreviewM3UCategories(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httpReq.Header.Set("User-Agent", "Mozilla/5.0")
-	
+
 	resp, err := client.Do(httpReq)
 	if err != nil {
 		respondError(w, http.StatusBadRequest, fmt.Sprintf("Failed to fetch M3U: %v", err))
 		return
 	}
 	defer resp.Body.Close()
-	
+
 	if resp.StatusCode != http.StatusOK {
 		respondError(w, http.StatusBadRequest, fmt.Sprintf("Server returned HTTP %d. Please verify the M3U URL is correct and accessible.", resp.StatusCode))
 		return
 	}
-	
+
 	// Parse categories with content type tracking
 	categories := make(map[string]int) // category -> count
 	scanner := bufio.NewScanner(resp.Body)
 	var currentGroup string
-	
+
 	for scanner.Scan() {
 		line := scanner.Text()
 		if strings.HasPrefix(line, "#EXTINF:") {
@@ -3902,27 +3933,27 @@ func (h *Handler) PreviewM3UCategories(w http.ResponseWriter, r *http.Request) {
 			currentGroup = "" // Reset after processing URL
 		}
 	}
-	
+
 	if err := scanner.Err(); err != nil {
 		respondError(w, http.StatusInternalServerError, fmt.Sprintf("Error parsing M3U: %v", err))
 		return
 	}
-	
+
 	// Convert to sorted list
 	type Category struct {
 		Name  string `json:"name"`
 		Count int    `json:"count"`
 	}
-	
+
 	result := make([]Category, 0, len(categories))
 	for name, count := range categories {
 		result = append(result, Category{Name: name, Count: count})
 	}
-	
+
 	sort.Slice(result, func(i, j int) bool {
 		return result[i].Name < result[j].Name
 	})
-	
+
 	respondJSON(w, http.StatusOK, map[string]interface{}{
 		"categories": result,
 	})
@@ -3936,34 +3967,34 @@ func (h *Handler) PreviewXtreamCategories(w http.ResponseWriter, r *http.Request
 		Password   string `json:"password"`
 		ImportMode string `json:"import_mode"` // "vod_only", "live_only", or "both"
 	}
-	
+
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		respondError(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
-	
+
 	if req.ServerURL == "" || req.Username == "" || req.Password == "" {
 		respondError(w, http.StatusBadRequest, "Server URL, username, and password are required")
 		return
 	}
-	
+
 	// Default to "both" if not specified
 	if req.ImportMode == "" {
 		req.ImportMode = "both"
 	}
-	
+
 	// Fetch categories based on import mode
 	server := strings.TrimSuffix(req.ServerURL, "/")
-	
+
 	allCategories := make(map[string]int) // category name -> count
-	
+
 	// Fetch VOD categories if needed
 	if req.ImportMode == "vod_only" || req.ImportMode == "both" {
 		// Fetch VOD movie categories
 		url := fmt.Sprintf("%s/player_api.php?username=%s&password=%s&action=get_vod_categories", server, req.Username, req.Password)
 		client := &http.Client{Timeout: 30 * time.Second}
 		resp, err := client.Get(url)
-		
+
 		if err == nil && resp.StatusCode == http.StatusOK {
 			defer resp.Body.Close()
 			var categories []struct {
@@ -3995,11 +4026,11 @@ func (h *Handler) PreviewXtreamCategories(w http.ResponseWriter, r *http.Request
 				}
 			}
 		}
-		
+
 		// Fetch series categories
 		seriesURL := fmt.Sprintf("%s/player_api.php?username=%s&password=%s&action=get_series_categories", server, req.Username, req.Password)
 		seriesResp, err := client.Get(seriesURL)
-		
+
 		if err == nil && seriesResp.StatusCode == http.StatusOK {
 			defer seriesResp.Body.Close()
 			var categories []struct {
@@ -4032,13 +4063,13 @@ func (h *Handler) PreviewXtreamCategories(w http.ResponseWriter, r *http.Request
 			}
 		}
 	}
-	
+
 	// Fetch Live TV categories if needed
 	if req.ImportMode == "live_only" || req.ImportMode == "both" {
 		url := fmt.Sprintf("%s/player_api.php?username=%s&password=%s&action=get_live_categories", server, req.Username, req.Password)
 		client := &http.Client{Timeout: 30 * time.Second}
 		resp, err := client.Get(url)
-		
+
 		if err == nil && resp.StatusCode == http.StatusOK {
 			defer resp.Body.Close()
 			var categories []struct {
@@ -4071,29 +4102,29 @@ func (h *Handler) PreviewXtreamCategories(w http.ResponseWriter, r *http.Request
 			}
 		}
 	}
-	
+
 	// If we got categories, return them
 	if len(allCategories) > 0 {
 		type Category struct {
 			Name  string `json:"name"`
 			Count int    `json:"count"`
 		}
-		
+
 		result := make([]Category, 0, len(allCategories))
 		for name, count := range allCategories {
 			result = append(result, Category{Name: name, Count: count})
 		}
-		
+
 		sort.Slice(result, func(i, j int) bool {
 			return result[i].Name < result[j].Name
 		})
-		
+
 		respondJSON(w, http.StatusOK, map[string]interface{}{
 			"categories": result,
 		})
 		return
 	}
-	
+
 	// If API failed, fall back to M3U parsing
 	client := &http.Client{Timeout: 30 * time.Second}
 	m3uURL := fmt.Sprintf("%s/get.php?username=%s&password=%s&type=m3u_plus&output=ts", server, req.Username, req.Password)
@@ -4103,14 +4134,14 @@ func (h *Handler) PreviewXtreamCategories(w http.ResponseWriter, r *http.Request
 		return
 	}
 	httpReq.Header.Set("User-Agent", "Mozilla/5.0")
-	
+
 	resp, err := client.Do(httpReq)
 	if err != nil {
 		respondError(w, http.StatusBadRequest, fmt.Sprintf("Failed to fetch M3U: %v", err))
 		return
 	}
 	defer resp.Body.Close()
-	
+
 	if resp.StatusCode != http.StatusOK {
 		respondError(w, http.StatusBadRequest, fmt.Sprintf("Server returned HTTP %d. Please verify your credentials and server URL.", resp.StatusCode))
 		return
@@ -4119,7 +4150,7 @@ func (h *Handler) PreviewXtreamCategories(w http.ResponseWriter, r *http.Request
 	categories := make(map[string]int)
 	scanner := bufio.NewScanner(resp.Body)
 	var currentGroup string
-	
+
 	for scanner.Scan() {
 		line := scanner.Text()
 		if strings.HasPrefix(line, "#EXTINF:") {
@@ -4138,27 +4169,27 @@ func (h *Handler) PreviewXtreamCategories(w http.ResponseWriter, r *http.Request
 			currentGroup = ""
 		}
 	}
-	
+
 	if err := scanner.Err(); err != nil {
 		respondError(w, http.StatusInternalServerError, fmt.Sprintf("Error parsing M3U: %v", err))
 		return
 	}
-	
+
 	// Convert to sorted list
 	type Category struct {
 		Name  string `json:"name"`
 		Count int    `json:"count"`
 	}
-	
+
 	result := make([]Category, 0, len(categories))
 	for name, count := range categories {
 		result = append(result, Category{Name: name, Count: count})
 	}
-	
+
 	sort.Slice(result, func(i, j int) bool {
 		return result[i].Name < result[j].Name
 	})
-	
+
 	respondJSON(w, http.StatusOK, map[string]interface{}{
 		"categories": result,
 	})
@@ -4167,21 +4198,21 @@ func (h *Handler) PreviewXtreamCategories(w http.ResponseWriter, r *http.Request
 // PreviewBalkanCategories handles POST /api/v1/balkan-vod/preview-categories
 func (h *Handler) PreviewBalkanCategories(w http.ResponseWriter, r *http.Request) {
 	log.Println("[API] PreviewBalkanCategories: Starting request")
-	
+
 	categories, err := services.FetchBalkanCategories()
 	if err != nil {
 		log.Printf("[API] PreviewBalkanCategories: Error fetching categories: %v", err)
 		respondError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to fetch categories: %v", err))
 		return
 	}
-	
+
 	log.Printf("[API] PreviewBalkanCategories: Fetched %d categories", len(categories))
-	
+
 	// Sort by name
 	sort.Slice(categories, func(i, j int) bool {
 		return categories[i].Name < categories[j].Name
 	})
-	
+
 	respondJSON(w, http.StatusOK, map[string]interface{}{
 		"categories": categories,
 	})
@@ -4365,11 +4396,11 @@ func buildBalkanVODStreams(movie *models.Movie) []map[string]interface{} {
 			name, _ := m["name"].(string)
 			url, _ := m["url"].(string)
 			quality, _ := m["quality"].(string)
-			
+
 			name = strings.TrimSpace(name)
 			url = strings.TrimSpace(url)
 			quality = strings.TrimSpace(quality)
-			
+
 			if name == "" {
 				name = "Balkan VOD"
 			}
@@ -4497,43 +4528,43 @@ func buildBalkanVODSeriesStreams(series *models.Series, season, episode int) []m
 			if !ok {
 				continue
 			}
-			
+
 			// Check if this is the season we're looking for
 			seasonNum, ok := seasonMap["number"].(float64) // JSON numbers are float64
 			if !ok || int(seasonNum) != season {
 				continue
 			}
-			
+
 			// Find the episode in this season
 			episodes, ok := seasonMap["episodes"].([]interface{})
 			if !ok {
 				continue
 			}
-			
+
 			for _, e := range episodes {
 				episodeMap, ok := e.(map[string]interface{})
 				if !ok {
 					continue
 				}
-				
+
 				episodeNum, ok := episodeMap["episode"].(float64)
 				if !ok || int(episodeNum) != episode {
 					continue
 				}
-				
+
 				// Found the episode! Extract stream info
 				url, _ := episodeMap["url"].(string)
 				title, _ := episodeMap["title"].(string)
 				url = strings.TrimSpace(url)
-				
+
 				if url == "" {
 					continue
 				}
-				
+
 				if title == "" {
 					title = fmt.Sprintf("%s S%02dE%02d", series.Title, season, episode)
 				}
-				
+
 				streams = append(streams, map[string]interface{}{
 					"source":   "Balkan VOD",
 					"quality":  "HD",
@@ -4546,7 +4577,7 @@ func buildBalkanVODSeriesStreams(series *models.Series, season, episode int) []m
 					"name":     "Balkan VOD",
 					"filename": "Balkan VOD",
 				})
-				
+
 				// Found the episode, no need to continue
 				return streams
 			}
@@ -4559,21 +4590,21 @@ func buildBalkanVODSeriesStreams(series *models.Series, season, episode int) []m
 // Restart restarts the server
 func (h *Handler) Restart(w http.ResponseWriter, r *http.Request) {
 	log.Println("[Admin] Server restart requested")
-	
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	
+
 	// Send success response first
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"status":  "restarting",
 		"message": "Server is restarting... Connection will be restored in 5-10 seconds",
 	})
-	
+
 	// Flush the response to client before restarting
 	if flusher, ok := w.(http.Flusher); ok {
 		flusher.Flush()
 	}
-	
+
 	// Give the response time to send before restarting
 	go func() {
 		time.Sleep(1 * time.Second)
@@ -4592,7 +4623,7 @@ func (h *Handler) RemoveAndBlacklist(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	itemType := vars["type"] // "movie" or "series"
 	idStr := vars["id"]
-	
+
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
 		respondError(w, http.StatusBadRequest, "Invalid ID")
@@ -4666,10 +4697,10 @@ func (h *Handler) RemoveAndBlacklist(w http.ResponseWriter, r *http.Request) {
 // GetBlacklist returns paginated blacklist entries
 func (h *Handler) GetBlacklist(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	
+
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
-	
+
 	if limit == 0 {
 		limit = 50
 	}
@@ -4693,7 +4724,7 @@ func (h *Handler) RemoveFromBlacklist(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	vars := mux.Vars(r)
 	idStr := vars["id"]
-	
+
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
 		respondError(w, http.StatusBadRequest, "Invalid ID")
@@ -4713,7 +4744,7 @@ func (h *Handler) RemoveFromBlacklist(w http.ResponseWriter, r *http.Request) {
 // ClearBlacklist clears all blacklist entries
 func (h *Handler) ClearBlacklist(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	
+
 	if err := h.blacklistStore.Clear(ctx); err != nil {
 		respondError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to clear blacklist: %v", err))
 		return
@@ -4752,23 +4783,40 @@ func validateMovieStreams(streams []providers.TorrentioStream, movieTitle string
 
 	// Normalize movie title for comparison
 	normalizedTitle := normalizeForMatch(movieTitle)
-	
+
 	validated := []providers.TorrentioStream{}
-	
+
 	for _, stream := range streams {
 		// Combine all text fields for matching
 		streamText := normalizeForMatch(fmt.Sprintf("%s %s", stream.Title, stream.Name))
-		
+
 		// Check if the stream title contains the movie title as a substring
 		// This handles cases like "Django Unchained 2012" containing "Django Unchained"
 		if strings.Contains(streamText, normalizedTitle) {
 			validated = append(validated, stream)
 		} else {
 			// Log rejected streams with detailed info for debugging
-			log.Printf("[VALIDATION] ❌ Stream rejected (title mismatch): requested='%s' (normalized: '%s') stream='%s' (normalized: '%s')", 
+			log.Printf("[VALIDATION] ❌ Stream rejected (title mismatch): requested='%s' (normalized: '%s') stream='%s' (normalized: '%s')",
 				movieTitle, normalizedTitle, stream.Title, normalizeForMatch(stream.Title))
 		}
 	}
-	
+
 	return validated
+}
+
+// extractReleaseDateFromMetadata extracts the release date from the metadata in the URL or category
+func extractReleaseDateFromMetadata(url, category string) string {
+	// Example logic to extract release date from metadata
+	// This should be replaced with actual parsing logic based on your metadata format
+	if strings.Contains(url, "release_date=") {
+		start := strings.Index(url, "release_date=") + len("release_date=")
+		end := strings.Index(url[start:], "&")
+		if end == -1 {
+			end = len(url)
+		} else {
+			end += start
+		}
+		return url[start:end]
+	}
+	return ""
 }

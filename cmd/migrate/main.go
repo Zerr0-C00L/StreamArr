@@ -87,7 +87,7 @@ func migrateUp(db *sql.DB) error {
 	appliedCount := 0
 	for _, file := range migrationFiles {
 		migrationName := strings.TrimSuffix(filepath.Base(file), ".up.sql")
-		
+
 		// Check if migration already applied
 		if appliedMigrations[migrationName] {
 			log.Printf("  ✓ %s (already applied)", migrationName)
@@ -95,7 +95,7 @@ func migrateUp(db *sql.DB) error {
 		}
 
 		log.Printf("  → Applying %s...", migrationName)
-		
+
 		// Read migration file
 		migration, err := os.ReadFile(file)
 		if err != nil {

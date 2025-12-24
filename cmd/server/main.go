@@ -68,7 +68,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to initialize user store: %v", err)
 	}
-	
+
 	// Initialize Phase 1 stream cache store
 	streamCacheStore := database.NewStreamCacheStore(db)
 	log.Println("Database stores initialized")
@@ -87,19 +87,19 @@ func main() {
 		if err != nil {
 			return fmt.Errorf("failed to delete Balkan VOD movies: %w", err)
 		}
-		
+
 		seriesCount, err := seriesStore.DeleteBySource(ctx, "balkan_vod")
 		if err != nil {
 			return fmt.Errorf("failed to delete Balkan VOD series: %w", err)
 		}
-		
+
 		log.Printf("✓ Balkan VOD disabled - Removed %d movies and %d series from library", movieCount, seriesCount)
 		return nil
 	})
 
 	// Override config with ALL settings from database
 	appSettings := settingsManager.Get()
-	
+
 	// API Keys
 	if appSettings.TMDBAPIKey != "" {
 		cfg.TMDBAPIKey = appSettings.TMDBAPIKey
@@ -119,7 +119,7 @@ func main() {
 		cfg.MDBListAPIKey = appSettings.MDBListAPIKey
 		log.Println("✓ MDBList API key loaded from settings")
 	}
-	
+
 	// Provider settings
 	cfg.UseRealDebrid = appSettings.UseRealDebrid
 	cfg.UsePremiumize = appSettings.UsePremiumize
@@ -134,7 +134,7 @@ func main() {
 			}
 		}
 	}
-	
+
 	// Quality settings
 	if appSettings.MaxResolution > 0 {
 		cfg.MaxResolution = appSettings.MaxResolution
@@ -144,7 +144,7 @@ func main() {
 	}
 	cfg.EnableQualityVariants = appSettings.EnableQualityVariants
 	cfg.ShowFullStreamName = appSettings.ShowFullStreamName
-	
+
 	// Playlist settings
 	if appSettings.TotalPages > 0 {
 		cfg.TotalPages = appSettings.TotalPages
@@ -169,7 +169,7 @@ func main() {
 	if appSettings.AutoCacheIntervalHours > 0 {
 		cfg.AutoCacheIntervalHours = appSettings.AutoCacheIntervalHours
 	}
-	
+
 	// Notification settings
 	cfg.EnableNotifications = appSettings.EnableNotifications
 	if appSettings.DiscordWebhookURL != "" {
@@ -181,13 +181,13 @@ func main() {
 	if appSettings.TelegramChatID != "" {
 		cfg.TelegramChatID = appSettings.TelegramChatID
 	}
-	
+
 	// Proxy settings
 	cfg.UseHTTPProxy = appSettings.UseHTTPProxy
 	if appSettings.HTTPProxy != "" {
 		cfg.HTTPProxy = appSettings.HTTPProxy
 	}
-	
+
 	// Server settings
 	if appSettings.ServerPort > 0 {
 		cfg.ServerPort = appSettings.ServerPort
@@ -196,7 +196,7 @@ func main() {
 		cfg.Host = appSettings.Host
 	}
 	cfg.Debug = appSettings.Debug
-	
+
 	log.Println("✓ All settings loaded from database")
 
 	// Initialize service scheduler
@@ -209,7 +209,7 @@ func main() {
 
 	// Initialize Live TV channel manager
 	channelManager := livetv.NewChannelManager()
-	
+
 	// Load M3U sources from settings
 	currentSettings := settingsManager.Get()
 	// Set Live TV enabled/disabled from settings
@@ -229,7 +229,7 @@ func main() {
 		channelManager.SetM3USources(m3uSources)
 		log.Printf("Live TV: Configured %d custom M3U sources", len(m3uSources))
 	}
-	
+
 	// Load Xtream sources from settings
 	if len(currentSettings.XtreamSources) > 0 {
 		xtreamSources := make([]livetv.XtreamSource, len(currentSettings.XtreamSources))
@@ -245,14 +245,13 @@ func main() {
 		channelManager.SetXtreamSources(xtreamSources)
 		log.Printf("Live TV: Configured %d custom Xtream sources", len(xtreamSources))
 	}
-	
+
 	// Set stream validation enabled/disabled from settings (default false)
 	channelManager.SetStreamValidation(currentSettings.LiveTVValidateStreams)
 	if currentSettings.LiveTVValidateStreams {
 		log.Println("Live TV: Stream validation enabled - broken streams will be filtered")
 	}
-	
-	
+
 	if err := channelManager.LoadChannels(); err != nil {
 		log.Printf("Warning: Could not load channels: %v", err)
 	} else {
@@ -299,10 +298,10 @@ func main() {
 			if quality == "" {
 				quality = "Unknown"
 			}
-			
+
 			// Convert size from bytes to GB
 			sizeGB := float64(ps.Size) / (1024 * 1024 * 1024)
-			
+
 			phase1Streams = append(phase1Streams, models.TorrentStream{
 				Hash:        ps.InfoHash,
 				Title:       ps.Title,
@@ -315,20 +314,20 @@ func main() {
 		}
 		return phase1Streams
 	}
-	
+
 	var debridService debrid.DebridService
 	var streamService *streams.StreamService
 	var streamChecker *streams.StreamChecker
-	
+
 	if cfg.RealDebridAPIKey != "" {
 		// Initialize Real-Debrid service
 		debridService = debrid.NewRealDebrid(cfg.RealDebridAPIKey, slog.Default())
 		log.Println("✓ Real-Debrid service initialized for Phase 1 caching")
-		
+
 		// Initialize stream service
 		streamService = streams.NewStreamService(debridService, slog.Default())
 		log.Println("✓ Stream service initialized with quality scoring")
-		
+
 		// Note: streamChecker will be initialized after multiProvider is created
 		log.Println("✓ Stream checker will be initialized with provider integration")
 	} else {
@@ -338,7 +337,7 @@ func main() {
 	// Initialize EPG manager
 	settings := settingsManager.Get()
 	epgManager := epg.NewEPGManager()
-	
+
 	// Add custom EPG URLs from M3U sources
 	log.Printf("Live TV: Checking %d M3U sources for EPG URLs", len(settings.M3USources))
 	if len(settings.M3USources) > 0 {
@@ -373,7 +372,7 @@ func main() {
 			log.Printf("Live TV: Added %d unique custom EPG URLs from M3U sources", len(uniqueURLs))
 		}
 	}
-	
+
 	// Initialize Xtream Codes API handler
 	// Convert config.StremioAddon to providers.StremioAddon
 	stremioAddons := make([]providers.StremioAddon, len(cfg.StremioAddons))
@@ -384,7 +383,7 @@ func main() {
 			Enabled: addon.Enabled,
 		}
 	}
-	
+
 	// Create MultiProvider
 	multiProvider := providers.NewMultiProviderWithConfig(cfg.RealDebridAPIKey, stremioAddons, tmdbClient)
 	log.Printf("✓ Stream providers enabled: %v", multiProvider.ProviderNames)
@@ -398,7 +397,7 @@ func main() {
 			if err != nil {
 				return nil, fmt.Errorf("movie not found: %w", err)
 			}
-			
+
 			// Extract IMDB ID from metadata
 			var imdbID string
 			if movie.Metadata != nil {
@@ -409,23 +408,23 @@ func main() {
 			if imdbID == "" {
 				return nil, fmt.Errorf("movie has no IMDB ID")
 			}
-			
+
 			// Get release year for filtering
 			releaseYear := 0
 			if movie.ReleaseDate != nil && !movie.ReleaseDate.IsZero() {
 				releaseYear = movie.ReleaseDate.Year()
 			}
-			
+
 			// Fetch streams from providers
 			providerStreams, err := multiProvider.GetMovieStreamsWithYear(imdbID, releaseYear)
 			if err != nil {
 				return nil, fmt.Errorf("provider fetch failed: %w", err)
 			}
-			
+
 			// Convert provider format to Phase 1 TorrentStream format
 			return convertProviderStreamsToPhase1(providerStreams), nil
 		}
-		
+
 		// Initialize stream checker with settings from database
 		checkerConfig := streams.DefaultCheckerConfig()
 		checkerConfig.CheckIntervalMinutes = appSettings.CacheCheckIntervalMinutes
@@ -433,7 +432,7 @@ func main() {
 		checkerConfig.AutoUpgrade = appSettings.CacheAutoUpgrade
 		checkerConfig.MinUpgradePoints = appSettings.CacheMinUpgradePoints
 		checkerConfig.MaxUpgradeSizeGB = appSettings.CacheMaxUpgradeSizeGB
-		
+
 		streamChecker = streams.NewStreamChecker(
 			checkerConfig,
 			streamCacheStore,
@@ -442,14 +441,14 @@ func main() {
 			indexerSearchFunc,
 			slog.Default(),
 		)
-		
+
 		// Wire up filter settings for stream checker
 		streamChecker.SetSettingsGetter(func() (string, string, string, bool) {
 			s := settingsManager.Get()
 			return s.ExcludedReleaseGroups, s.ExcludedQualities, s.ExcludedLanguageTags, s.EnableReleaseFilters
 		})
-		
-		log.Printf("✓ Stream checker initialized (interval: %dm, batch: %d, auto-upgrade: %v)", 
+
+		log.Printf("✓ Stream checker initialized (interval: %dm, batch: %d, auto-upgrade: %v)",
 			checkerConfig.CheckIntervalMinutes, checkerConfig.BatchSize, checkerConfig.AutoUpgrade)
 	}
 
@@ -466,7 +465,7 @@ func main() {
 	xtreamHandler.SetSettingsGetter(func() interface{} {
 		s := settingsManager.Get()
 		return map[string]interface{}{
-			"only_cached_streams":   s.OnlyCachedStreams,
+			"only_cached_streams": s.OnlyCachedStreams,
 		}
 	})
 
@@ -493,7 +492,7 @@ func main() {
 			return "best"
 		},
 	)
-	
+
 	// Initialize playlist generator
 	playlistGen := playlist.NewEnhancedGenerator(cfg, db, tmdbClient, multiProvider)
 
@@ -514,7 +513,7 @@ func main() {
 	go func() {
 		interval := 12 * time.Hour
 		log.Printf("📋 Playlist Worker: Starting (interval: %v)", interval)
-		
+
 		// Run immediately on startup
 		services.GlobalScheduler.MarkRunning(services.ServicePlaylist)
 		err := playlistGen.GenerateComplete(workerCtx)
@@ -524,7 +523,7 @@ func main() {
 		} else {
 			log.Println("✅ Initial playlist generation complete")
 		}
-		
+
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
 		for {
@@ -560,7 +559,7 @@ func main() {
 	go func() {
 		interval := 6 * time.Hour
 		log.Printf("📺 EPG Update Worker: Starting (interval: %v)", interval)
-		
+
 		// Run immediately
 		services.GlobalScheduler.MarkRunning(services.ServiceEPGUpdate)
 		channels := channelManager.GetAllChannels()
@@ -570,7 +569,7 @@ func main() {
 		}
 		err := epgManager.UpdateEPG(channelList)
 		services.GlobalScheduler.MarkComplete(services.ServiceEPGUpdate, err, interval)
-		
+
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
 		for {
@@ -594,10 +593,10 @@ func main() {
 	go func() {
 		interval := 1 * time.Hour
 		log.Printf("📡 Channel Refresh Worker: Starting (interval: %v)", interval)
-		
+
 		// Initial load already done above, just mark complete
 		services.GlobalScheduler.MarkComplete(services.ServiceChannelRefresh, nil, interval)
-		
+
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
 		for {
@@ -616,7 +615,7 @@ func main() {
 	go func() {
 		interval := 6 * time.Hour
 		log.Printf("📋 MDBList Sync Worker: Starting (interval: %v)", interval)
-		
+
 		// Run immediately
 		services.GlobalScheduler.MarkRunning(services.ServiceMDBListSync)
 		err := mdbSyncService.SyncAllLists(workerCtx)
@@ -624,7 +623,7 @@ func main() {
 		if err != nil {
 			log.Printf("❌ MDBList sync error: %v", err)
 		}
-		
+
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
 		for {
@@ -647,7 +646,7 @@ func main() {
 				return
 			default:
 			}
-			
+
 			current := settingsManager.Get()
 			mode := strings.ToLower(current.IPTVImportMode)
 			includesVOD := mode == "vod_only" || mode == "both"
@@ -656,7 +655,7 @@ func main() {
 				intervalHours = 6
 			}
 			interval := time.Duration(intervalHours) * time.Hour
-			
+
 			if includesVOD && cfg.TMDBAPIKey != "" {
 				services.GlobalScheduler.MarkRunning(services.ServiceIPTVVODSync)
 				_, err := services.ImportIPTVVOD(workerCtx, current, tmdbClient, movieStore, seriesStore)
@@ -666,7 +665,7 @@ func main() {
 				_ = services.CleanupIPTVVOD(workerCtx, current, movieStore, seriesStore)
 				services.GlobalScheduler.MarkComplete(services.ServiceIPTVVODSync, err, interval)
 			}
-			
+
 			time.Sleep(interval)
 		}
 	}()
@@ -675,7 +674,7 @@ func main() {
 	go func() {
 		interval := 24 * time.Hour
 		log.Printf("🇧🇦 Balkan VOD Sync Worker: Starting (interval: %v)", interval)
-		
+
 		// Run immediately
 		current := settingsManager.Get()
 		if current.BalkanVODEnabled && current.BalkanVODAutoSync {
@@ -684,7 +683,7 @@ func main() {
 			err := importer.ImportBalkanVOD(workerCtx)
 			services.GlobalScheduler.MarkComplete(services.ServiceBalkanVODSync, err, interval)
 		}
-		
+
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
 		for {
@@ -708,7 +707,7 @@ func main() {
 		go func() {
 			interval := time.Duration(streamChecker.GetConfig().CheckIntervalMinutes) * time.Minute
 			log.Printf("🔄 Stream Checker Worker: Starting (interval: %v)", interval)
-			
+
 			ticker := time.NewTicker(interval)
 			defer ticker.Stop()
 			for {
@@ -770,17 +769,17 @@ func main() {
 
 	// Create router and setup REST API routes
 	router := api.SetupRoutesWithXtream(handler, xtreamHandler)
-	
+
 	// Register admin routes
 	adminHandler := api.NewAdminHandler(handler)
 	if muxRouter, ok := router.(*mux.Router); ok {
 		adminHandler.RegisterAdminRoutes(muxRouter)
 		log.Println("✓ Admin API enabled at /api/admin")
 	}
-	
+
 	log.Println("✓ Xtream Codes API enabled at /player_api.php")
 	log.Println("✓ REST API enabled at /api/v1")
-	
+
 	// Log enabled addons
 	enabledAddons := []string{}
 	for _, addon := range cfg.StremioAddons {

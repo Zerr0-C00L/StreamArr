@@ -18,6 +18,7 @@ export default function Search() {
   const [newlyAddedIds, setNewlyAddedIds] = useState<Set<number>>(new Set());
   const [trendingWindow, setTrendingWindow] = useState<'day' | 'week'>('day');
   const [selectedMedia, setSelectedMedia] = useState<{ item: SearchResult | TrendingItem; mediaType: string } | null>(null);
+  const [addError, setAddError] = useState<string | null>(null);
 
   const queryClient = useQueryClient();
 
@@ -64,22 +65,40 @@ export default function Search() {
   // Add mutations
   const addMovieMutation = useMutation({
     mutationFn: (tmdbId: number) => streamarrApi.addMovie({ tmdb_id: tmdbId, monitored: true }),
-    onSuccess: (_, tmdbId) => {
+    onSuccess: (data, tmdbId) => {
+      console.log(`✓ Movie added successfully: ${data.title} (TMDB ID: ${tmdbId})`);
       queryClient.invalidateQueries({ queryKey: ['movies'] });
       setNewlyAddedIds(prev => new Set(prev).add(tmdbId));
       setAddingId(null);
+      setAddError(null);
     },
-    onError: () => setAddingId(null),
+    onError: (error: any) => {
+      const errorMsg = error.response?.data?.error || error.message || 'Failed to add movie';
+      console.error('Failed to add movie:', errorMsg);
+      setAddingId(null);
+      setAddError(errorMsg);
+      setTimeout(() => setAddError(null), 5000);
+    },
+    retry: 0,
   });
 
   const addSeriesMutation = useMutation({
     mutationFn: (tmdbId: number) => streamarrApi.addSeries({ tmdb_id: tmdbId, monitored: true }),
-    onSuccess: (_, tmdbId) => {
+    onSuccess: (data, tmdbId) => {
+      console.log(`✓ Series added successfully: ${data.title} (TMDB ID: ${tmdbId})`);
       queryClient.invalidateQueries({ queryKey: ['series'] });
       setNewlyAddedIds(prev => new Set(prev).add(tmdbId));
       setAddingId(null);
+      setAddError(null);
     },
-    onError: () => setAddingId(null),
+    onError: (error: any) => {
+      const errorMsg = error.response?.data?.error || error.message || 'Failed to add series';
+      console.error('Failed to add series:', errorMsg);
+      setAddingId(null);
+      setAddError(errorMsg);
+      setTimeout(() => setAddError(null), 5000);
+    },
+    retry: 0,
   });
 
   const handleSearch = async () => {
@@ -117,6 +136,13 @@ export default function Search() {
 
   return (
     <div className="min-h-screen bg-[#141414] -m-6">
+      {/* Error Message */}
+      {addError && (
+        <div className="fixed top-20 left-1/2 -translate-x-1/2 z-50 px-6 py-3 bg-red-600 text-white rounded-lg shadow-lg">
+          {addError}
+        </div>
+      )}
+
       {/* Hero Search Section */}
       <div className="relative h-[40vh] min-h-[300px] flex items-center justify-center">
         <div className="absolute inset-0 bg-gradient-to-b from-[#141414]/50 via-transparent to-[#141414]" />

@@ -820,6 +820,21 @@ func (h *XtreamHandler) getVODStreams(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
+		// Debugging: Log release_date value
+		if metadata["release_date"] != nil {
+			releaseDateStr, ok := metadata["release_date"].(string)
+			log.Printf("[DEBUG] release_date for movie '%s': %v", title, releaseDateStr)
+			if ok {
+				releaseDate, err := time.Parse("2006-01-02", releaseDateStr)
+				if err == nil && releaseDate.After(time.Now()) {
+					log.Printf("[XTREAM] Skipping unreleased movie: %s (%s)", title, releaseDateStr)
+					continue
+				}
+			}
+		} else {
+			log.Printf("[DEBUG] No release_date found for movie '%s'", title)
+		}
+		
 		// If enabled, duplicate entries for each IPTV VOD provider source
 		dupEnabled := false
 		if h.duplicateVODPerProvider != nil {

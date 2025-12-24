@@ -453,8 +453,8 @@ func (s *MovieStore) ListUncheckedForCollection(ctx context.Context) ([]*models.
 
 // MarkCollectionChecked marks a movie as having been checked for collection membership
 func (s *MovieStore) MarkCollectionChecked(ctx context.Context, movieID int64) error {
-	_, err := s.db.ExecContext(ctx, 
-		"UPDATE library_movies SET collection_checked = true WHERE id = $1", 
+	_, err := s.db.ExecContext(ctx,
+		"UPDATE library_movies SET collection_checked = true WHERE id = $1",
 		movieID)
 	return err
 }
@@ -484,8 +484,8 @@ func (s *MovieStore) ResetCollectionChecked(ctx context.Context) error {
 
 // DeleteBySource removes all movies from a specific source
 func (s *MovieStore) DeleteBySource(ctx context.Context, source string) (int64, error) {
-	result, err := s.db.ExecContext(ctx, 
-		"DELETE FROM library_movies WHERE metadata->>'source' = $1", 
+	result, err := s.db.ExecContext(ctx,
+		"DELETE FROM library_movies WHERE metadata->>'source' = $1",
 		source)
 	if err != nil {
 		return 0, err

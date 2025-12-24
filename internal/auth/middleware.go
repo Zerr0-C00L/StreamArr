@@ -16,7 +16,7 @@ const (
 func SessionMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
-		
+
 		// Skip auth for login/public endpoints
 		if path == "/api/v1/auth/login" ||
 			path == "/api/v1/auth/setup" ||

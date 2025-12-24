@@ -20,9 +20,9 @@ type LoginRequest struct {
 
 // LoginResponse contains the JWT token
 type LoginResponse struct {
-	Token    string    `json:"token"`
-	Username string    `json:"username"`
-	IsAdmin  bool      `json:"is_admin"`
+	Token     string    `json:"token"`
+	Username  string    `json:"username"`
+	IsAdmin   bool      `json:"is_admin"`
 	ExpiresAt time.Time `json:"expires_at"`
 }
 
@@ -209,7 +209,7 @@ func (h *Handler) CreateFirstUser(w http.ResponseWriter, r *http.Request) {
 // UpdateProfile handles user profile updates (username, email, profile_picture)
 func (h *Handler) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 	log.Printf("UpdateProfile: request received")
-	
+
 	// Get user from context (set by auth middleware)
 	claims, ok := auth.GetUserFromContext(r.Context())
 	if !ok {
@@ -230,8 +230,8 @@ func (h *Handler) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusBadRequest, "invalid request")
 		return
 	}
-	
-	log.Printf("UpdateProfile: username=%v, email=%v, has_picture=%v", 
+
+	log.Printf("UpdateProfile: username=%v, email=%v, has_picture=%v",
 		req.Username != nil, req.Email != nil, req.ProfilePicture != nil)
 
 	updates := make(map[string]interface{})

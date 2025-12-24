@@ -51,6 +51,9 @@ export const streamarrApi = {
 
   // Settings
   getSettings: () => api.get('/settings'),
+  
+  updateSettings: (data: any) =>
+    api.put('/settings', data),
 
   // Movies
   getMovies: (params?: { offset?: number; limit?: number; monitored?: boolean }) =>
