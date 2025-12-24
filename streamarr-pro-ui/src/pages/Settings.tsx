@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Save, Key, Layers, Settings as SettingsIcon, Bell, Code, Plus, X, Tv, Activity, Play, Clock, RefreshCw, Filter, Database, Trash2, AlertTriangle, Info, Github, Download, ExternalLink, CheckCircle, AlertCircle, Film, User, Camera, Loader, Search } from 'lucide-react';
+import { Save, Layers, Settings as SettingsIcon, Code, Plus, X, Tv, Activity, Play, Clock, RefreshCw, Filter, Database, Trash2, Info, Github, Download, ExternalLink, CheckCircle, AlertCircle, Film, User, Camera, Loader, Search } from 'lucide-react';
 import axios from 'axios';
 
 // v1.2.1 - Added manual IP configuration
@@ -135,7 +135,7 @@ interface SourceStatus {
   checking?: boolean;
 }
 
-interface ChannelStats {
+interface _ChannelStats {
   total_channels: number;
   categories: Array<{name: string; count: number}>;
   sources: Array<{name: string; count: number}>;
@@ -281,9 +281,9 @@ export default function Settings() {
   const [triggeringService, setTriggeringService] = useState<string | null>(null);
   const [dbStats, setDbStats] = useState<any>(null);
   const [channelStats, setChannelStats] = useState<any>(null);
-  const [dbOperation, setDbOperation] = useState<string | null>(null);
-  const [loadingDbOperation, setLoadingDbOperation] = useState(false);
-  const [confirmDialog, setConfirmDialog] = useState<{action: string; title: string; message: string} | null>(null);
+  const [_dbOperation, _setDbOperation] = useState<string | null>(null);
+  const [_loadingDbOperation, _setLoadingDbOperation] = useState(false);
+  const [_confirmDialog, _setConfirmDialog] = useState<{action: string; title: string; message: string} | null>(null);
   const [enabledSources, setEnabledSources] = useState<Set<string>>(new Set());
   const [enabledCategories, setEnabledCategories] = useState<Set<string>>(new Set());
   const [sourceStatuses, setSourceStatuses] = useState<Map<string, SourceStatus>>(new Map());
@@ -546,7 +546,7 @@ export default function Settings() {
     setLoadingBlacklist(false);
   };
 
-  const executeDbAction = async (action: string) => {
+  const _executeDbAction = async (action: string) => {
     setDbOperation(action);
     setConfirmDialog(null);
     try {
@@ -1062,7 +1062,7 @@ export default function Settings() {
   };
 
   // Helper functions
-  const showConfirmDialog = (action: string, title: string, message: string) => {
+  const _showConfirmDialog = (action: string, title: string, message: string) => {
     setConfirmDialog({ action, title, message });
   };
 
