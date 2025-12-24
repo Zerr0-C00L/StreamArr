@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef } from 'react';
-import { Save, Layers, Settings as SettingsIcon, Code, Plus, X, Tv, Activity, Play, Clock, RefreshCw, Filter, Database, Trash2, Info, Github, Download, ExternalLink, CheckCircle, AlertCircle, Film, User, Camera, Loader, Search, TrendingUp, XCircle, Calendar } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Save, Key, Layers, Settings as SettingsIcon, Bell, Code, Plus, X, Tv, Activity, Play, Clock, RefreshCw, Filter, Database, Trash2, AlertTriangle, Info, Github, Download, ExternalLink, CheckCircle, AlertCircle, Film, User, Camera, Loader, Search } from 'lucide-react';
 import axios from 'axios';
 
 // v1.2.1 - Added manual IP configuration
@@ -102,12 +102,6 @@ interface SettingsData {
     }>;
     catalog_placement: string;
   };
-  // Stream Checker (Phase 1 Cache) Settings
-  cache_check_interval_minutes: number;
-  cache_check_batch_size: number;
-  cache_auto_upgrade: boolean;
-  cache_min_upgrade_points: number;
-  cache_max_upgrade_size_gb: number;
 }
 
 interface MDBListEntry {
@@ -141,6 +135,12 @@ interface SourceStatus {
   checking?: boolean;
 }
 
+interface ChannelStats {
+  total_channels: number;
+  categories: Array<{name: string; count: number}>;
+  sources: Array<{name: string; count: number}>;
+}
+
 interface ServiceStatus {
   name: string;
   description: string;
@@ -157,7 +157,7 @@ interface ServiceStatus {
   items_total: number;
 }
 
-type TabType = 'account' | 'integrations' | 'content' | 'livetv' | 'services' | 'system' | 'cache';
+type TabType = 'account' | 'integrations' | 'content' | 'livetv' | 'services' | 'system';
 
 interface VersionInfo {
   current_version: string;
@@ -177,13 +177,6 @@ export default function Settings() {
   const [saving, setSaving] = useState(false);
   
   // Dropdown option sets
-  // Set default for enable_release_filters to true if not set
-  useEffect(() => {
-    if (settings && settings.enable_release_filters === undefined) {
-      autoSaveSetting('enable_release_filters', true);
-    }
-  }, [settings]);
-
   const languageOptions = [
     'english', 'russian', 'italian', 'spanish', 'german', 'french', 'hindi', 'turkish', 'portuguese',
     'polish', 'dutch', 'thai', 'vietnamese', 'indonesian', 'arabic', 'chinese', 'korean', 'japanese'
@@ -283,37 +276,14 @@ export default function Settings() {
   const [checkingUpdate, setCheckingUpdate] = useState(false);
   const [installingUpdate, setInstallingUpdate] = useState(false);
 
-  // State - Cache Monitor
-  const [cacheStats, setCacheStats] = useState<{
-    total_cached: number;
-    available: number;
-    unavailable: number;
-    avg_quality_score: number;
-  } | null>(null);
-  const [cachedMovies, setCachedMovies] = useState<Array<{
-    movie_id: number;
-    title: string;
-    year: number;
-    quality_score: number;
-    resolution: string;
-    source_type: string;
-    hdr_type: string;
-    audio_format: string;
-    file_size_gb: number;
-    is_available: boolean;
-    upgrade_available: boolean;
-    last_checked: string;
-    cached_at: string;
-    indexer: string;
-  }>>([]);
-  const [cacheFilter, setCacheFilter] = useState<'all' | 'available' | 'unavailable' | 'upgrades'>('all');
-  const [refreshingCache, setRefreshingCache] = useState(false);
-
   // State - Services/Database
   const [services, setServices] = useState<ServiceStatus[]>([]);
   const [triggeringService, setTriggeringService] = useState<string | null>(null);
   const [dbStats, setDbStats] = useState<any>(null);
   const [channelStats, setChannelStats] = useState<any>(null);
+  const [dbOperation, setDbOperation] = useState<string | null>(null);
+  const [loadingDbOperation, setLoadingDbOperation] = useState(false);
+  const [confirmDialog, setConfirmDialog] = useState<{action: string; title: string; message: string} | null>(null);
   const [enabledSources, setEnabledSources] = useState<Set<string>>(new Set());
   const [enabledCategories, setEnabledCategories] = useState<Set<string>>(new Set());
   const [sourceStatuses, setSourceStatuses] = useState<Map<string, SourceStatus>>(new Map());
@@ -332,51 +302,6 @@ export default function Settings() {
       setProfileAvatar(savedAvatar);
     }
   }, []);
-
-  // Fetch cache data when cache tab is active
-  useEffect(() => {
-    if (activeTab === 'cache') {
-      fetchCacheData();
-      const interval = setInterval(fetchCacheData, 30000); // Refresh every 30 seconds
-      return () => clearInterval(interval);
-    }
-  }, [activeTab]);
-
-  // Auto-save MDBList changes
-  const initialMdbListsLoaded = useRef(false);
-  useEffect(() => {
-    // Skip initial load - only save when lists change after initial load
-    if (!initialMdbListsLoaded.current) {
-      if (mdbLists.length > 0 || settings?.mdblist_lists) {
-        initialMdbListsLoaded.current = true;
-      }
-      return;
-    }
-    
-    if (!settings) return;
-    
-    const saveTimer = setTimeout(async () => {
-      const settingsToSave = {
-        ...settings,
-        mdblist_lists: JSON.stringify(mdbLists),
-        m3u_sources: m3uSources,
-        xtream_sources: xtreamSources,
-        livetv_enabled_sources: Array.from(enabledSources),
-        livetv_enabled_categories: Array.from(enabledCategories),
-      };
-      
-      try {
-        await api.put('/settings', settingsToSave);
-        setMessage('✅ MDBList updated & sync triggered');
-        setTimeout(() => setMessage(''), 2000);
-      } catch (error: any) {
-        setMessage(`❌ Error saving MDBList: ${error.response?.data?.error || error.message}`);
-        setTimeout(() => setMessage(''), 3000);
-      }
-    }, 500); // Debounce 500ms
-    
-    return () => clearTimeout(saveTimer);
-  }, [mdbLists]);
 
   useEffect(() => {
     if (activeTab === 'services') {
@@ -400,7 +325,6 @@ export default function Settings() {
     { id: 'content' as TabType, label: 'Content', icon: Film },
     { id: 'livetv' as TabType, label: 'TV & IPTV', icon: Tv },
     { id: 'services' as TabType, label: 'Services', icon: Activity },
-    { id: 'cache' as TabType, label: 'Cache Monitor', icon: Database },
     { id: 'system' as TabType, label: 'System', icon: SettingsIcon },
   ];
 
@@ -507,54 +431,9 @@ export default function Settings() {
     }
   };
 
-  const fetchCacheData = async () => {
-    try {
-      setRefreshingCache(true);
-      
-      const [statsRes, moviesRes] = await Promise.all([
-        api.get('/streams/cache/stats'),
-        api.get('/streams/cache/list')
-      ]);
-      
-      setCacheStats(statsRes.data || { total_cached: 0, available: 0, unavailable: 0, avg_quality_score: 0 });
-      setCachedMovies(Array.isArray(moviesRes.data) ? moviesRes.data : []);
-    } catch (error) {
-      console.error('Failed to fetch cache data:', error);
-      setCacheStats({ total_cached: 0, available: 0, unavailable: 0, avg_quality_score: 0 });
-      setCachedMovies([]);
-    } finally {
-      setRefreshingCache(false);
-    }
-  };
-
-
-  // Auto-save on every setting change
-  const autoSaveSetting = (key: keyof SettingsData, value: any) => {
-    if (!settings) return;
-    const next = { ...settings, [key]: value };
-    setSettings(next);
-    const settingsToSave = {
-      ...next,
-      mdblist_lists: JSON.stringify(mdbLists),
-      m3u_sources: m3uSources,
-      xtream_sources: xtreamSources,
-      livetv_enabled_sources: Array.from(enabledSources),
-      livetv_enabled_categories: Array.from(enabledCategories),
-    };
-    api.put('/settings', settingsToSave)
-      .then(() => {
-        setMessage('✅ Setting saved');
-        setTimeout(() => setMessage(''), 1500);
-      })
-      .catch((error: any) => {
-        setMessage(`❌ Error saving: ${error.response?.data?.error || error.message}`);
-        setTimeout(() => setMessage(''), 3000);
-      });
-  };
-
-  // Update setting and auto-save
   const updateSetting = (key: keyof SettingsData, value: any) => {
-    autoSaveSetting(key, value);
+    if (!settings) return;
+    setSettings({ ...settings, [key]: value });
   };
 
   const saveSettingsImmediate = async (patch: Partial<SettingsData>) => {
@@ -593,17 +472,9 @@ export default function Settings() {
   const triggerService = async (serviceName: string) => {
     setTriggeringService(serviceName);
     try {
-      // Special handling for cache scanner (Stream Search service)
-      if (serviceName === 'stream_search' || serviceName === 'cache_scanner' || serviceName === 'Stream Search' || serviceName.toLowerCase().includes('stream search')) {
-        await api.post('/streams/cache/scan');
-        setMessage(`✅ Cache scanner started - checking for upgrades and empty cache entries`);
-        setTimeout(() => setMessage(''), 5000);
-        setTimeout(fetchCacheData, 1000); // Refresh cache stats after scan
-      } else {
-        await api.post(`/services/${serviceName}/trigger?name=${serviceName}`);
-        setMessage(`✅ Service "${serviceName}" triggered successfully`);
-        setTimeout(() => setMessage(''), 3000);
-      }
+      await api.post(`/services/${serviceName}/trigger?name=${serviceName}`);
+      setMessage(`✅ Service "${serviceName}" triggered successfully`);
+      setTimeout(() => setMessage(''), 3000);
       setTimeout(fetchServices, 500);
     } catch (error: any) {
       setMessage(`❌ Failed to trigger service: ${error.response?.data?.error || error.message}`);
@@ -673,6 +544,22 @@ export default function Settings() {
       setTimeout(() => setMessage(''), 5000);
     }
     setLoadingBlacklist(false);
+  };
+
+  const executeDbAction = async (action: string) => {
+    setDbOperation(action);
+    setConfirmDialog(null);
+    try {
+      const response = await api.post(`/database/${action}`);
+      setMessage(`✅ ${response.data.message}`);
+      setTimeout(() => setMessage(''), 5000);
+      fetchDbStats();
+      fetchServices();
+    } catch (error: any) {
+      setMessage(`❌ Failed: ${error.response?.data?.error || error.message}`);
+      setTimeout(() => setMessage(''), 5000);
+    }
+    setDbOperation(null);
   };
 
   const fetchVersionInfo = async () => {
@@ -953,11 +840,9 @@ export default function Settings() {
       newSource.epg_url = newM3uEpg.trim();
     }
     
-    console.log('[DEBUG] newM3uCategories:', newM3uCategories);
     if (newM3uCategories.length > 0) {
       newSource.selected_categories = newM3uCategories;
     }
-    console.log('[DEBUG] newSource:', newSource);
     
     setM3uSources([...m3uSources, newSource]);
     setNewM3uName('');
@@ -1177,7 +1062,9 @@ export default function Settings() {
   };
 
   // Helper functions
-  // Removed unused confirmation dialog - using inline confirmations instead
+  const showConfirmDialog = (action: string, title: string, message: string) => {
+    setConfirmDialog({ action, title, message });
+  };
 
   const toggleServiceEnabled = async (serviceName: string, enabled: boolean) => {
     try {
@@ -2117,6 +2004,24 @@ export default function Settings() {
                 <h3 className="text-lg font-semibold text-white mb-4">↕️ Sorting</h3>
                 <p className="text-sm text-slate-400 mb-4">Configure how streams are sorted and which one is selected for playback.</p>
                 <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <label className="block text-sm font-medium text-slate-300">Enable Release Filters</label>
+                      <p className="text-xs text-slate-500">Apply the filter patterns above when selecting streams</p>
+                    </div>
+                    <button
+                      onClick={() => updateSetting('enable_release_filters', !settings?.enable_release_filters)}
+                      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                        settings?.enable_release_filters ? 'bg-green-600' : 'bg-gray-600'
+                      }`}
+                    >
+                      <span
+                        className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                          settings?.enable_release_filters ? 'translate-x-6' : 'translate-x-1'
+                        }`}
+                      />
+                    </button>
+                  </div>
 
                   <div>
                     <label className="block text-sm font-medium text-slate-300 mb-2">
@@ -2152,129 +2057,6 @@ export default function Settings() {
                     </select>
                     <p className="text-xs text-slate-500 mt-1">
                       "Best" selects highest values, "Smallest" selects lowest values for each sort field.
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              <hr className="border-white/10" />
-
-              {/* Stream Checker (Phase 1 Cache) Settings */}
-              <div>
-                <h3 className="text-lg font-semibold text-white mb-4">� Smart Stream Cache</h3>
-                <p className="text-sm text-slate-400 mb-4">
-                  Like a DVR for your streams! Remembers the best quality stream for each movie and serves it instantly. 
-                  Automatically checks every 7 days to keep streams working and upgrades to better quality when available.
-                </p>
-                <div className="space-y-4">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-slate-300 mb-2">
-                        How Often to Check Streams
-                      </label>
-                      <select
-                        value={settings?.cache_check_interval_minutes || 60}
-                        onChange={(e) => updateSetting('cache_check_interval_minutes', parseInt(e.target.value))}
-                        className="w-full px-3 py-2 bg-[#2a2a2a] border border-white/10 rounded-lg text-white focus:outline-none focus:border-blue-500"
-                      >
-                        <option value="30">Every 30 minutes (Fast)</option>
-                        <option value="60">Every hour (Recommended)</option>
-                        <option value="120">Every 2 hours</option>
-                        <option value="360">Every 6 hours</option>
-                        <option value="720">Every 12 hours</option>
-                        <option value="1440">Once per day (Slow)</option>
-                      </select>
-                      <p className="text-xs text-slate-500 mt-1">
-                        How frequently the system verifies your cached streams are still working
-                      </p>
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-slate-300 mb-2">
-                        Movies to Check at Once
-                      </label>
-                      <select
-                        value={settings?.cache_check_batch_size || 50}
-                        onChange={(e) => updateSetting('cache_check_batch_size', parseInt(e.target.value))}
-                        className="w-full px-3 py-2 bg-[#2a2a2a] border border-white/10 rounded-lg text-white focus:outline-none focus:border-blue-500"
-                      >
-                        <option value="25">25 movies (Gentle)</option>
-                        <option value="50">50 movies (Recommended)</option>
-                        <option value="100">100 movies (Fast)</option>
-                        <option value="200">200 movies (Very Fast)</option>
-                      </select>
-                      <p className="text-xs text-slate-500 mt-1">
-                        Higher = faster verification but more API calls to Real-Debrid
-                      </p>
-                    </div>
-                  </div>
-
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="checkbox"
-                        id="cache_auto_upgrade"
-                        checked={settings?.cache_auto_upgrade ?? true}
-                        onChange={(e) => updateSetting('cache_auto_upgrade', e.target.checked)}
-                        className="w-4 h-4 bg-[#2a2a2a] border-white/10 rounded focus:ring-blue-500"
-                      />
-                      <label htmlFor="cache_auto_upgrade" className="text-sm font-medium text-slate-300">
-                        🚀 Auto-Upgrade to Better Quality
-                      </label>
-                    </div>
-                    <p className="text-xs text-slate-500 mt-1 ml-6">
-                      Automatically upgrade from 1080p → 4K, SDR → HDR, or WEBRip → BluRay when better versions become available
-                    </p>
-                  </div>
-
-                  {settings?.cache_auto_upgrade && (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 ml-6 p-4 bg-blue-500/10 border border-blue-500/20 rounded-lg">
-                      <div>
-                        <label className="block text-sm font-medium text-slate-300 mb-2">
-                          How Much Better Required?
-                        </label>
-                        <select
-                          value={settings?.cache_min_upgrade_points || 15}
-                          onChange={(e) => updateSetting('cache_min_upgrade_points', parseInt(e.target.value))}
-                          className="w-full px-3 py-2 bg-[#2a2a2a] border border-white/10 rounded-lg text-white focus:outline-none focus:border-blue-500"
-                        >
-                          <option value="5">5 points (Upgrade often - any improvement)</option>
-                          <option value="10">10 points (Frequent upgrades)</option>
-                          <option value="15">15 points (Balanced - Recommended)</option>
-                          <option value="20">20 points (Major upgrades only)</option>
-                          <option value="30">30 points (Rare - huge improvements only)</option>
-                        </select>
-                        <p className="text-xs text-slate-500 mt-1">
-                          Quality jump needed: 1080p→4K = 20pts, SDR→HDR = 15pts, WEBRip→BluRay = 10pts
-                        </p>
-                      </div>
-
-                      <div>
-                        <label className="block text-sm font-medium text-slate-300 mb-2">
-                          Max File Size Increase
-                        </label>
-                        <select
-                          value={settings?.cache_max_upgrade_size_gb || 20}
-                          onChange={(e) => updateSetting('cache_max_upgrade_size_gb', parseInt(e.target.value))}
-                          className="w-full px-3 py-2 bg-[#2a2a2a] border border-white/10 rounded-lg text-white focus:outline-none focus:border-blue-500"
-                        >
-                          <option value="10">10 GB (Data saver)</option>
-                          <option value="15">15 GB (Conservative)</option>
-                          <option value="20">20 GB (Recommended)</option>
-                          <option value="30">30 GB (Generous)</option>
-                          <option value="50">50 GB (No limits - accepts large files)</option>
-                        </select>
-                        <p className="text-xs text-slate-500 mt-1">
-                          Prevents upgrading 8GB 1080p to 80GB 4K remux. 20GB allows most 4K upgrades.
-                        </p>
-                      </div>
-                    </div>
-                  )}
-                  
-                  <div className="bg-slate-800/50 border border-slate-700 rounded-lg p-3">
-                    <p className="text-xs text-slate-400">
-                      💡 <strong>How it works:</strong> First time you play a movie, the best stream is saved. 
-                      Next time = instant playback! Every 7 days, the system checks if it's still working and looks for upgrades.
                     </p>
                   </div>
                 </div>
@@ -2347,91 +2129,6 @@ export default function Settings() {
                     </label>
                   </div>
                   <p className="text-xs text-slate-500 mt-1 ml-6">When adding a movie that belongs to a collection (e.g., The Dark Knight Trilogy), automatically add all other movies from that collection.</p>
-                </div>
-              </div>
-
-              <hr className="border-white/10" />
-
-              {/* Stream Quality Filters */}
-              <div>
-                <h3 className="text-lg font-semibold text-white mb-4">🎯 Stream Quality Filters</h3>
-                <p className="text-sm text-slate-400 mb-4">
-                  Block specific release groups, qualities, or languages from appearing in searches and cache upgrades.
-                </p>
-                <div className="space-y-4">
-                  <div>
-                    <div className="flex items-center gap-2 mb-3">
-                      <input
-                        type="checkbox"
-                        id="enable_release_filters"
-                        checked={settings?.enable_release_filters ?? true}
-                        onChange={(e) => updateSetting('enable_release_filters', e.target.checked)}
-                        className="w-4 h-4 bg-[#2a2a2a] border-white/10 rounded focus:ring-blue-500"
-                      />
-                      <label htmlFor="enable_release_filters" className="text-sm font-medium text-slate-300">
-                        Enable Quality Filters
-                      </label>
-                    </div>
-                  </div>
-
-                  {settings?.enable_release_filters && (
-                    <div className="space-y-4 p-4 bg-white/5 rounded-lg">
-                      <div>
-                        <label className="block text-sm font-medium text-slate-300 mb-2">
-                          Blocked Release Groups
-                        </label>
-                        <input
-                          type="text"
-                          value={settings?.excluded_release_groups || ''}
-                          onChange={(e) => updateSetting('excluded_release_groups', e.target.value)}
-                          className="w-full px-3 py-2 bg-[#2a2a2a] border border-white/10 rounded-lg text-white focus:outline-none focus:border-blue-500"
-                          placeholder="e.g., YIFY,RARBG,PSA,EVO"
-                        />
-                        <p className="text-xs text-slate-500 mt-1">
-                          Comma-separated list. Streams from these release groups will be hidden and never cached.
-                        </p>
-                      </div>
-
-                      <div>
-                        <label className="block text-sm font-medium text-slate-300 mb-2">
-                          Blocked Qualities
-                        </label>
-                        <input
-                          type="text"
-                          value={settings?.excluded_qualities || ''}
-                          onChange={(e) => updateSetting('excluded_qualities', e.target.value)}
-                          className="w-full px-3 py-2 bg-[#2a2a2a] border border-white/10 rounded-lg text-white focus:outline-none focus:border-blue-500"
-                          placeholder="e.g., CAM,HDTS,HDCAM,TELESYNC"
-                        />
-                        <p className="text-xs text-slate-500 mt-1">
-                          Comma-separated list. Poor quality formats like CAM recordings will be filtered out.
-                        </p>
-                      </div>
-
-                      <div>
-                        <label className="block text-sm font-medium text-slate-300 mb-2">
-                          Blocked Language Tags
-                        </label>
-                        <input
-                          type="text"
-                          value={settings?.excluded_language_tags || ''}
-                          onChange={(e) => updateSetting('excluded_language_tags', e.target.value)}
-                          className="w-full px-3 py-2 bg-[#2a2a2a] border border-white/10 rounded-lg text-white focus:outline-none focus:border-blue-500"
-                          placeholder="e.g., HINDI,TAMIL,DUBBED,MULTI"
-                        />
-                        <p className="text-xs text-slate-500 mt-1">
-                          Comma-separated list. Block streams with these language tags in the filename.
-                        </p>
-                      </div>
-
-                      <div className="bg-slate-800/50 border border-slate-700 rounded-lg p-3">
-                        <p className="text-xs text-slate-400">
-                          💡 These filters apply to both initial stream searches AND cache upgrades. 
-                          Blocked streams will never be cached or used to replace existing streams.
-                        </p>
-                      </div>
-                    </div>
-                  )}
                 </div>
               </div>
 
@@ -4080,7 +3777,6 @@ export default function Settings() {
                       >
                         <option value="main">main</option>
                         <option value="dev">dev</option>
-                        <option value="tag">tag (stable releases)</option>
                       </select>
                     </div>
                   </div>
@@ -4217,238 +3913,6 @@ export default function Settings() {
                 <div className="text-xs text-slate-500 mt-4 pt-4 border-t border-white/10">
                   StreamArr is open source software licensed under MIT. Use responsibly.
                 </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* CACHE MONITOR TAB */}
-        {activeTab === 'cache' && (
-          <div className="space-y-6">
-            {/* Header */}
-            <div className="flex items-center justify-between">
-              <div>
-                <h2 className="text-2xl font-bold text-white flex items-center gap-3">
-                  <Database className="w-7 h-7" />
-                  Stream Cache Monitor
-                </h2>
-                <p className="text-slate-400 mt-1">Track cached streams, quality, and upgrade status</p>
-              </div>
-              <button
-                onClick={fetchCacheData}
-                disabled={refreshingCache}
-                className="px-4 py-2 bg-blue-500 hover:bg-blue-600 rounded-lg text-white flex items-center gap-2 disabled:opacity-50"
-              >
-                <RefreshCw className={`w-4 h-4 ${refreshingCache ? 'animate-spin' : ''}`} />
-                Refresh
-              </button>
-            </div>
-
-            {/* Stats Cards */}
-            {cacheStats && (
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                <div className="bg-gradient-to-br from-blue-500/10 to-blue-600/10 border border-blue-500/20 rounded-xl p-4">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-sm text-slate-400">Total Cached</p>
-                      <p className="text-3xl font-bold text-white mt-1">{cacheStats.total_cached}</p>
-                    </div>
-                    <Film className="w-10 h-10 text-blue-400 opacity-50" />
-                  </div>
-                </div>
-
-                <div className="bg-gradient-to-br from-green-500/10 to-green-600/10 border border-green-500/20 rounded-xl p-4">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-sm text-slate-400">Available</p>
-                      <p className="text-3xl font-bold text-white mt-1">{cacheStats.available}</p>
-                    </div>
-                    <CheckCircle className="w-10 h-10 text-green-400 opacity-50" />
-                  </div>
-                </div>
-
-                <div className="bg-gradient-to-br from-red-500/10 to-red-600/10 border border-red-500/20 rounded-xl p-4">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-sm text-slate-400">Unavailable</p>
-                      <p className="text-3xl font-bold text-white mt-1">{cacheStats.unavailable}</p>
-                    </div>
-                    <XCircle className="w-10 h-10 text-red-400 opacity-50" />
-                  </div>
-                </div>
-
-                <div className="bg-gradient-to-br from-purple-500/10 to-purple-600/10 border border-purple-500/20 rounded-xl p-4">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-sm text-slate-400">Avg Quality</p>
-                      <p className="text-3xl font-bold text-white mt-1">{cacheStats.avg_quality_score?.toFixed(0) || '0'}</p>
-                    </div>
-                    <TrendingUp className="w-10 h-10 text-purple-400 opacity-50" />
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Filters */}
-            <div className="flex gap-2 flex-wrap">
-              <button
-                onClick={() => setCacheFilter('all')}
-                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                  cacheFilter === 'all' ? 'bg-blue-500 text-white' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
-                }`}
-              >
-                All ({cachedMovies?.length || 0})
-              </button>
-              <button
-                onClick={() => setCacheFilter('available')}
-                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                  cacheFilter === 'available' ? 'bg-green-500 text-white' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
-                }`}
-              >
-                Available ({cachedMovies?.filter(m => m.is_available).length || 0})
-              </button>
-              <button
-                onClick={() => setCacheFilter('unavailable')}
-                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                  cacheFilter === 'unavailable' ? 'bg-red-500 text-white' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
-                }`}
-              >
-                Unavailable ({cachedMovies?.filter(m => !m.is_available).length || 0})
-              </button>
-              <button
-                onClick={() => setCacheFilter('upgrades')}
-                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                  cacheFilter === 'upgrades' ? 'bg-purple-500 text-white' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
-                }`}
-              >
-                Upgrades Available ({cachedMovies?.filter(m => m.upgrade_available).length || 0})
-              </button>
-            </div>
-
-            {/* Movies Table */}
-            <div className="bg-[#1e1e1e] rounded-xl border border-white/10 overflow-hidden">
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead className="bg-slate-800/50 border-b border-white/10">
-                    <tr>
-                      <th className="px-4 py-3 text-left text-sm font-medium text-slate-300">Movie</th>
-                      <th className="px-4 py-3 text-left text-sm font-medium text-slate-300">Quality</th>
-                      <th className="px-4 py-3 text-left text-sm font-medium text-slate-300">Resolution</th>
-                      <th className="px-4 py-3 text-left text-sm font-medium text-slate-300">Source</th>
-                      <th className="px-4 py-3 text-left text-sm font-medium text-slate-300">Size</th>
-                      <th className="px-4 py-3 text-left text-sm font-medium text-slate-300">Status</th>
-                      <th className="px-4 py-3 text-left text-sm font-medium text-slate-300">Cached</th>
-                      <th className="px-4 py-3 text-left text-sm font-medium text-slate-300">Last Check</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-white/5">
-                    {(() => {
-                      const filtered = (cachedMovies || []).filter(movie => {
-                        if (cacheFilter === 'available') return movie.is_available;
-                        if (cacheFilter === 'unavailable') return !movie.is_available;
-                        if (cacheFilter === 'upgrades') return movie.upgrade_available;
-                        return true;
-                      });
-
-                      const getQualityBadgeColor = (score: number) => {
-                        if (score >= 80) return 'bg-green-500/20 text-green-400 border-green-500/50';
-                        if (score >= 60) return 'bg-blue-500/20 text-blue-400 border-blue-500/50';
-                        if (score >= 40) return 'bg-yellow-500/20 text-yellow-400 border-yellow-500/50';
-                        return 'bg-red-500/20 text-red-400 border-red-500/50';
-                      };
-
-                      const formatDate = (dateString: string) => {
-                        const date = new Date(dateString);
-                        const now = new Date();
-                        const diffMs = now.getTime() - date.getTime();
-                        const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-                        
-                        if (diffDays === 0) return 'Today';
-                        if (diffDays === 1) return 'Yesterday';
-                        if (diffDays < 7) return `${diffDays} days ago`;
-                        return date.toLocaleDateString();
-                      };
-
-                      if (filtered.length === 0) {
-                        return (
-                          <tr>
-                            <td colSpan={8} className="px-4 py-8 text-center text-slate-400">
-                              No cached streams found
-                            </td>
-                          </tr>
-                        );
-                      }
-
-                      return filtered.map((movie) => (
-                        <tr key={movie.movie_id} className="hover:bg-white/5 transition-colors">
-                          <td className="px-4 py-3">
-                            <div>
-                              <p className="text-white font-medium">{movie.title}</p>
-                              <p className="text-xs text-slate-400">{movie.year}</p>
-                            </div>
-                          </td>
-                          <td className="px-4 py-3">
-                            <span className={`inline-flex items-center px-2 py-1 rounded-md text-xs font-medium border ${getQualityBadgeColor(movie.quality_score)}`}>
-                              Score: {movie.quality_score}
-                            </span>
-                          </td>
-                          <td className="px-4 py-3">
-                            <div className="flex flex-col gap-1">
-                              <span className="text-sm text-white">{movie.resolution}</span>
-                              {movie.hdr_type && movie.hdr_type !== 'SDR' && (
-                                <span className="text-xs text-purple-400">{movie.hdr_type}</span>
-                              )}
-                            </div>
-                          </td>
-                          <td className="px-4 py-3">
-                            <div className="flex flex-col gap-1">
-                              <span className="text-sm text-white">{movie.source_type}</span>
-                              {movie.audio_format && (
-                                <span className="text-xs text-blue-400">{movie.audio_format}</span>
-                              )}
-                            </div>
-                          </td>
-                          <td className="px-4 py-3">
-                            <span className="text-sm text-slate-300">{movie.file_size_gb.toFixed(1)} GB</span>
-                          </td>
-                          <td className="px-4 py-3">
-                            <div className="flex flex-col gap-1">
-                              {movie.is_available ? (
-                                <span className="inline-flex items-center gap-1 text-xs text-green-400">
-                                  <CheckCircle className="w-3 h-3" />
-                                  Available
-                                </span>
-                              ) : (
-                                <span className="inline-flex items-center gap-1 text-xs text-red-400">
-                                  <XCircle className="w-3 h-3" />
-                                  Unavailable
-                                </span>
-                              )}
-                              {movie.upgrade_available && (
-                                <span className="inline-flex items-center gap-1 text-xs text-purple-400">
-                                  <TrendingUp className="w-3 h-3" />
-                                  Upgrade Ready
-                                </span>
-                              )}
-                            </div>
-                          </td>
-                          <td className="px-4 py-3">
-                            <div className="flex items-center gap-1 text-sm text-slate-300">
-                              <Calendar className="w-3 h-3" />
-                              {formatDate(movie.cached_at)}
-                            </div>
-                          </td>
-                          <td className="px-4 py-3">
-                            <div className="flex items-center gap-1 text-sm text-slate-400">
-                              <Clock className="w-3 h-3" />
-                              {formatDate(movie.last_checked)}
-                            </div>
-                          </td>
-                        </tr>
-                      ));
-                    })()}
-                  </tbody>
-                </table>
               </div>
             </div>
           </div>
