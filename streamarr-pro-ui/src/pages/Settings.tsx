@@ -151,7 +151,7 @@ interface ServiceStatus {
   items_total: number;
 }
 
-type TabType = 'account' | 'integrations' | 'content' | 'livetv' | 'services' | 'system';
+type TabType = 'account' | 'integrations' | 'content' | 'livetv' | 'services' | 'cache' | 'system';
 
 interface VersionInfo {
   current_version: string;
@@ -319,6 +319,7 @@ export default function Settings() {
     { id: 'content' as TabType, label: 'Content', icon: Film },
     { id: 'livetv' as TabType, label: 'TV & IPTV', icon: Tv },
     { id: 'services' as TabType, label: 'Services', icon: Activity },
+    { id: 'cache' as TabType, label: 'Cache Monitor', icon: Database },
     { id: 'system' as TabType, label: 'System', icon: SettingsIcon },
   ];
 
@@ -3556,6 +3557,31 @@ export default function Settings() {
                   )}
                 </div>
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* CACHE MONITOR TAB */}
+        {activeTab === 'cache' && (
+          <div className="bg-[#1e1e1e] rounded-xl p-6 border border-white/10">
+            <div className="mb-4 p-4 bg-blue-900/30 border border-blue-800 rounded-lg">
+              <h3 className="text-red-400 font-medium mb-2">💾 Stream Cache Monitor</h3>
+              <p className="text-sm text-slate-300">
+                Monitor cached streams availability. The cache monitor is available as a dedicated page.
+              </p>
+            </div>
+            <div className="flex flex-col items-center justify-center py-12 space-y-4">
+              <Database className="w-16 h-16 text-slate-400" />
+              <p className="text-slate-400 text-lg">Stream Cache Monitor</p>
+              <p className="text-slate-500 text-sm text-center max-w-md">
+                View and manage your cached streams, check availability, and monitor quality scores from the dedicated Cache Monitor page.
+              </p>
+              <a
+                href="/cache-monitor"
+                className="mt-4 px-6 py-3 bg-red-600 text-white rounded-lg font-medium hover:bg-red-700 transition-colors"
+              >
+                Open Cache Monitor
+              </a>
             </div>
           </div>
         )}
