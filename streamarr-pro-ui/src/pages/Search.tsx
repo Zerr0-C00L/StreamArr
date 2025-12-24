@@ -66,7 +66,7 @@ export default function Search() {
   const addMovieMutation = useMutation({
     mutationFn: (tmdbId: number) => streamarrApi.addMovie({ tmdb_id: tmdbId, monitored: true }),
     onSuccess: (data, tmdbId) => {
-      console.log(`✓ Movie added successfully: ${data.title} (TMDB ID: ${tmdbId})`);
+      console.log(`✓ Movie added successfully: ${data.data.title} (TMDB ID: ${tmdbId})`);
       queryClient.invalidateQueries({ queryKey: ['movies'] });
       setNewlyAddedIds(prev => new Set(prev).add(tmdbId));
       setAddingId(null);
@@ -85,7 +85,7 @@ export default function Search() {
   const addSeriesMutation = useMutation({
     mutationFn: (tmdbId: number) => streamarrApi.addSeries({ tmdb_id: tmdbId, monitored: true }),
     onSuccess: (data, tmdbId) => {
-      console.log(`✓ Series added successfully: ${data.title} (TMDB ID: ${tmdbId})`);
+      console.log(`✓ Series added successfully: ${data.data.title} (TMDB ID: ${tmdbId})`);
       queryClient.invalidateQueries({ queryKey: ['series'] });
       setNewlyAddedIds(prev => new Set(prev).add(tmdbId));
       setAddingId(null);

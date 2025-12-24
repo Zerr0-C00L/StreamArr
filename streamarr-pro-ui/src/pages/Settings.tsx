@@ -271,7 +271,7 @@ const Settings: React.FC = () => {
   };
 
   // Added a function to regenerate the M3U playlist
-  const regeneratePlaylist = async () => {
+  const _regeneratePlaylist = async () => {
     try {
       const response = await fetch(
         'http://77.42.16.119:8080/get.php?username=zeroq&password=streamarrpro&type=m3u_plus&output=ts'
