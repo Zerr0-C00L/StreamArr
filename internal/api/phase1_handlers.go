@@ -119,24 +119,6 @@ func (h *Handler) GetCachedMoviesList(w http.ResponseWriter, r *http.Request) {
 	// Get filter parameter (movies, series, or all)
 	mediaType := r.URL.Query().Get("type") // "movies", "series", or empty for all
 
-	// Get pagination parameters
-	limitStr := r.URL.Query().Get("limit")
-	offsetStr := r.URL.Query().Get("offset")
-	
-	limit := 10000 // Default to 10000 to show all items
-	if limitStr != "" {
-		if parsedLimit, err := strconv.Atoi(limitStr); err == nil && parsedLimit > 0 {
-			limit = parsedLimit
-		}
-	}
-	
-	offset := 0
-	if offsetStr != "" {
-		if parsedOffset, err := strconv.Atoi(offsetStr); err == nil && parsedOffset >= 0 {
-			offset = parsedOffset
-		}
-	}
-
 	var query string
 	if mediaType == "series" {
 		// Only series
@@ -163,7 +145,6 @@ func (h *Handler) GetCachedMoviesList(w http.ResponseWriter, r *http.Request) {
 			INNER JOIN library_series s ON s.id = ms.series_id
 			WHERE ms.series_id IS NOT NULL
 			ORDER BY ms.created_at DESC
-			LIMIT $1 OFFSET $2
 		`
 	} else if mediaType == "movies" {
 		// Only movies
@@ -190,7 +171,6 @@ func (h *Handler) GetCachedMoviesList(w http.ResponseWriter, r *http.Request) {
 			LEFT JOIN library_movies m ON m.id = ms.movie_id
 			WHERE ms.movie_id IS NOT NULL
 			ORDER BY ms.created_at DESC
-			LIMIT $1 OFFSET $2
 		`
 	} else {
 		// Both movies and series
@@ -242,11 +222,10 @@ func (h *Handler) GetCachedMoviesList(w http.ResponseWriter, r *http.Request) {
 			WHERE ms.series_id IS NOT NULL
 			
 			ORDER BY cached_at DESC
-			LIMIT $1 OFFSET $2
 		`
 	}
 
-	rows, err := h.streamCacheStore.GetDB().QueryContext(ctx, query, limit, offset)
+	rows, err := h.streamCacheStore.GetDB().QueryContext(ctx, query)
 	if err != nil {
 		log.Printf("Error querying cached movies: %v", err)
 		respondError(w, http.StatusInternalServerError, "failed to query cached movies")
