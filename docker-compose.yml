@@ -23,6 +23,7 @@ services:
       - streamarr_cache:/app/cache
       - streamarr_logs:/app/logs
       - ./channels:/app/channels
+      - ./proxies.txt:/app/proxies.txt:ro  # Mount proxy file (read-only)
       - /var/run/docker.sock:/var/run/docker.sock  # Allow container to control Docker
       - .:/app/host  # Mount host directory for git operations
     depends_on:

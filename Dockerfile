@@ -67,14 +67,14 @@ COPY --from=frontend-builder /app/streamarr-pro-ui/dist /app/streamarr-pro-ui/di
 COPY channels/ /app/channels/
 
 # Copy update and build scripts for in-app updates
-COPY scripts/update.sh scripts/build.sh scripts/start.sh scripts/stop.sh docker-compose.yml entrypoint.sh ./
+COPY scripts/update.sh scripts/build.sh scripts/start.sh scripts/stop.sh docker-compose.yml entrypoint.sh load_proxies.sh ./
 
 # Install git, docker-cli, docker-compose, and dos2unix for container updates
 RUN apk add --no-cache git bash docker-cli docker-cli-compose dos2unix
 
 # Convert line endings and make scripts executable
-RUN dos2unix update.sh build.sh start.sh stop.sh entrypoint.sh && \
-    chmod +x update.sh build.sh start.sh stop.sh entrypoint.sh
+RUN dos2unix update.sh build.sh start.sh stop.sh entrypoint.sh load_proxies.sh && \
+    chmod +x update.sh build.sh start.sh stop.sh entrypoint.sh load_proxies.sh
 
 # Create directories
 RUN mkdir -p /app/logs /app/cache /app/sessions

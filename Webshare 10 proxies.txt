@@ -1,0 +1,11 @@
+
+142.111.48.253:7030:jqwyfxbu:wvqsgrwuomzs
+31.59.20.176:6754:jqwyfxbu:wvqsgrwuomzs
+23.95.150.145:6114:jqwyfxbu:wvqsgrwuomzs
+198.23.239.134:6540:jqwyfxbu:wvqsgrwuomzs
+107.172.163.27:6543:jqwyfxbu:wvqsgrwuomzs
+198.105.121.200:6462:jqwyfxbu:wvqsgrwuomzs
+64.137.96.74:6641:jqwyfxbu:wvqsgrwuomzs
+84.247.60.125:6095:jqwyfxbu:wvqsgrwuomzs
+216.10.27.159:6837:jqwyfxbu:wvqsgrwuomzs
+142.111.67.146:5611:jqwyfxbu:wvqsgrwuomzs

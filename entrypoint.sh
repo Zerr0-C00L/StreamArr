@@ -10,6 +10,13 @@ echo "║   StreamArr Pro Container Starting     ║"
 echo "╚════════════════════════════════════════╝"
 echo ""
 
+# Load proxies if file exists
+if [ -f "/app/proxies.txt" ]; then
+    echo "🔄 Loading proxies for Stremio addons..."
+    . /app/load_proxies.sh
+    echo ""
+fi
+
 # Wait for database to be ready (database service is healthy in docker-compose)
 echo "⏳ Waiting for database..."
 sleep 5
