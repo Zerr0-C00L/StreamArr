@@ -670,6 +670,7 @@ func (h *XtreamHandler) getVODStreams(w http.ResponseWriter, r *http.Request) {
 				}
 				if orc, ok := settingsMap["only_released_content"].(bool); ok {
 					onlyReleasedContent = orc
+					log.Printf("[XTREAM] OnlyReleasedContent setting: %v", onlyReleasedContent)
 				}
 			}
 		}
