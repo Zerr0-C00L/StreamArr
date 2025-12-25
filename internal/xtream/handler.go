@@ -662,11 +662,16 @@ func (h *XtreamHandler) getVODStreams(w http.ResponseWriter, r *http.Request) {
 	// Get current settings
 	var onlyCached bool
 	var onlyReleasedContent bool
+	log.Printf("[XTREAM] getSettings function exists: %v", h.getSettings != nil)
 	if h.getSettings != nil {
-		if settings := h.getSettings(); settings != nil {
+		settings := h.getSettings()
+		log.Printf("[XTREAM] Settings retrieved: %+v", settings)
+		if settings != nil {
 			if settingsMap, ok := settings.(map[string]interface{}); ok {
+				log.Printf("[XTREAM] Settings map: %+v", settingsMap)
 				if oc, ok := settingsMap["only_cached_streams"].(bool); ok {
 					onlyCached = oc
+					log.Printf("[XTREAM] OnlyCachedStreams setting: %v", onlyCached)
 				}
 				if orc, ok := settingsMap["only_released_content"].(bool); ok {
 					onlyReleasedContent = orc
