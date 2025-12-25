@@ -66,7 +66,7 @@ func NewMDBListClient(apiKey, cacheDir string) *MDBListClient {
 		cacheDir:    cacheDir,
 		cacheExpiry: 1 * time.Hour,
 		client: &http.Client{
-			Timeout: 15 * time.Second,
+			Timeout: 60 * time.Second,
 		},
 	}
 }
