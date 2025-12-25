@@ -661,11 +661,15 @@ func (h *XtreamHandler) getVODStreams(w http.ResponseWriter, r *http.Request) {
 	
 	// Get current settings
 	var onlyCached bool
+	var onlyReleasedContent bool
 	if h.getSettings != nil {
 		if settings := h.getSettings(); settings != nil {
 			if settingsMap, ok := settings.(map[string]interface{}); ok {
 				if oc, ok := settingsMap["only_cached_streams"].(bool); ok {
 					onlyCached = oc
+				}
+				if orc, ok := settingsMap["only_released_content"].(bool); ok {
+					onlyReleasedContent = orc
 				}
 			}
 		}
@@ -820,8 +824,8 @@ func (h *XtreamHandler) getVODStreams(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		// Debugging: Log release_date value
-		if metadata["release_date"] != nil {
+		// Check release date filtering (only if only_released_content is enabled)
+		if onlyReleasedContent && metadata["release_date"] != nil {
 			releaseDateStr, ok := metadata["release_date"].(string)
 			log.Printf("[DEBUG] release_date for movie '%s': %v", title, releaseDateStr)
 			if ok {
@@ -831,8 +835,8 @@ func (h *XtreamHandler) getVODStreams(w http.ResponseWriter, r *http.Request) {
 					continue
 				}
 			}
-		} else {
-			log.Printf("[DEBUG] No release_date found for movie '%s'", title)
+		} else if metadata["release_date"] != nil {
+			log.Printf("[DEBUG] release_date for movie '%s': %v (filtering disabled)", title, metadata["release_date"])
 		}
 		
 		// If enabled, duplicate entries for each IPTV VOD provider source
