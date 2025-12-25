@@ -96,14 +96,14 @@ Note: Use only with content you are legally entitled to access. Examples below u
 
 ```bash
 # Clone the repository
-git clone https://github.com/Zerr0-C00L/StreamArr.git
-cd StreamArr
+git clone https://github.com/Zerr0-C00L/StreamArr_Pro.git
+cd StreamArr_Pro
 
 # Start with Docker Compose
 docker compose up -d
 
 # View logs (optional)
-docker compose logs -f streamarr
+docker compose logs -f streamarr_pro
 ```
 
 **Done!** Open http://localhost:8080 in your browser.
