@@ -1,5 +1,4 @@
-# Git
-.git
+# Git (keep .git directory for version info in build)
 .gitignore
 
 # IDE
