@@ -2,7 +2,6 @@ package api
 
 import (
 	"context"
-	"fmt"
 	"log"
 	"strings"
 	"time"
@@ -10,7 +9,6 @@ import (
 	"github.com/Zerr0-C00L/StreamArr/internal/database"
 	"github.com/Zerr0-C00L/StreamArr/internal/models"
 	"github.com/Zerr0-C00L/StreamArr/internal/providers"
-	"github.com/Zerr0-C00L/StreamArr/internal/services"
 	"github.com/Zerr0-C00L/StreamArr/internal/services/debrid"
 	"github.com/Zerr0-C00L/StreamArr/internal/services/streams"
 	"github.com/Zerr0-C00L/StreamArr/internal/settings"
