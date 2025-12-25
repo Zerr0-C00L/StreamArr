@@ -1404,6 +1404,73 @@ func (h *Handler) DeleteSeries(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// CleanupBollywoodLibrary deletes Indian-origin movies and series from the library when blocking is enabled
+func (h *Handler) CleanupBollywoodLibrary(w http.ResponseWriter, r *http.Request) {
+	if h.settingsManager == nil {
+		respondError(w, http.StatusServiceUnavailable, "settings manager not initialized")
+		return
+	}
+	st := h.settingsManager.Get()
+	if !st.BlockBollywood {
+		respondError(w, http.StatusBadRequest, "enable 'Block Bollywood' in Settings first")
+		return
+	}
+
+	ctx := r.Context()
+
+	moviesDeleted := 0
+	seriesDeleted := 0
+
+	// Paginate through movies
+	offset := 0
+	limit := 200
+	for {
+		movies, err := h.movieStore.List(ctx, offset, limit, nil)
+		if err != nil {
+			respondError(w, http.StatusInternalServerError, fmt.Sprintf("failed to list movies: %v", err))
+			return
+		}
+		if len(movies) == 0 {
+			break
+		}
+		for _, m := range movies {
+			if services.IsIndianMovie(m) {
+				if err := h.movieStore.Delete(ctx, m.ID); err == nil {
+					moviesDeleted++
+				}
+			}
+		}
+		offset += limit
+	}
+
+	// Paginate through series
+	offset = 0
+	for {
+		series, err := h.seriesStore.List(ctx, offset, limit, nil)
+		if err != nil {
+			respondError(w, http.StatusInternalServerError, fmt.Sprintf("failed to list series: %v", err))
+			return
+		}
+		if len(series) == 0 {
+			break
+		}
+		for _, s := range series {
+			if services.IsIndianSeries(s) {
+				if err := h.seriesStore.Delete(ctx, s.ID); err == nil {
+					seriesDeleted++
+				}
+			}
+		}
+		offset += limit
+	}
+
+	respondJSON(w, http.StatusOK, map[string]interface{}{
+		"success":        true,
+		"movies_deleted": moviesDeleted,
+		"series_deleted": seriesDeleted,
+	})
+}
+
 // GetSeriesEpisodes handles GET /api/series/{id}/episodes
 func (h *Handler) GetSeriesEpisodes(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()

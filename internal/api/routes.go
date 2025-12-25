@@ -291,6 +291,9 @@ func SetupRoutesWithXtream(handler *Handler, xtreamHandler interface{ RegisterRo
 	r.HandleFunc("/api/iptv-vod/import", handler.ImportIPTVVOD).Methods("POST")
 	api.HandleFunc("/iptv-vod/import/", handler.ImportIPTVVOD).Methods("POST")
 
+	// Maintenance
+	api.HandleFunc("/maintenance/cleanup-bollywood", handler.CleanupBollywoodLibrary).Methods("POST")
+
 	// Stremio Addon Management
 	api.HandleFunc("/stremio/generate-token", handler.GenerateStremioToken).Methods("POST")
 	api.HandleFunc("/stremio/manifest-url", handler.GetStremioManifestURL).Methods("GET")
