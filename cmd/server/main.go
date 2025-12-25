@@ -465,7 +465,8 @@ func main() {
 	xtreamHandler.SetSettingsGetter(func() interface{} {
 		s := settingsManager.Get()
 		return map[string]interface{}{
-			"only_cached_streams": s.OnlyCachedStreams,
+			"only_cached_streams":    s.OnlyCachedStreams,
+			"only_released_content":  s.OnlyReleasedContent,
 		}
 	})
 
