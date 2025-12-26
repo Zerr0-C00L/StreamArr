@@ -121,6 +121,92 @@ docker compose logs -f streamarr
 
 ---
 
+## 🐳 Docker Installation (Detailed)
+
+### Important: Working Directory
+
+> ⚠️ **Always run `docker compose` commands from the project directory!**
+> 
+> The in-app update feature requires the container to be started from the cloned repository folder.
+> This ensures the host volume mount (`.:/app/host`) points to the correct location for git updates.
+
+### Standard Installation (Recommended)
+
+```bash
+# 1. Clone to your preferred location
+git clone https://github.com/Zerr0-C00L/StreamArr_Pro.git /opt/streamarr
+cd /opt/streamarr
+
+# 2. (Optional) Configure environment
+cp .env.example .env
+# Edit .env with your settings
+
+# 3. Start the containers
+docker compose up -d
+
+# 4. Verify containers are running
+docker ps
+```
+
+### VPS/Server Installation
+
+```bash
+# SSH into your server
+ssh user@your-server-ip
+
+# Clone repository
+git clone https://github.com/Zerr0-C00L/StreamArr_Pro.git ~/StreamArr_Pro
+cd ~/StreamArr_Pro
+
+# Start with Docker Compose (always from this directory!)
+docker compose up -d --build
+
+# Check logs
+docker compose logs -f streamarr
+```
+
+### Updating via UI
+
+The **Update App** button in Settings will:
+1. Pull latest code from GitHub
+2. Rebuild the Docker image
+3. Restart containers automatically
+
+**Requirements for in-app updates:**
+- Container must be started from the git repository directory
+- Docker socket must be mounted (`/var/run/docker.sock`)
+- Host directory must be mounted (`.:/app/host`)
+
+If updates aren't working, rebuild from the correct directory:
+```bash
+cd /path/to/StreamArr_Pro  # Your cloned repository
+docker compose down
+docker compose up -d --build
+```
+
+### Manual Update
+
+```bash
+cd /path/to/StreamArr_Pro
+git pull origin main
+docker compose down
+docker compose up -d --build
+```
+
+### Docker Compose Volumes Explained
+
+```yaml
+volumes:
+  - streamarr_cache:/app/cache      # Persistent cache
+  - streamarr_logs:/app/logs        # Application logs
+  - ./channels:/app/channels        # EPG channel data
+  - ./proxies.txt:/app/proxies.txt  # Proxy configuration
+  - /var/run/docker.sock:/var/run/docker.sock  # For in-app updates
+  - .:/app/host                     # Git repo access for updates
+```
+
+---
+
 ## ⚙️ Configuration
 
 ### 1. API Keys (Settings → API Keys)
