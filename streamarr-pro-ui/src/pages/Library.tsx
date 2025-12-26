@@ -637,14 +637,10 @@ export default function Library() {
       // Apply view filters only if not searching
       switch (currentView) {
         case 'recently-added-movies':
-          filtered = filtered
-            .filter(m => m.type === 'movie')
-            .sort((a, b) => new Date(b.added_at || 0).getTime() - new Date(a.added_at || 0).getTime());
+          filtered = filtered.filter(m => m.type === 'movie');
           break;
         case 'recently-added-series':
-          filtered = filtered
-            .filter(m => m.type === 'series')
-            .sort((a, b) => new Date(b.added_at || 0).getTime() - new Date(a.added_at || 0).getTime());
+          filtered = filtered.filter(m => m.type === 'series');
           break;
         case 'movies':
           filtered = filtered.filter(m => m.type === 'movie');
@@ -653,12 +649,62 @@ export default function Library() {
           filtered = filtered.filter(m => m.type === 'series');
           break;
         default:
-          filtered = filtered.sort((a, b) => new Date(b.added_at || 0).getTime() - new Date(a.added_at || 0).getTime());
+          // Show all
+          break;
       }
     }
 
+    // Apply sorting based on sortBy and sortOrder
+    const ascending = sortOrder === 'asc';
+    filtered.sort((a, b) => {
+      switch (sortBy) {
+        case 'title':
+          return ascending 
+            ? a.title.toLowerCase().localeCompare(b.title.toLowerCase())
+            : b.title.toLowerCase().localeCompare(a.title.toLowerCase());
+
+        case 'date_added':
+          const aDate = new Date(a.added_at || 0).getTime();
+          const bDate = new Date(b.added_at || 0).getTime();
+          return ascending ? aDate - bDate : bDate - aDate;
+
+        case 'release_date':
+          const aRelease = new Date(a.release_date || 0).getTime();
+          const bRelease = new Date(b.release_date || 0).getTime();
+          return ascending ? aRelease - bRelease : bRelease - aRelease;
+
+        case 'rating':
+          const aRating = a.vote_average || 0;
+          const bRating = b.vote_average || 0;
+          return ascending ? aRating - bRating : bRating - aRating;
+
+        case 'runtime':
+          const aRuntime = a.metadata?.runtime || 0;
+          const bRuntime = b.metadata?.runtime || 0;
+          return ascending ? aRuntime - bRuntime : bRuntime - aRuntime;
+
+        case 'monitored':
+          if (a.monitored === b.monitored) {
+            return a.title.toLowerCase().localeCompare(b.title.toLowerCase());
+          }
+          return ascending ? (a.monitored ? -1 : 1) : (a.monitored ? 1 : -1);
+
+        case 'genre':
+          const aGenre = a.metadata?.genres?.[0] || '';
+          const bGenre = b.metadata?.genres?.[0] || '';
+          return ascending 
+            ? aGenre.localeCompare(bGenre)
+            : bGenre.localeCompare(aGenre);
+
+        default:
+          return ascending 
+            ? a.title.toLowerCase().localeCompare(b.title.toLowerCase())
+            : b.title.toLowerCase().localeCompare(a.title.toLowerCase());
+      }
+    });
+
     return filtered;
-  }, [allMedia, currentView, searchTerm]);
+  }, [allMedia, currentView, searchTerm, sortBy, sortOrder]);
 
   // Pagination
   const totalPages = Math.ceil(filteredMedia.length / ITEMS_PER_PAGE);
