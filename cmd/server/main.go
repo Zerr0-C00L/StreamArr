@@ -384,8 +384,15 @@ func main() {
 		}
 	}
 
+	// Get proxies from settings if enabled
+	var proxies []string
+	if settingsManager.Get().UseHTTPProxy && len(settingsManager.Get().HTTPProxies) > 0 {
+		proxies = settingsManager.Get().HTTPProxies
+		log.Printf("✓ Proxy rotation enabled with %d proxies", len(proxies))
+	}
+
 	// Create MultiProvider
-	multiProvider := providers.NewMultiProviderWithConfig(cfg.RealDebridAPIKey, stremioAddons, tmdbClient)
+	multiProvider := providers.NewMultiProviderWithConfig(cfg.RealDebridAPIKey, stremioAddons, tmdbClient, proxies)
 	log.Printf("✓ Stream providers enabled: %v", multiProvider.ProviderNames)
 
 	// Phase 1: Initialize stream checker with provider integration

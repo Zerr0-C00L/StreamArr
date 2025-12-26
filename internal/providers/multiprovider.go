@@ -53,13 +53,13 @@ type MultiProvider struct {
 // Removed Zilean-related code: provider and config
 // Removed Comet-related code: provider and config
 
-func NewMultiProvider(rdAPIKey string, addons []StremioAddon, tmdbClient *services.TMDBClient) *MultiProvider {
-	return NewMultiProviderWithConfig(rdAPIKey, addons, tmdbClient)
+func NewMultiProvider(rdAPIKey string, addons []StremioAddon, tmdbClient *services.TMDBClient, proxies []string) *MultiProvider {
+	return NewMultiProviderWithConfig(rdAPIKey, addons, tmdbClient, proxies)
 }
 
 // Removed NewMultiProviderWithZilean (deprecated)
 
-func NewMultiProviderWithConfig(rdAPIKey string, addons []StremioAddon, tmdbClient *services.TMDBClient) *MultiProvider {
+func NewMultiProviderWithConfig(rdAPIKey string, addons []StremioAddon, tmdbClient *services.TMDBClient, proxies []string) *MultiProvider {
 	mp := &MultiProvider{
 		Providers:     make([]StreamProvider, 0),
 		ProviderNames: make([]string, 0),
@@ -71,7 +71,7 @@ func NewMultiProviderWithConfig(rdAPIKey string, addons []StremioAddon, tmdbClie
 			continue
 		}
 		
-		provider := NewGenericStremioProvider(addon.Name, addon.URL, rdAPIKey)
+		provider := NewGenericStremioProvider(addon.Name, addon.URL, rdAPIKey, proxies)
 		mp.Providers = append(mp.Providers, provider)
 		mp.ProviderNames = append(mp.ProviderNames, addon.Name)
 		log.Printf("Loaded Stremio addon: %s (%s)", addon.Name, addon.URL)

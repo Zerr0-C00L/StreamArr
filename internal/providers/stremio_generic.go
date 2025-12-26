@@ -54,7 +54,7 @@ type GenericStream struct {
 	BehaviorHints GenericBehaviorHints `json:"behaviorHints"`
 }
 
-func NewGenericStremioProvider(name, baseURL, rdAPIKey string) *GenericStremioProvider {
+func NewGenericStremioProvider(name, baseURL, rdAPIKey string, proxies []string) *GenericStremioProvider {
 	// Create custom transport to avoid Cloudflare bot detection
 	transport := &http.Transport{
 		Dial: (&net.Dialer{
@@ -83,35 +83,49 @@ func NewGenericStremioProvider(name, baseURL, rdAPIKey string) *GenericStremioPr
 	}
 	
 	// Check for proxy configuration (for bypassing Cloudflare blocks)
-	// Set TORRENTIO_PROXY env var to use proxy for Stremio addons (Torrentio, TorrentDB, etc.)
-	// Supports multiple proxies separated by comma for fallback: "http://proxy1,http://proxy2,http://proxy3"
-	if proxyEnv := os.Getenv("TORRENTIO_PROXY"); proxyEnv != "" {
-		// Split by comma to get list of proxies
-		for _, p := range strings.Split(proxyEnv, ",") {
+	// Priority: 1. Passed proxies parameter, 2. TORRENTIO_PROXY env var
+	// Supports multiple proxies for fallback/rotation
+	
+	// First check passed proxies parameter (from settings)
+	if len(proxies) > 0 {
+		for _, p := range proxies {
 			p = strings.TrimSpace(p)
 			if p != "" {
 				provider.proxyURLs = append(provider.proxyURLs, p)
 			}
 		}
-		
-		if len(provider.proxyURLs) > 0 {
-			log.Printf("[PROXY] Configured %d proxies for %s", len(provider.proxyURLs), name)
-			
-			// Use dynamic proxy selection
-			transport.Proxy = func(r *http.Request) (*url.URL, error) {
-				provider.proxyMu.Lock()
-				proxyURL := provider.proxyURLs[provider.proxyIndex]
-				provider.proxyMu.Unlock()
-				
-				proxy, err := url.Parse(proxyURL)
-				if err != nil {
-					log.Printf("[PROXY] Invalid proxy URL %s: %v", proxyURL, err)
-					return nil, err
+	}
+	
+	// Fallback to env var if no proxies passed
+	if len(provider.proxyURLs) == 0 {
+		if proxyEnv := os.Getenv("TORRENTIO_PROXY"); proxyEnv != "" {
+			// Split by comma to get list of proxies
+			for _, p := range strings.Split(proxyEnv, ",") {
+				p = strings.TrimSpace(p)
+				if p != "" {
+					provider.proxyURLs = append(provider.proxyURLs, p)
 				}
-				
-				log.Printf("[PROXY] Using proxy %d/%d: %s", provider.proxyIndex+1, len(provider.proxyURLs), proxyURL)
-				return proxy, nil
 			}
+		}
+	}
+	
+	if len(provider.proxyURLs) > 0 {
+		log.Printf("[PROXY] Configured %d proxies for %s", len(provider.proxyURLs), name)
+		
+		// Use dynamic proxy selection
+		transport.Proxy = func(r *http.Request) (*url.URL, error) {
+			provider.proxyMu.Lock()
+			proxyURL := provider.proxyURLs[provider.proxyIndex]
+			provider.proxyMu.Unlock()
+			
+			proxy, err := url.Parse(proxyURL)
+			if err != nil {
+				log.Printf("[PROXY] Invalid proxy URL %s: %v", proxyURL, err)
+				return nil, err
+			}
+			
+			log.Printf("[PROXY] Using proxy %d/%d: %s", provider.proxyIndex+1, len(provider.proxyURLs), proxyURL)
+			return proxy, nil
 		}
 	}
 	

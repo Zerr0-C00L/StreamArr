@@ -131,8 +131,9 @@ type Settings struct {
 	StremioAddon       StremioAddonConfig `json:"stremio_addon"`
 	
 	// Proxy Settings
-	HTTPProxy    string `json:"http_proxy"`
-	UseHTTPProxy bool   `json:"use_http_proxy"`
+	HTTPProxy    string   `json:"http_proxy"`
+	HTTPProxies  []string `json:"http_proxies"` // Array of proxy URLs for rotation/fallback
+	UseHTTPProxy bool     `json:"use_http_proxy"`
 	
 	// HeadlessVidX Settings
 	HeadlessVidXAddress    string `json:"headless_vidx_address"`
@@ -266,6 +267,7 @@ func getDefaultSettings() *Settings {
 			CatalogPlacement: "both",
 		},
 		UseHTTPProxy:           false,
+		HTTPProxies:            []string{}, // Empty by default
 		HeadlessVidXAddress:    "localhost:3202",
 		UpdateBranch:           "main",
 		HeadlessVidXMaxThreads: 5,

@@ -104,10 +104,16 @@ func main() {
 			Enabled: addon.Enabled,
 		}
 	}
+	// Get proxies from settings if available
+	proxies := settingsManager.Get().HTTPProxies
+	if !settingsManager.Get().UseHTTPProxy {
+		proxies = nil // Don't use proxies if disabled
+	}
 	multiProvider := providers.NewMultiProvider(
 		cfg.RealDebridAPIKey,
 		stremioAddons,
 		tmdbClient,
+		proxies,
 	)
 
 	// Initialize cache manager

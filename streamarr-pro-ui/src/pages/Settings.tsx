@@ -68,6 +68,7 @@ interface SettingsData {
   user_set_host: string;
   mdblist_lists: string;
   http_proxy: string;
+  http_proxies: string[]; // Array of proxy URLs for fallback
   use_http_proxy: boolean;
   headless_vidx_address: string;
   headless_vidx_max_threads: number;
@@ -3689,7 +3690,8 @@ export default function Settings() {
 
               {/* Proxy Settings */}
               <div className="bg-gray-900 rounded-lg p-4 mb-6">
-                <h4 className="text-slate-300 font-medium mb-4">Proxy</h4>
+                <h4 className="text-slate-300 font-medium mb-4">Proxy Settings</h4>
+                <p className="text-xs text-slate-500 mb-4">Add up to 10 proxy servers. The system will automatically fallback to the next proxy if one fails or gets rate-limited.</p>
                 <div className="space-y-4">
                   <div className="flex items-center gap-2">
                     <input
@@ -3699,18 +3701,53 @@ export default function Settings() {
                       onChange={(e) => updateSetting('use_http_proxy', e.target.checked)}
                       className="w-4 h-4 bg-[#2a2a2a] border-white/10 rounded"
                     />
-                    <label htmlFor="use_http_proxy" className="text-sm text-slate-300">Use HTTP Proxy</label>
+                    <label htmlFor="use_http_proxy" className="text-sm text-slate-300">Enable Proxy Rotation</label>
                   </div>
+                  
                   <div>
-                    <label className="block text-sm font-medium text-slate-300 mb-2">Proxy Address</label>
-                    <input
-                      type="text"
-                      value={settings?.http_proxy || ''}
-                      onChange={(e) => updateSetting('http_proxy', e.target.value)}
-                      className="w-full px-3 py-2 bg-[#2a2a2a] border border-white/10 rounded-lg text-white focus:outline-none focus:border-blue-500 font-mono text-sm"
-                      placeholder="http://user:pass@host:port"
-                    />
-                    <p className="text-xs text-slate-500 mt-1">Example: http://127.0.0.1:8080 or http://user:pass@proxy.local:3128</p>
+                    <label className="block text-sm font-medium text-slate-300 mb-2">Proxy Servers ({(settings?.http_proxies || []).filter(p => p.trim()).length}/10)</label>
+                    <div className="space-y-2">
+                      {Array.from({ length: 10 }).map((_, index) => {
+                        const proxies = settings?.http_proxies || [];
+                        const value = proxies[index] || '';
+                        return (
+                          <div key={index} className="flex items-center gap-2">
+                            <span className="text-xs text-slate-500 w-6">{index + 1}.</span>
+                            <input
+                              type="text"
+                              value={value}
+                              onChange={(e) => {
+                                const newProxies = [...(settings?.http_proxies || [])];
+                                // Ensure array has enough slots
+                                while (newProxies.length <= index) {
+                                  newProxies.push('');
+                                }
+                                newProxies[index] = e.target.value;
+                                updateSetting('http_proxies', newProxies);
+                              }}
+                              className="flex-1 px-3 py-2 bg-[#2a2a2a] border border-white/10 rounded-lg text-white focus:outline-none focus:border-blue-500 font-mono text-sm"
+                              placeholder={index === 0 ? "http://user:pass@proxy1.example.com:8080" : ""}
+                            />
+                            {value && (
+                              <button
+                                onClick={() => {
+                                  const newProxies = [...(settings?.http_proxies || [])];
+                                  newProxies[index] = '';
+                                  updateSetting('http_proxies', newProxies.filter(p => p.trim()));
+                                }}
+                                className="p-2 text-red-400 hover:text-red-300 hover:bg-red-900/20 rounded transition-colors"
+                                title="Remove proxy"
+                              >
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                              </button>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <p className="text-xs text-slate-500 mt-2">Format: http://user:pass@host:port or http://host:port</p>
                   </div>
                 </div>
               </div>

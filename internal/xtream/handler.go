@@ -70,11 +70,12 @@ type XtreamHandler struct {
 	getSortPrefer    func() string
 }
 
-func NewXtreamHandler(cfg *config.Config, db *sql.DB, tmdb *services.TMDBClient, rdClient *services.RealDebridClient, channelManager *livetv.ChannelManager, epgManager *epg.Manager, stremioAddons []providers.StremioAddon) *XtreamHandler {
+func NewXtreamHandler(cfg *config.Config, db *sql.DB, tmdb *services.TMDBClient, rdClient *services.RealDebridClient, channelManager *livetv.ChannelManager, epgManager *epg.Manager, stremioAddons []providers.StremioAddon, proxies []string) *XtreamHandler {
 	multiProvider := providers.NewMultiProvider(
 		cfg.RealDebridAPIKey,
 		stremioAddons,
 		tmdb,
+		proxies,
 	)
 	
 	return NewXtreamHandlerWithProvider(cfg, db, tmdb, rdClient, channelManager, epgManager, multiProvider)
