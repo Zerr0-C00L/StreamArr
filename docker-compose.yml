@@ -3,7 +3,7 @@ services:
     build:
       context: .
       args:
-        VERSION: ${VERSION:-v1.1.9}
+        VERSION: ${VERSION:-v1.2.3}
         COMMIT: ${COMMIT:-unknown}
         BUILD_DATE: ${BUILD_DATE:-unknown}
     container_name: streamarr
