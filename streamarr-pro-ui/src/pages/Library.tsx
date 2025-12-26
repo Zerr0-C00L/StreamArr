@@ -4,7 +4,8 @@ import { useSearchParams } from 'react-router-dom';
 import { streamarrApi, tmdbImageUrl } from '../services/api';
 import { 
   ChevronLeft, ChevronRight, ArrowLeft, X,
-  Tv, Film, Loader2, ChevronDown, Search, Trash2, Star, Calendar
+  Tv, Film, Loader2, ChevronDown, Search, Trash2, Star, Calendar,
+  CheckSquare, Square, XCircle
 } from 'lucide-react';
 import type { Movie, Series, Episode } from '../types';
 
@@ -572,6 +573,12 @@ export default function Library() {
   // Dropdown states
   const [openDropdown, setOpenDropdown] = useState<string | null>(null);
   
+  // Mass selection states
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set()); // Format: "type-id"
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteProgress, setDeleteProgress] = useState({ current: 0, total: 0 });
+  
   const ITEMS_PER_PAGE = 50;
 
   // Get current view from URL params (default to 'all')
@@ -812,6 +819,72 @@ export default function Library() {
     'series': 'TV Shows',
   };
 
+  // Selection helpers
+  const toggleItemSelection = (item: MediaItem) => {
+    const key = `${item.type}-${item.id}`;
+    setSelectedItems(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(key)) {
+        newSet.delete(key);
+      } else {
+        newSet.add(key);
+      }
+      return newSet;
+    });
+  };
+
+  const selectAll = () => {
+    const allKeys = currentItems.map(item => `${item.type}-${item.id}`);
+    setSelectedItems(new Set(allKeys));
+  };
+
+  const deselectAll = () => {
+    setSelectedItems(new Set());
+  };
+
+  const cancelSelection = () => {
+    setSelectionMode(false);
+    setSelectedItems(new Set());
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedItems.size === 0) return;
+    
+    const confirmed = window.confirm(
+      `Are you sure you want to delete ${selectedItems.size} item(s) from your library and add them to the blacklist?`
+    );
+    
+    if (!confirmed) return;
+
+    setIsDeleting(true);
+    setDeleteProgress({ current: 0, total: selectedItems.size });
+    
+    const itemsToDelete = Array.from(selectedItems);
+    let successCount = 0;
+    
+    for (let i = 0; i < itemsToDelete.length; i++) {
+      const [type, idStr] = itemsToDelete[i].split('-');
+      const id = parseInt(idStr);
+      
+      try {
+        await streamarrApi.removeAndBlacklist(type as 'movie' | 'series', id, 'Bulk deleted by user');
+        successCount++;
+      } catch (error) {
+        console.error(`Failed to delete ${type} ${id}:`, error);
+      }
+      
+      setDeleteProgress({ current: i + 1, total: itemsToDelete.length });
+    }
+    
+    setIsDeleting(false);
+    setSelectionMode(false);
+    setSelectedItems(new Set());
+    
+    // Show result and reload
+    alert(`Successfully deleted ${successCount} of ${itemsToDelete.length} items.`);
+    window.location.reload();
+  };
+
   if (isLoading) {
     return (
       <div className="min-h-screen bg-[#141414] flex items-center justify-center">
@@ -972,6 +1045,51 @@ export default function Library() {
                 Clear Filters
               </button>
             )}
+
+            {/* Selection Mode Toggle */}
+            {!selectionMode ? (
+              <button
+                onClick={() => setSelectionMode(true)}
+                className="px-3 py-2.5 bg-white/10 text-white rounded-lg border border-white/20 hover:bg-white/20 transition-colors text-sm font-medium flex items-center gap-2"
+              >
+                <CheckSquare className="w-4 h-4" />
+                Select
+              </button>
+            ) : (
+              <div className="flex items-center gap-2">
+                <span className="text-white text-sm">
+                  {selectedItems.size} selected
+                </span>
+                <button
+                  onClick={selectAll}
+                  className="px-3 py-2.5 bg-white/10 text-white rounded-lg border border-white/20 hover:bg-white/20 transition-colors text-sm font-medium"
+                >
+                  Select All
+                </button>
+                <button
+                  onClick={deselectAll}
+                  className="px-3 py-2.5 bg-white/10 text-white rounded-lg border border-white/20 hover:bg-white/20 transition-colors text-sm font-medium"
+                  disabled={selectedItems.size === 0}
+                >
+                  Deselect All
+                </button>
+                <button
+                  onClick={handleBulkDelete}
+                  disabled={selectedItems.size === 0 || isDeleting}
+                  className="px-3 py-2.5 bg-red-600 text-white rounded-lg border border-red-500 hover:bg-red-700 transition-colors text-sm font-medium flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  Delete ({selectedItems.size})
+                </button>
+                <button
+                  onClick={cancelSelection}
+                  className="px-3 py-2.5 bg-white/10 text-white rounded-lg border border-white/20 hover:bg-white/20 transition-colors text-sm font-medium flex items-center gap-2"
+                >
+                  <XCircle className="w-4 h-4" />
+                  Cancel
+                </button>
+              </div>
+            )}
           </div>
         </div>
 
@@ -1017,8 +1135,18 @@ export default function Library() {
               {currentItems.map((item) => (
                 <div
                   key={`${item.type}-${item.id}`}
-                  onClick={() => setSelectedMedia(item)}
-                  className="group cursor-pointer"
+                  onClick={() => {
+                    if (selectionMode) {
+                      toggleItemSelection(item);
+                    } else {
+                      setSelectedMedia(item);
+                    }
+                  }}
+                  className={`group cursor-pointer ${
+                    selectionMode && selectedItems.has(`${item.type}-${item.id}`)
+                      ? 'ring-2 ring-red-500 rounded-lg'
+                      : ''
+                  }`}
                 >
                   <div className="relative aspect-[2/3] rounded-lg overflow-hidden bg-slate-800 mb-2 
                                  group-hover:ring-2 ring-white transition-all">
@@ -1034,6 +1162,17 @@ export default function Library() {
                           <Film className="w-12 h-12 text-slate-600" />
                         ) : (
                           <Tv className="w-12 h-12 text-slate-600" />
+                        )}
+                      </div>
+                    )}
+
+                    {/* Selection Checkbox */}
+                    {selectionMode && (
+                      <div className="absolute top-2 right-2 z-10">
+                        {selectedItems.has(`${item.type}-${item.id}`) ? (
+                          <CheckSquare className="w-6 h-6 text-red-500 bg-white rounded" />
+                        ) : (
+                          <Square className="w-6 h-6 text-white bg-black/50 rounded" />
                         )}
                       </div>
                     )}
@@ -1132,6 +1271,25 @@ export default function Library() {
           media={selectedMedia} 
           onClose={() => setSelectedMedia(null)} 
         />
+      )}
+
+      {/* Deletion Progress Overlay */}
+      {isDeleting && (
+        <div className="fixed inset-0 bg-black/80 z-[9999] flex items-center justify-center">
+          <div className="bg-[#242424] rounded-xl p-8 max-w-md w-full mx-4 text-center">
+            <Loader2 className="w-12 h-12 animate-spin text-red-600 mx-auto mb-4" />
+            <h3 className="text-white text-xl font-bold mb-2">Deleting Items</h3>
+            <p className="text-slate-400 mb-4">
+              Deleting {deleteProgress.current} of {deleteProgress.total} items...
+            </p>
+            <div className="w-full bg-slate-700 rounded-full h-2">
+              <div 
+                className="bg-red-600 h-2 rounded-full transition-all duration-300"
+                style={{ width: `${(deleteProgress.current / deleteProgress.total) * 100}%` }}
+              />
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
