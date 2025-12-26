@@ -564,6 +564,16 @@ export default function Library() {
   const [currentPage, setCurrentPage] = useState(1);
   const [sortBy, setSortBy] = useState('title');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
+  
+  // Filter states
+  const [selectedGenres, setSelectedGenres] = useState<string[]>([]);
+  const [selectedYears, setSelectedYears] = useState<number[]>([]);
+  const [minRating, setMinRating] = useState<number>(0);
+  const [minVotes, setMinVotes] = useState<number>(0);
+  const [selectedLanguages, setSelectedLanguages] = useState<string[]>([]);
+  const [selectedCountries, setSelectedCountries] = useState<string[]>([]);
+  const [showFilters, setShowFilters] = useState(false);
+  
   const ITEMS_PER_PAGE = 50;
 
   // Get current view from URL params (default to 'all')
@@ -625,6 +635,44 @@ export default function Library() {
     return [...movieItems, ...seriesItems];
   }, [movies, series]);
 
+  // Extract available filter values
+  const availableFilters = useMemo(() => {
+    const genres = new Set<string>();
+    const years = new Set<number>();
+    const languages = new Set<string>();
+    const countries = new Set<string>();
+    let maxVotes = 0;
+
+    allMedia.forEach(media => {
+      if (media.metadata?.genres) {
+        (media.metadata.genres as string[]).forEach(g => genres.add(g));
+      }
+      if (media.year) {
+        years.add(media.year);
+      }
+      if (media.metadata?.original_language) {
+        languages.add(media.metadata.original_language);
+      }
+      if (media.metadata?.production_countries) {
+        const countries_list = media.metadata.production_countries as any[];
+        countries_list.forEach(c => {
+          if (c.iso_3166_1) countries.add(c.iso_3166_1);
+        });
+      }
+      if (media.metadata?.vote_count && media.metadata.vote_count > maxVotes) {
+        maxVotes = media.metadata.vote_count;
+      }
+    });
+
+    return {
+      genres: Array.from(genres).sort(),
+      years: Array.from(years).sort((a, b) => b - a),
+      languages: Array.from(languages).sort(),
+      countries: Array.from(countries).sort(),
+      maxVotes,
+    };
+  }, [allMedia]);
+
   // Filtered media based on current view and search
   const filteredMedia = useMemo(() => {
     let filtered = [...allMedia];
@@ -652,6 +700,45 @@ export default function Library() {
           // Show all
           break;
       }
+    }
+
+    // Apply genre filter
+    if (selectedGenres.length > 0) {
+      filtered = filtered.filter(m => {
+        const mediaGenres = m.metadata?.genres as string[] || [];
+        return selectedGenres.some(g => mediaGenres.includes(g));
+      });
+    }
+
+    // Apply year filter
+    if (selectedYears.length > 0) {
+      filtered = filtered.filter(m => m.year && selectedYears.includes(m.year));
+    }
+
+    // Apply rating filter (minimum)
+    if (minRating > 0) {
+      filtered = filtered.filter(m => (m.vote_average || 0) >= minRating);
+    }
+
+    // Apply votes filter (minimum)
+    if (minVotes > 0) {
+      filtered = filtered.filter(m => (m.metadata?.vote_count || 0) >= minVotes);
+    }
+
+    // Apply language filter
+    if (selectedLanguages.length > 0) {
+      filtered = filtered.filter(m => {
+        const lang = m.metadata?.original_language as string || '';
+        return selectedLanguages.includes(lang);
+      });
+    }
+
+    // Apply country filter
+    if (selectedCountries.length > 0) {
+      filtered = filtered.filter(m => {
+        const countries = m.metadata?.production_countries as any[] || [];
+        return selectedCountries.some(c => countries.some(pc => pc.iso_3166_1 === c));
+      });
     }
 
     // Apply sorting based on sortBy and sortOrder
@@ -720,7 +807,7 @@ export default function Library() {
     });
 
     return filtered;
-  }, [allMedia, currentView, searchTerm, sortBy, sortOrder]);
+  }, [allMedia, currentView, searchTerm, sortBy, sortOrder, selectedGenres, selectedYears, minRating, minVotes, selectedLanguages, selectedCountries]);
 
   // Pagination
   const totalPages = Math.ceil(filteredMedia.length / ITEMS_PER_PAGE);
@@ -845,7 +932,143 @@ export default function Library() {
             >
               {sortOrder === 'asc' ? '↑ Asc' : '↓ Desc'}
             </button>
+
+            <button
+              onClick={() => setShowFilters(!showFilters)}
+              className="px-4 py-2.5 bg-white/10 text-white rounded-lg border border-white/20 hover:bg-white/20 focus:border-white/40 focus:outline-none transition-colors text-sm font-medium"
+            >
+              {showFilters ? '✕ Hide Filters' : '⚙ Filters'}
+            </button>
           </div>
+
+          {/* Filter Panel */}
+          {showFilters && (
+            <div className="mt-4 p-4 bg-white/5 rounded-lg border border-white/10">
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                {/* Genres */}
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-2">Genres</label>
+                  <select
+                    multiple
+                    value={selectedGenres}
+                    onChange={(e) => {
+                      setSelectedGenres(Array.from(e.target.selectedOptions, option => option.value));
+                      setCurrentPage(1);
+                    }}
+                    className="w-full px-2 py-2 bg-white/10 text-white rounded border border-white/20 text-sm max-h-40"
+                  >
+                    {availableFilters.genres.map(g => (
+                      <option key={g} value={g}>{g}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Years */}
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-2">Years</label>
+                  <select
+                    multiple
+                    value={selectedYears.map(String)}
+                    onChange={(e) => {
+                      setSelectedYears(Array.from(e.target.selectedOptions, option => parseInt(option.value)));
+                      setCurrentPage(1);
+                    }}
+                    className="w-full px-2 py-2 bg-white/10 text-white rounded border border-white/20 text-sm max-h-40"
+                  >
+                    {availableFilters.years.map(y => (
+                      <option key={y} value={y}>{y}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Minimum Rating */}
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-2">Min Rating: {minRating.toFixed(1)}</label>
+                  <input
+                    type="range"
+                    min="0"
+                    max="10"
+                    step="0.1"
+                    value={minRating}
+                    onChange={(e) => {
+                      setMinRating(parseFloat(e.target.value));
+                      setCurrentPage(1);
+                    }}
+                    className="w-full"
+                  />
+                </div>
+
+                {/* Minimum Votes */}
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-2">Min Votes: {minVotes}</label>
+                  <input
+                    type="range"
+                    min="0"
+                    max={Math.max(availableFilters.maxVotes, 1000)}
+                    step="100"
+                    value={minVotes}
+                    onChange={(e) => {
+                      setMinVotes(parseInt(e.target.value));
+                      setCurrentPage(1);
+                    }}
+                    className="w-full"
+                  />
+                </div>
+
+                {/* Languages */}
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-2">Languages</label>
+                  <select
+                    multiple
+                    value={selectedLanguages}
+                    onChange={(e) => {
+                      setSelectedLanguages(Array.from(e.target.selectedOptions, option => option.value));
+                      setCurrentPage(1);
+                    }}
+                    className="w-full px-2 py-2 bg-white/10 text-white rounded border border-white/20 text-sm max-h-40"
+                  >
+                    {availableFilters.languages.map(l => (
+                      <option key={l} value={l}>{l}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Countries */}
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-2">Countries</label>
+                  <select
+                    multiple
+                    value={selectedCountries}
+                    onChange={(e) => {
+                      setSelectedCountries(Array.from(e.target.selectedOptions, option => option.value));
+                      setCurrentPage(1);
+                    }}
+                    className="w-full px-2 py-2 bg-white/10 text-white rounded border border-white/20 text-sm max-h-40"
+                  >
+                    {availableFilters.countries.map(c => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* Clear Filters Button */}
+              <button
+                onClick={() => {
+                  setSelectedGenres([]);
+                  setSelectedYears([]);
+                  setMinRating(0);
+                  setMinVotes(0);
+                  setSelectedLanguages([]);
+                  setSelectedCountries([]);
+                  setCurrentPage(1);
+                }}
+                className="mt-4 px-4 py-2 bg-slate-600 hover:bg-slate-500 text-white rounded text-sm transition-colors"
+              >
+                Clear All Filters
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Tabs */}
