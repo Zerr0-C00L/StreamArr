@@ -182,6 +182,8 @@ export interface TrendingItem {
   release_date: string;
   first_air_date?: string;
   vote_average: number;
+  vote_count?: number;
+  popularity?: number;
 }
 
 export const tmdbImageUrl = (path: string, size: 'w200' | 'w300' | 'w342' | 'w500' | 'w780' | 'w1280' | 'original' = 'w500') => {

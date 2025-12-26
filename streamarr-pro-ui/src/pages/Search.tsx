@@ -19,6 +19,11 @@ export default function Search() {
   const [trendingWindow, setTrendingWindow] = useState<'day' | 'week'>('day');
   const [selectedMedia, setSelectedMedia] = useState<{ item: SearchResult | TrendingItem; mediaType: string } | null>(null);
   const [addError, setAddError] = useState<string | null>(null);
+  
+  // Sort states for each section
+  const [trendingSortBy, setTrendingSortBy] = useState<string>('popularity');
+  const [popularMoviesSortBy, setPopularMoviesSortBy] = useState<string>('popularity');
+  const [popularSeriesSortBy, setPopularSeriesSortBy] = useState<string>('popularity');
 
   const queryClient = useQueryClient();
 
@@ -61,6 +66,38 @@ export default function Search() {
     queryFn: () => streamarrApi.getPopular('tv').then(res => Array.isArray(res.data) ? res.data : []),
     staleTime: 5 * 60 * 1000,
   });
+
+  // Sort helper function
+  const sortItems = (items: TrendingItem[], sortBy: string): TrendingItem[] => {
+    const sorted = [...items];
+    switch (sortBy) {
+      case 'popularity':
+        return sorted.sort((a, b) => (b.popularity || 0) - (a.popularity || 0));
+      case 'rating':
+        return sorted.sort((a, b) => (b.vote_average || 0) - (a.vote_average || 0));
+      case 'release_date':
+        return sorted.sort((a, b) => {
+          const dateA = a.release_date || a.first_air_date || '';
+          const dateB = b.release_date || b.first_air_date || '';
+          return dateB.localeCompare(dateA);
+        });
+      case 'title':
+        return sorted.sort((a, b) => {
+          const titleA = a.title || a.name || '';
+          const titleB = b.title || b.name || '';
+          return titleA.localeCompare(titleB);
+        });
+      case 'votes':
+        return sorted.sort((a, b) => (b.vote_count || 0) - (a.vote_count || 0));
+      default:
+        return sorted;
+    }
+  };
+
+  // Sorted data memos
+  const sortedTrending = useMemo(() => sortItems(trendingData, trendingSortBy), [trendingData, trendingSortBy]);
+  const sortedPopularMovies = useMemo(() => sortItems(popularMovies, popularMoviesSortBy), [popularMovies, popularMoviesSortBy]);
+  const sortedPopularSeries = useMemo(() => sortItems(popularSeries, popularSeriesSortBy), [popularSeries, popularSeriesSortBy]);
 
   // Add mutations
   const addMovieMutation = useMutation({
@@ -234,28 +271,41 @@ export default function Search() {
             <TrendingUp className="w-6 h-6 text-cyan-500" />
             Trending Now
           </h2>
-          <div className="flex bg-[#333] rounded-full p-1">
-            <button
-              onClick={() => setTrendingWindow('day')}
-              className={`px-4 py-1.5 rounded-full text-sm font-medium transition-colors ${
-                trendingWindow === 'day' ? 'bg-white text-black' : 'text-slate-400 hover:text-white'
-              }`}
+          <div className="flex items-center gap-3">
+            <select
+              value={trendingSortBy}
+              onChange={(e) => setTrendingSortBy(e.target.value)}
+              className="px-3 py-1.5 bg-[#333] text-white text-sm rounded-lg border border-white/10 focus:outline-none focus:border-white/30"
             >
-              Today
-            </button>
-            <button
-              onClick={() => setTrendingWindow('week')}
-              className={`px-4 py-1.5 rounded-full text-sm font-medium transition-colors ${
-                trendingWindow === 'week' ? 'bg-white text-black' : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              This Week
-            </button>
+              <option value="popularity">Sort by Popularity</option>
+              <option value="rating">Sort by Rating</option>
+              <option value="release_date">Sort by Release Date</option>
+              <option value="title">Sort by Title</option>
+              <option value="votes">Sort by Votes</option>
+            </select>
+            <div className="flex bg-[#333] rounded-full p-1">
+              <button
+                onClick={() => setTrendingWindow('day')}
+                className={`px-4 py-1.5 rounded-full text-sm font-medium transition-colors ${
+                  trendingWindow === 'day' ? 'bg-white text-black' : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                Today
+              </button>
+              <button
+                onClick={() => setTrendingWindow('week')}
+                className={`px-4 py-1.5 rounded-full text-sm font-medium transition-colors ${
+                  trendingWindow === 'week' ? 'bg-white text-black' : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                This Week
+              </button>
+            </div>
           </div>
         </div>
         
         <ContentRow
-          items={trendingData}
+          items={sortedTrending}
           onAdd={handleAdd}
           addingId={addingId}
           isInLibrary={isInLibrary}
@@ -265,12 +315,25 @@ export default function Search() {
 
       {/* Popular Movies */}
       <div className="px-8 pb-8">
-        <h2 className="text-xl font-bold text-white flex items-center gap-2 mb-4">
-          <Flame className="w-6 h-6 text-orange-500" />
-          Popular Movies
-        </h2>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-xl font-bold text-white flex items-center gap-2">
+            <Flame className="w-6 h-6 text-orange-500" />
+            Popular Movies
+          </h2>
+          <select
+            value={popularMoviesSortBy}
+            onChange={(e) => setPopularMoviesSortBy(e.target.value)}
+            className="px-3 py-1.5 bg-[#333] text-white text-sm rounded-lg border border-white/10 focus:outline-none focus:border-white/30"
+          >
+            <option value="popularity">Sort by Popularity</option>
+            <option value="rating">Sort by Rating</option>
+            <option value="release_date">Sort by Release Date</option>
+            <option value="title">Sort by Title</option>
+            <option value="votes">Sort by Votes</option>
+          </select>
+        </div>
         <ContentRow
-          items={popularMovies}
+          items={sortedPopularMovies}
           onAdd={handleAdd}
           addingId={addingId}
           isInLibrary={isInLibrary}
@@ -281,12 +344,25 @@ export default function Search() {
 
       {/* Popular Series */}
       <div className="px-8 pb-8">
-        <h2 className="text-xl font-bold text-white flex items-center gap-2 mb-4">
-          <Tv className="w-6 h-6 text-green-500" />
-          Popular TV Shows
-        </h2>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-xl font-bold text-white flex items-center gap-2">
+            <Tv className="w-6 h-6 text-green-500" />
+            Popular TV Shows
+          </h2>
+          <select
+            value={popularSeriesSortBy}
+            onChange={(e) => setPopularSeriesSortBy(e.target.value)}
+            className="px-3 py-1.5 bg-[#333] text-white text-sm rounded-lg border border-white/10 focus:outline-none focus:border-white/30"
+          >
+            <option value="popularity">Sort by Popularity</option>
+            <option value="rating">Sort by Rating</option>
+            <option value="release_date">Sort by Release Date</option>
+            <option value="title">Sort by Title</option>
+            <option value="votes">Sort by Votes</option>
+          </select>
+        </div>
         <ContentRow
-          items={popularSeries}
+          items={sortedPopularSeries}
           onAdd={handleAdd}
           addingId={addingId}
           isInLibrary={isInLibrary}
