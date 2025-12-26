@@ -622,10 +622,12 @@ function CollectionCard({
 // Collection Detail Modal
 function CollectionDetailModal({ 
   collection, 
-  onClose 
+  onClose,
+  onMovieClick 
 }: { 
   collection: Collection; 
   onClose: () => void;
+  onMovieClick?: (movie: any) => void;
 }) {
   const [syncing, setSyncing] = useState(false);
 
@@ -786,8 +788,16 @@ function CollectionDetailModal({
         ) : (
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-8 gap-4">
             {movies.map((movie: any) => (
-              <div key={movie.id || movie.tmdb_id} className="group">
-                <div className="relative aspect-[2/3] rounded-lg overflow-hidden bg-slate-800 mb-2">
+              <div 
+                key={movie.id || movie.tmdb_id} 
+                className={`group ${movie.in_library ? 'cursor-pointer' : 'cursor-default'}`}
+                onClick={() => {
+                  if (movie.in_library && onMovieClick) {
+                    onMovieClick(movie);
+                  }
+                }}
+              >
+                <div className={`relative aspect-[2/3] rounded-lg overflow-hidden bg-slate-800 mb-2 transition-all duration-200 ${movie.in_library ? 'group-hover:ring-2 group-hover:ring-cyan-500 group-hover:scale-105' : ''}`}>
                   {movie.poster_path ? (
                     <img
                       src={tmdbImageUrl(movie.poster_path, 'w342')}
@@ -818,6 +828,15 @@ function CollectionDetailModal({
                     <div className="absolute bottom-2 left-2 bg-black/80 px-2 py-1 rounded backdrop-blur-sm">
                       <span className="text-white text-xs font-medium">
                         {new Date(movie.release_date).getFullYear()}
+                      </span>
+                    </div>
+                  )}
+
+                  {/* Hover overlay for clickable movies */}
+                  {movie.in_library && (
+                    <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-all duration-200 flex items-center justify-center opacity-0 group-hover:opacity-100">
+                      <span className="text-white text-sm font-semibold bg-black/50 px-3 py-1.5 rounded-full backdrop-blur-sm">
+                        View Details
                       </span>
                     </div>
                   )}
@@ -1593,7 +1612,15 @@ export default function Library() {
       {selectedCollection && (
         <CollectionDetailModal 
           collection={selectedCollection} 
-          onClose={() => setSelectedCollection(null)} 
+          onClose={() => setSelectedCollection(null)}
+          onMovieClick={(movie) => {
+            // Find the movie in allMedia by tmdb_id and open detail modal
+            const libraryMovie = allMedia.find(m => m.type === 'movie' && m.tmdb_id === movie.tmdb_id);
+            if (libraryMovie) {
+              setSelectedCollection(null);
+              setSelectedMedia(libraryMovie);
+            }
+          }}
         />
       )}
 
