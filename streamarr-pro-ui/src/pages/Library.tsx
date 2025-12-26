@@ -904,7 +904,7 @@ export default function Library() {
           </div>
 
           {/* Sort Controls */}
-          <div className="flex gap-3 items-center">
+          <div className="flex gap-3 items-center flex-wrap overflow-visible">
             <select
               value={sortBy}
               onChange={(e) => {
@@ -936,7 +936,7 @@ export default function Library() {
             </button>
 
             {/* Genres Dropdown */}
-            <div className="relative z-40">
+            <div className="relative">
               <button
                 onClick={() => setOpenDropdown(openDropdown === 'genres' ? null : 'genres')}
                 className="px-3 py-2.5 bg-white/10 text-white rounded-lg border border-white/20 hover:bg-white/20 focus:border-white/40 focus:outline-none transition-colors text-sm font-medium"
@@ -944,29 +944,29 @@ export default function Library() {
                 Genres {selectedGenres.length > 0 && `(${selectedGenres.length})`}
               </button>
               {openDropdown === 'genres' && (
-                <div className="fixed top-0 left-0 w-full h-full z-[998]" onClick={() => setOpenDropdown(null)} />
-              )}
-              {openDropdown === 'genres' && (
-                <div className="fixed mt-1 bg-[#242424] border border-white/20 rounded-lg p-2 z-[999] max-h-80 overflow-y-auto min-w-56 shadow-lg" style={{ top: '55px', left: '50px' }}>
-                  {availableFilters.genres.map(g => (
-                    <label key={g} className="flex items-center gap-2 px-2 py-1 hover:bg-white/10 rounded cursor-pointer text-white">
-                      <input
-                        type="checkbox"
-                        checked={selectedGenres.includes(g)}
-                        onChange={(e) => {
-                          if (e.target.checked) {
-                            setSelectedGenres([...selectedGenres, g]);
-                          } else {
-                            setSelectedGenres(selectedGenres.filter(sg => sg !== g));
-                          }
-                          setCurrentPage(1);
-                        }}
-                        className="w-4 h-4 accent-white"
-                      />
-                      <span className="text-sm">{g}</span>
-                    </label>
-                  ))}
-                </div>
+                <>
+                  <div className="fixed top-0 left-0 w-full h-full z-[998]" onClick={() => setOpenDropdown(null)} />
+                  <div className="absolute top-full mt-2 left-0 bg-[#242424] border border-white/20 rounded-lg p-2 z-[9999] max-h-96 overflow-y-auto w-56 shadow-2xl">
+                    {availableFilters.genres.map(g => (
+                      <label key={g} className="flex items-center gap-2 px-2 py-1 hover:bg-white/10 rounded cursor-pointer text-white">
+                        <input
+                          type="checkbox"
+                          checked={selectedGenres.includes(g)}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSelectedGenres([...selectedGenres, g]);
+                            } else {
+                              setSelectedGenres(selectedGenres.filter(sg => sg !== g));
+                            }
+                            setCurrentPage(1);
+                          }}
+                          className="w-4 h-4 accent-white"
+                        />
+                        <span className="text-sm">{g}</span>
+                      </label>
+                    ))}
+                  </div>
+                </>
               )}
             </div>
 
@@ -979,29 +979,29 @@ export default function Library() {
                 Years {selectedYears.length > 0 && `(${selectedYears.length})`}
               </button>
               {openDropdown === 'years' && (
-                <div className="fixed top-0 left-0 w-full h-full z-[998]" onClick={() => setOpenDropdown(null)} />
-              )}
-              {openDropdown === 'years' && (
-                <div className="fixed mt-1 bg-[#242424] border border-white/20 rounded-lg p-2 z-[999] max-h-80 overflow-y-auto min-w-56 shadow-lg" style={{ top: '55px', left: '160px' }}>
-                  {availableFilters.years.map(y => (
-                    <label key={y} className="flex items-center gap-2 px-2 py-1 hover:bg-white/10 rounded cursor-pointer text-white">
-                      <input
-                        type="checkbox"
-                        checked={selectedYears.includes(y)}
-                        onChange={(e) => {
-                          if (e.target.checked) {
-                            setSelectedYears([...selectedYears, y]);
-                          } else {
-                            setSelectedYears(selectedYears.filter(sy => sy !== y));
-                          }
-                          setCurrentPage(1);
-                        }}
-                        className="w-4 h-4 accent-white"
-                      />
-                      <span className="text-sm">{y}</span>
-                    </label>
-                  ))}
-                </div>
+                <>
+                  <div className="fixed top-0 left-0 w-full h-full z-[998]" onClick={() => setOpenDropdown(null)} />
+                  <div className="absolute top-full mt-2 left-0 bg-[#242424] border border-white/20 rounded-lg p-2 z-[9999] max-h-96 overflow-y-auto w-56 shadow-2xl">
+                    {availableFilters.years.map(y => (
+                      <label key={y} className="flex items-center gap-2 px-2 py-1 hover:bg-white/10 rounded cursor-pointer text-white">
+                        <input
+                          type="checkbox"
+                          checked={selectedYears.includes(y)}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSelectedYears([...selectedYears, y]);
+                            } else {
+                              setSelectedYears(selectedYears.filter(sy => sy !== y));
+                            }
+                            setCurrentPage(1);
+                          }}
+                          className="w-4 h-4 accent-white"
+                        />
+                        <span className="text-sm">{y}</span>
+                      </label>
+                    ))}
+                  </div>
+                </>
               )}
             </div>
 
@@ -1014,24 +1014,24 @@ export default function Library() {
                 Rating {minRating > 0 && `(${minRating.toFixed(1)})`}
               </button>
               {openDropdown === 'rating' && (
-                <div className="fixed top-0 left-0 w-full h-full z-[998]" onClick={() => setOpenDropdown(null)} />
-              )}
-              {openDropdown === 'rating' && (
-                <div className="fixed mt-1 bg-[#242424] border border-white/20 rounded-lg p-4 z-[999] w-64 shadow-lg" style={{ top: '55px', left: '240px' }}>
-                  <label className="block text-xs font-semibold text-slate-300 mb-2">Min Rating: {minRating.toFixed(1)}</label>
-                  <input
-                    type="range"
-                    min="0"
-                    max="10"
-                    step="0.1"
-                    value={minRating}
-                    onChange={(e) => {
-                      setMinRating(parseFloat(e.target.value));
-                      setCurrentPage(1);
-                    }}
-                    className="w-full"
-                  />
-                </div>
+                <>
+                  <div className="fixed top-0 left-0 w-full h-full z-[998]" onClick={() => setOpenDropdown(null)} />
+                  <div className="absolute top-full mt-2 left-0 bg-[#242424] border border-white/20 rounded-lg p-4 z-[9999] w-64 shadow-2xl">
+                    <label className="block text-xs font-semibold text-slate-300 mb-2">Min Rating: {minRating.toFixed(1)}</label>
+                    <input
+                      type="range"
+                      min="0"
+                      max="10"
+                      step="0.1"
+                      value={minRating}
+                      onChange={(e) => {
+                        setMinRating(parseFloat(e.target.value));
+                        setCurrentPage(1);
+                      }}
+                      className="w-full"
+                    />
+                  </div>
+                </>
               )}
             </div>
 
@@ -1044,24 +1044,24 @@ export default function Library() {
                 Votes {minVotes > 0 && `(${minVotes})`}
               </button>
               {openDropdown === 'votes' && (
-                <div className="fixed top-0 left-0 w-full h-full z-[998]" onClick={() => setOpenDropdown(null)} />
-              )}
-              {openDropdown === 'votes' && (
-                <div className="fixed mt-1 bg-[#242424] border border-white/20 rounded-lg p-4 z-[999] w-64 shadow-lg" style={{ top: '55px', left: '340px' }}>
-                  <label className="block text-xs font-semibold text-slate-300 mb-2">Min Votes: {minVotes}</label>
-                  <input
-                    type="range"
-                    min="0"
-                    max={Math.max(availableFilters.maxVotes, 1000)}
-                    step="100"
-                    value={minVotes}
-                    onChange={(e) => {
-                      setMinVotes(parseInt(e.target.value));
-                      setCurrentPage(1);
-                    }}
-                    className="w-full"
-                  />
-                </div>
+                <>
+                  <div className="fixed top-0 left-0 w-full h-full z-[998]" onClick={() => setOpenDropdown(null)} />
+                  <div className="absolute top-full mt-2 left-0 bg-[#242424] border border-white/20 rounded-lg p-4 z-[9999] w-64 shadow-2xl">
+                    <label className="block text-xs font-semibold text-slate-300 mb-2">Min Votes: {minVotes}</label>
+                    <input
+                      type="range"
+                      min="0"
+                      max={Math.max(availableFilters.maxVotes, 1000)}
+                      step="100"
+                      value={minVotes}
+                      onChange={(e) => {
+                        setMinVotes(parseInt(e.target.value));
+                        setCurrentPage(1);
+                      }}
+                      className="w-full"
+                    />
+                  </div>
+                </>
               )}
             </div>
 
@@ -1074,29 +1074,29 @@ export default function Library() {
                 Languages {selectedLanguages.length > 0 && `(${selectedLanguages.length})`}
               </button>
               {openDropdown === 'languages' && (
-                <div className="fixed top-0 left-0 w-full h-full z-[998]" onClick={() => setOpenDropdown(null)} />
-              )}
-              {openDropdown === 'languages' && (
-                <div className="fixed mt-1 bg-[#242424] border border-white/20 rounded-lg p-2 z-[999] max-h-80 overflow-y-auto min-w-56 shadow-lg" style={{ top: '55px', left: '450px' }}>
-                  {availableFilters.languages.map(l => (
-                    <label key={l} className="flex items-center gap-2 px-2 py-1 hover:bg-white/10 rounded cursor-pointer text-white">
-                      <input
-                        type="checkbox"
-                        checked={selectedLanguages.includes(l)}
-                        onChange={(e) => {
-                          if (e.target.checked) {
-                            setSelectedLanguages([...selectedLanguages, l]);
-                          } else {
-                            setSelectedLanguages(selectedLanguages.filter(sl => sl !== l));
-                          }
-                          setCurrentPage(1);
-                        }}
-                        className="w-4 h-4 accent-white"
-                      />
-                      <span className="text-sm">{l}</span>
-                    </label>
-                  ))}
-                </div>
+                <>
+                  <div className="fixed top-0 left-0 w-full h-full z-[998]" onClick={() => setOpenDropdown(null)} />
+                  <div className="absolute top-full mt-2 left-0 bg-[#242424] border border-white/20 rounded-lg p-2 z-[9999] max-h-96 overflow-y-auto w-56 shadow-2xl">
+                    {availableFilters.languages.map(l => (
+                      <label key={l} className="flex items-center gap-2 px-2 py-1 hover:bg-white/10 rounded cursor-pointer text-white">
+                        <input
+                          type="checkbox"
+                          checked={selectedLanguages.includes(l)}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSelectedLanguages([...selectedLanguages, l]);
+                            } else {
+                              setSelectedLanguages(selectedLanguages.filter(sl => sl !== l));
+                            }
+                            setCurrentPage(1);
+                          }}
+                          className="w-4 h-4 accent-white"
+                        />
+                        <span className="text-sm">{l}</span>
+                      </label>
+                    ))}
+                  </div>
+                </>
               )}
             </div>
 
@@ -1109,29 +1109,29 @@ export default function Library() {
                 Countries {selectedCountries.length > 0 && `(${selectedCountries.length})`}
               </button>
               {openDropdown === 'countries' && (
-                <div className="fixed top-0 left-0 w-full h-full z-[998]" onClick={() => setOpenDropdown(null)} />
-              )}
-              {openDropdown === 'countries' && (
-                <div className="fixed mt-1 bg-[#242424] border border-white/20 rounded-lg p-2 z-[999] max-h-80 overflow-y-auto min-w-56 shadow-lg" style={{ top: '55px', left: '580px' }}>
-                  {availableFilters.countries.map(c => (
-                    <label key={c} className="flex items-center gap-2 px-2 py-1 hover:bg-white/10 rounded cursor-pointer text-white">
-                      <input
-                        type="checkbox"
-                        checked={selectedCountries.includes(c)}
-                        onChange={(e) => {
-                          if (e.target.checked) {
-                            setSelectedCountries([...selectedCountries, c]);
-                          } else {
-                            setSelectedCountries(selectedCountries.filter(sc => sc !== c));
-                          }
-                          setCurrentPage(1);
-                        }}
-                        className="w-4 h-4 accent-white"
-                      />
-                      <span className="text-sm">{c}</span>
-                    </label>
-                  ))}
-                </div>
+                <>
+                  <div className="fixed top-0 left-0 w-full h-full z-[998]" onClick={() => setOpenDropdown(null)} />
+                  <div className="absolute top-full mt-2 left-0 bg-[#242424] border border-white/20 rounded-lg p-2 z-[9999] max-h-96 overflow-y-auto w-56 shadow-2xl">
+                    {availableFilters.countries.map(c => (
+                      <label key={c} className="flex items-center gap-2 px-2 py-1 hover:bg-white/10 rounded cursor-pointer text-white">
+                        <input
+                          type="checkbox"
+                          checked={selectedCountries.includes(c)}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSelectedCountries([...selectedCountries, c]);
+                            } else {
+                              setSelectedCountries(selectedCountries.filter(sc => sc !== c));
+                            }
+                            setCurrentPage(1);
+                          }}
+                          className="w-4 h-4 accent-white"
+                        />
+                        <span className="text-sm">{c}</span>
+                      </label>
+                    ))}
+                  </div>
+                </>
               )}
             </div>
 
