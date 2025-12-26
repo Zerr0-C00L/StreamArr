@@ -2835,10 +2835,10 @@ func (h *Handler) runService(serviceName string) {
 				collections, _, _ := h.collectionStore.GetCollectionsWithProgress(ctx, 1000, 0)
 				fmt.Printf("[Collection Sync] Found %d collections to check\n", len(collections))
 
-				// Find incomplete collections
+				// Find incomplete collections; treat unknown totals (0) as incomplete to force refresh
 				var incompleteColls []*models.Collection
 				for _, coll := range collections {
-					if coll.MoviesInLibrary < coll.TotalMovies {
+					if coll.TotalMovies == 0 || coll.MoviesInLibrary < coll.TotalMovies {
 						incompleteColls = append(incompleteColls, coll)
 					}
 				}
