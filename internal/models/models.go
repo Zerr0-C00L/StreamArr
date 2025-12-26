@@ -14,8 +14,12 @@ type Movie struct {
 	PosterPath     string      `json:"poster_path"`
 	BackdropPath   string      `json:"backdrop_path"`
 	ReleaseDate    *time.Time  `json:"release_date,omitempty"`
+	Year           int         `json:"year,omitempty"`
 	Runtime        int         `json:"runtime"`
 	Genres         []string    `json:"genres"`
+	VoteAverage    float64     `json:"vote_average,omitempty"`
+	VoteCount      int         `json:"vote_count,omitempty"`
+	OriginalLang   string      `json:"original_language,omitempty"`
 	Metadata       Metadata    `json:"metadata"`
 	Monitored      bool        `json:"monitored"`
 	Available      bool        `json:"available"`
@@ -57,10 +61,14 @@ type Series struct {
 	PosterPath     string     `json:"poster_path"`
 	BackdropPath   string     `json:"backdrop_path"`
 	FirstAirDate   *time.Time `json:"first_air_date,omitempty"`
+	Year           int        `json:"year,omitempty"`
 	Status         string     `json:"status"`
 	Seasons        int        `json:"seasons"`
 	TotalEpisodes  int        `json:"total_episodes"`
 	Genres         []string   `json:"genres"`
+	VoteAverage    float64    `json:"vote_average,omitempty"`
+	VoteCount      int        `json:"vote_count,omitempty"`
+	OriginalLang   string     `json:"original_language,omitempty"`
 	Metadata       Metadata   `json:"metadata"`
 	Monitored      bool       `json:"monitored"`
 	QualityProfile string     `json:"quality_profile"`

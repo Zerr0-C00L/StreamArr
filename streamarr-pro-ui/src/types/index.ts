@@ -48,6 +48,7 @@ export interface Series {
   poster_path: string;
   backdrop_path: string;
   first_air_date: string;
+  year?: number;
   status: string;
   seasons: number;
   total_episodes: number;

@@ -96,6 +96,11 @@ func scanMovie(rows *sql.Rows) (*models.Movie, error) {
 		return nil, err
 	}
 
+	// Set Year field
+	if year != nil {
+		movie.Year = *year
+	}
+
 	// Parse metadata JSON
 	var metadata map[string]interface{}
 	if err := json.Unmarshal(metadataJSON, &metadata); err != nil {
@@ -130,6 +135,16 @@ func scanMovie(rows *sql.Rows) (*models.Movie, error) {
 		if t, err := time.Parse(time.RFC3339, val); err == nil {
 			movie.ReleaseDate = &t
 		}
+	}
+	// Extract vote_average, vote_count, original_language
+	if val, ok := metadata["vote_average"].(float64); ok {
+		movie.VoteAverage = val
+	}
+	if val, ok := metadata["vote_count"].(float64); ok {
+		movie.VoteCount = int(val)
+	}
+	if val, ok := metadata["original_language"].(string); ok {
+		movie.OriginalLang = val
 	}
 
 	movie.Metadata = metadata

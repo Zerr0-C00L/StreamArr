@@ -556,30 +556,6 @@ function StreamCard({ stream, compact = false, forceFullName = false }: { stream
   );
 }
 
-// Language code to name mapping
-const languageNames: Record<string, string> = {
-  en: 'English', es: 'Spanish', fr: 'French', de: 'German', it: 'Italian',
-  pt: 'Portuguese', ru: 'Russian', ja: 'Japanese', ko: 'Korean', zh: 'Chinese',
-  hi: 'Hindi', ar: 'Arabic', nl: 'Dutch', sv: 'Swedish', no: 'Norwegian',
-  da: 'Danish', fi: 'Finnish', pl: 'Polish', tr: 'Turkish', th: 'Thai',
-  vi: 'Vietnamese', id: 'Indonesian', ms: 'Malay', tl: 'Tagalog', uk: 'Ukrainian',
-  cs: 'Czech', el: 'Greek', he: 'Hebrew', hu: 'Hungarian', ro: 'Romanian',
-  sk: 'Slovak', bg: 'Bulgarian', hr: 'Croatian', sr: 'Serbian', sl: 'Slovenian',
-  et: 'Estonian', lv: 'Latvian', lt: 'Lithuanian', fa: 'Persian', bn: 'Bengali',
-  ta: 'Tamil', te: 'Telugu', ml: 'Malayalam', kn: 'Kannada', mr: 'Marathi',
-  gu: 'Gujarati', pa: 'Punjabi', ur: 'Urdu', sw: 'Swahili', af: 'Afrikaans',
-  ca: 'Catalan', eu: 'Basque', gl: 'Galician', is: 'Icelandic', ga: 'Irish',
-  cy: 'Welsh', mt: 'Maltese', sq: 'Albanian', mk: 'Macedonian', bs: 'Bosnian',
-  lb: 'Luxembourgish', hy: 'Armenian', ka: 'Georgian', az: 'Azerbaijani',
-  kk: 'Kazakh', uz: 'Uzbek', ky: 'Kyrgyz', tg: 'Tajik', mn: 'Mongolian',
-  ne: 'Nepali', si: 'Sinhala', km: 'Khmer', lo: 'Lao', my: 'Burmese',
-  am: 'Amharic', ti: 'Tigrinya', so: 'Somali', ha: 'Hausa', yo: 'Yoruba',
-  ig: 'Igbo', zu: 'Zulu', xh: 'Xhosa', st: 'Sesotho', tn: 'Tswana',
-  cn: 'Chinese', xx: 'Unknown', nb: 'Norwegian Bokmål', nn: 'Norwegian Nynorsk'
-};
-
-const getLanguageName = (code: string) => languageNames[code] || code.toUpperCase();
-
 // Main Library Component
 export default function Library() {
   const [selectedMedia, setSelectedMedia] = useState<MediaItem | null>(null);
@@ -592,10 +568,6 @@ export default function Library() {
   // Filter states
   const [selectedGenres, setSelectedGenres] = useState<string[]>([]);
   const [selectedYears, setSelectedYears] = useState<number[]>([]);
-  const [minRating, setMinRating] = useState<number>(0);
-  const [minVotes, setMinVotes] = useState<number>(0);
-  const [selectedLanguages, setSelectedLanguages] = useState<string[]>([]);
-  const [selectedCountries, setSelectedCountries] = useState<string[]>([]);
   
   // Dropdown states
   const [openDropdown, setOpenDropdown] = useState<string | null>(null);
@@ -648,7 +620,7 @@ export default function Library() {
       title: s.name || s.title,
       poster_path: s.poster_path,
       backdrop_path: s.backdrop_path,
-      year: s.first_air_date ? new Date(s.first_air_date).getFullYear() : undefined,
+      year: s.year || (s.first_air_date ? new Date(s.first_air_date).getFullYear() : undefined),
       type: 'series' as const,
       monitored: s.monitored,
       overview: s.overview,
@@ -665,52 +637,21 @@ export default function Library() {
   const availableFilters = useMemo(() => {
     const genres = new Set<string>();
     const years = new Set<number>();
-    const languageCodes = new Set<string>();
-    const countryMap = new Map<string, string>(); // code -> name
-    let maxVotes = 0;
 
     allMedia.forEach(media => {
+      // Extract genres from metadata if available
       if (media.metadata?.genres) {
         (media.metadata.genres as string[]).forEach(g => genres.add(g));
       }
+      // Year is directly on the media item from API
       if (media.year) {
         years.add(media.year);
       }
-      if (media.metadata?.original_language) {
-        languageCodes.add(media.metadata.original_language as string);
-      }
-      if (media.metadata?.production_countries) {
-        const countries_list = media.metadata.production_countries as any[];
-        countries_list.forEach(c => {
-          if (c.iso_3166_1) {
-            // Store country code -> name mapping
-            countryMap.set(c.iso_3166_1, c.name || c.iso_3166_1);
-          }
-        });
-      }
-      if (media.metadata?.vote_count && media.metadata.vote_count > maxVotes) {
-        maxVotes = media.metadata.vote_count;
-      }
     });
-
-    // Create language objects with code and display name
-    const languages = Array.from(languageCodes).map(code => ({
-      code,
-      name: getLanguageName(code)
-    })).sort((a, b) => a.name.localeCompare(b.name));
-
-    // Create country objects with code and name
-    const countries = Array.from(countryMap.entries()).map(([code, name]) => ({
-      code,
-      name
-    })).sort((a, b) => a.name.localeCompare(b.name));
 
     return {
       genres: Array.from(genres).sort(),
       years: Array.from(years).sort((a, b) => b - a),
-      languages,
-      countries,
-      maxVotes,
     };
   }, [allMedia]);
 
@@ -754,32 +695,6 @@ export default function Library() {
     // Apply year filter
     if (selectedYears.length > 0) {
       filtered = filtered.filter(m => m.year && selectedYears.includes(m.year));
-    }
-
-    // Apply rating filter (minimum)
-    if (minRating > 0) {
-      filtered = filtered.filter(m => (m.vote_average || 0) >= minRating);
-    }
-
-    // Apply votes filter (minimum)
-    if (minVotes > 0) {
-      filtered = filtered.filter(m => (m.metadata?.vote_count || 0) >= minVotes);
-    }
-
-    // Apply language filter
-    if (selectedLanguages.length > 0) {
-      filtered = filtered.filter(m => {
-        const lang = m.metadata?.original_language as string || '';
-        return selectedLanguages.includes(lang);
-      });
-    }
-
-    // Apply country filter
-    if (selectedCountries.length > 0) {
-      filtered = filtered.filter(m => {
-        const countries = m.metadata?.production_countries as any[] || [];
-        return selectedCountries.some(c => countries.some(pc => pc.iso_3166_1 === c));
-      });
     }
 
     // Apply sorting based on sortBy and sortOrder
@@ -848,7 +763,7 @@ export default function Library() {
     });
 
     return filtered;
-  }, [allMedia, currentView, searchTerm, sortBy, sortOrder, selectedGenres, selectedYears, minRating, minVotes, selectedLanguages, selectedCountries]);
+  }, [allMedia, currentView, searchTerm, sortBy, sortOrder, selectedGenres, selectedYears]);
 
   // Pagination
   const totalPages = Math.ceil(filteredMedia.length / ITEMS_PER_PAGE);
@@ -1044,146 +959,12 @@ export default function Library() {
               )}
             </div>
 
-            {/* Rating Dropdown */}
-            <div className="relative z-40">
-              <button
-                onClick={() => setOpenDropdown(openDropdown === 'rating' ? null : 'rating')}
-                className="px-3 py-2.5 bg-white/10 text-white rounded-lg border border-white/20 hover:bg-white/20 focus:border-white/40 focus:outline-none transition-colors text-sm font-medium"
-              >
-                Rating {minRating > 0 && `(${minRating.toFixed(1)})`}
-              </button>
-              {openDropdown === 'rating' && (
-                <>
-                  <div className="fixed top-0 left-0 w-full h-full z-[998]" onClick={() => setOpenDropdown(null)} />
-                  <div className="absolute top-full mt-2 left-0 bg-[#242424] border border-white/20 rounded-lg p-4 z-[9999] w-64 shadow-2xl">
-                    <label className="block text-xs font-semibold text-slate-300 mb-2">Min Rating: {minRating.toFixed(1)}</label>
-                    <input
-                      type="range"
-                      min="0"
-                      max="10"
-                      step="0.1"
-                      value={minRating}
-                      onChange={(e) => {
-                        setMinRating(parseFloat(e.target.value));
-                        setCurrentPage(1);
-                      }}
-                      className="w-full"
-                    />
-                  </div>
-                </>
-              )}
-            </div>
-
-            {/* Votes Dropdown */}
-            <div className="relative z-40">
-              <button
-                onClick={() => setOpenDropdown(openDropdown === 'votes' ? null : 'votes')}
-                className="px-3 py-2.5 bg-white/10 text-white rounded-lg border border-white/20 hover:bg-white/20 focus:border-white/40 focus:outline-none transition-colors text-sm font-medium"
-              >
-                Votes {minVotes > 0 && `(${minVotes})`}
-              </button>
-              {openDropdown === 'votes' && (
-                <>
-                  <div className="fixed top-0 left-0 w-full h-full z-[998]" onClick={() => setOpenDropdown(null)} />
-                  <div className="absolute top-full mt-2 left-0 bg-[#242424] border border-white/20 rounded-lg p-4 z-[9999] w-64 shadow-2xl">
-                    <label className="block text-xs font-semibold text-slate-300 mb-2">Min Votes: {minVotes}</label>
-                    <input
-                      type="range"
-                      min="0"
-                      max={Math.max(availableFilters.maxVotes, 1000)}
-                      step="100"
-                      value={minVotes}
-                      onChange={(e) => {
-                        setMinVotes(parseInt(e.target.value));
-                        setCurrentPage(1);
-                      }}
-                      className="w-full"
-                    />
-                  </div>
-                </>
-              )}
-            </div>
-
-            {/* Languages Dropdown */}
-            <div className="relative z-40">
-              <button
-                onClick={() => setOpenDropdown(openDropdown === 'languages' ? null : 'languages')}
-                className="px-3 py-2.5 bg-white/10 text-white rounded-lg border border-white/20 hover:bg-white/20 focus:border-white/40 focus:outline-none transition-colors text-sm font-medium"
-              >
-                Languages {selectedLanguages.length > 0 && `(${selectedLanguages.length})`}
-              </button>
-              {openDropdown === 'languages' && (
-                <>
-                  <div className="fixed top-0 left-0 w-full h-full z-[998]" onClick={() => setOpenDropdown(null)} />
-                  <div className="absolute top-full mt-2 left-0 bg-[#242424] border border-white/20 rounded-lg p-2 z-[9999] max-h-96 overflow-y-auto w-56 shadow-2xl">
-                    {availableFilters.languages.map(l => (
-                      <label key={l.code} className="flex items-center gap-2 px-2 py-1 hover:bg-white/10 rounded cursor-pointer text-white">
-                        <input
-                          type="checkbox"
-                          checked={selectedLanguages.includes(l.code)}
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              setSelectedLanguages([...selectedLanguages, l.code]);
-                            } else {
-                              setSelectedLanguages(selectedLanguages.filter(sl => sl !== l.code));
-                            }
-                            setCurrentPage(1);
-                          }}
-                          className="w-4 h-4 accent-white"
-                        />
-                        <span className="text-sm">{l.name}</span>
-                      </label>
-                    ))}
-                  </div>
-                </>
-              )}
-            </div>
-
-            {/* Countries Dropdown */}
-            <div className="relative z-40">
-              <button
-                onClick={() => setOpenDropdown(openDropdown === 'countries' ? null : 'countries')}
-                className="px-3 py-2.5 bg-white/10 text-white rounded-lg border border-white/20 hover:bg-white/20 focus:border-white/40 focus:outline-none transition-colors text-sm font-medium"
-              >
-                Countries {selectedCountries.length > 0 && `(${selectedCountries.length})`}
-              </button>
-              {openDropdown === 'countries' && (
-                <>
-                  <div className="fixed top-0 left-0 w-full h-full z-[998]" onClick={() => setOpenDropdown(null)} />
-                  <div className="absolute top-full mt-2 left-0 bg-[#242424] border border-white/20 rounded-lg p-2 z-[9999] max-h-96 overflow-y-auto w-56 shadow-2xl">
-                    {availableFilters.countries.map(c => (
-                      <label key={c.code} className="flex items-center gap-2 px-2 py-1 hover:bg-white/10 rounded cursor-pointer text-white">
-                        <input
-                          type="checkbox"
-                          checked={selectedCountries.includes(c.code)}
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              setSelectedCountries([...selectedCountries, c.code]);
-                            } else {
-                              setSelectedCountries(selectedCountries.filter(sc => sc !== c.code));
-                            }
-                            setCurrentPage(1);
-                          }}
-                          className="w-4 h-4 accent-white"
-                        />
-                        <span className="text-sm">{c.name}</span>
-                      </label>
-                    ))}
-                  </div>
-                </>
-              )}
-            </div>
-
             {/* Clear Filters Button */}
-            {(selectedGenres.length > 0 || selectedYears.length > 0 || minRating > 0 || minVotes > 0 || selectedLanguages.length > 0 || selectedCountries.length > 0) && (
+            {(selectedGenres.length > 0 || selectedYears.length > 0) && (
               <button
                 onClick={() => {
                   setSelectedGenres([]);
                   setSelectedYears([]);
-                  setMinRating(0);
-                  setMinVotes(0);
-                  setSelectedLanguages([]);
-                  setSelectedCountries([]);
                   setCurrentPage(1);
                 }}
                 className="px-3 py-2.5 bg-red-600/20 text-red-400 rounded-lg border border-red-600/30 hover:bg-red-600/30 transition-colors text-sm font-medium"

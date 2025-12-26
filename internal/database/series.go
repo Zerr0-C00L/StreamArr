@@ -305,6 +305,16 @@ func (s *SeriesStore) List(ctx context.Context, offset, limit int, monitored *bo
 			series.IMDBID = imdbID.String
 		}
 
+		// Set Year field from database column
+		if year.Valid {
+			series.Year = int(year.Int32)
+		}
+
+		// Set lastChecked
+		if lastChecked.Valid {
+			series.LastChecked = &lastChecked.Time
+		}
+
 		// Extract fields from metadata if present
 		if posterPath, ok := series.Metadata["poster_path"].(string); ok {
 			series.PosterPath = posterPath
