@@ -1,0 +1,54 @@
+# API Keys and secrets
+config.php
+.env
+
+# Cache and generated files
+/cache/
+logs/
+sessions/
+*.log
+playlist.json
+tv_playlist.json
+playlist.m3u8
+*.pid
+
+# Go build artifacts
+bin/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Backup files
+*.backup
+*.old
+*.bak
+
+# SSH keys
+*.key
+*.key.pub
+
+# Large files
+hashlist_shards/
+*.tar.gz
+
+# IDE
+.vscode/
+.idea/
+
+# Archived legacy files
+archive/
+logs/
+cache/
+docs/

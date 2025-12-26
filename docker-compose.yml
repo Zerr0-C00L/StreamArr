@@ -1,0 +1,59 @@
+services:
+  streamarr:
+    build:
+      context: .
+      args:
+        VERSION: ${VERSION:-v1.1.9}
+        COMMIT: ${COMMIT:-unknown}
+        BUILD_DATE: ${BUILD_DATE:-unknown}
+    container_name: streamarr
+    restart: always
+    ports:
+      - "8080:8080"
+    environment:
+      - DATABASE_URL=postgres://streamarr:streamarr@postgres:5432/streamarr?sslmode=disable
+      - PORT=8080
+      - HOST=0.0.0.0
+      - JWT_SECRET=${JWT_SECRET:-default_jwt_secret_change_in_production}
+      # Add your API keys here or use .env file
+      # - TMDB_API_KEY=your_tmdb_api_key
+      # - RD_API_KEY=your_realdebrid_key
+      # - MDBLIST_API_KEY=your_mdblist_key
+    volumes:
+      - streamarr_cache:/app/cache
+      - streamarr_logs:/app/logs
+      - ./channels:/app/channels
+      - ./proxies.txt:/app/proxies.txt:ro  # Mount proxy file (read-only)
+      - /var/run/docker.sock:/var/run/docker.sock  # Allow container to control Docker
+      - .:/app/host  # Mount host directory for git operations
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: streamarr-db
+    restart: always
+    environment:
+      - POSTGRES_USER=streamarr
+      - POSTGRES_PASSWORD=streamarr
+      - POSTGRES_DB=streamarr
+    volumes:
+      - streamarr_db:/var/lib/postgresql/data
+      - ./migrations:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U streamarr"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  streamarr_db:
+  streamarr_cache:
+  streamarr_logs:

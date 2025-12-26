@@ -1,0 +1,18 @@
+[Unit]
+Description=StreamArr Pro Server
+After=network.target postgresql.service
+Requires=postgresql.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/streamarr-pro
+Environment="DATABASE_URL=postgresql://streamarr:streamarr123@localhost:5432/streamarr?sslmode=disable"
+Environment="PORT=8080"
+Environment="JWT_SECRET=streamarr-jwt-secret-key-change-in-production"
+ExecStart=/root/streamarr-pro/bin/server
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

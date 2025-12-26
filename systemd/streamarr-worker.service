@@ -1,0 +1,18 @@
+[Unit]
+Description=StreamArr Pro Worker
+After=network.target postgresql.service streamarr.service
+Requires=postgresql.service streamarr.service
+BindsTo=streamarr.service
+PartOf=streamarr.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/streamarr-pro
+Environment="DATABASE_URL=postgresql://streamarr:streamarr123@localhost:5432/streamarr?sslmode=disable"
+ExecStart=/root/streamarr-pro/bin/worker
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

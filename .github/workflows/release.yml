@@ -1,0 +1,152 @@
+name: Create Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (e.g., v0.1.0)'
+        required: true
+        type: string
+      prerelease:
+        description: 'Mark as pre-release'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Build Go binaries
+        run: |
+          # Build for Linux AMD64
+          GOOS=linux GOARCH=amd64 go build -o bin/server-linux-amd64 ./cmd/server
+          GOOS=linux GOARCH=amd64 go build -o bin/worker-linux-amd64 ./cmd/worker
+          GOOS=linux GOARCH=amd64 go build -o bin/migrate-linux-amd64 ./cmd/migrate
+          
+          # Build for Linux ARM64
+          GOOS=linux GOARCH=arm64 go build -o bin/server-linux-arm64 ./cmd/server
+          GOOS=linux GOARCH=arm64 go build -o bin/worker-linux-arm64 ./cmd/worker
+          GOOS=linux GOARCH=arm64 go build -o bin/migrate-linux-arm64 ./cmd/migrate
+
+      - name: Build UI
+        run: |
+          cd streamarr-pro-ui
+          npm install
+          npm run build
+          cd ..
+          tar -czf streamarr-pro-ui-dist.tar.gz -C streamarr-pro-ui/dist .
+
+      - name: Create release archive
+        run: |
+          mkdir -p release
+          cp bin/server-linux-amd64 release/
+          cp bin/worker-linux-amd64 release/
+          cp bin/migrate-linux-amd64 release/
+          cp -r migrations release/
+          cp -r systemd release/
+          cp docker-compose.yml release/
+          cp Dockerfile release/
+          cp README.md release/
+          tar -czf streamarr-pro-linux-amd64.tar.gz -C release .
+          
+          # ARM64 archive
+          mkdir -p release-arm64
+          cp bin/server-linux-arm64 release-arm64/server
+          cp bin/worker-linux-arm64 release-arm64/worker
+          cp bin/migrate-linux-arm64 release-arm64/migrate
+          cp -r migrations release-arm64/
+          cp -r systemd release-arm64/
+          cp docker-compose.yml release-arm64/
+          cp Dockerfile release-arm64/
+          cp README.md release-arm64/
+          tar -czf streamarr-pro-linux-arm64.tar.gz -C release-arm64 .
+
+      - name: Generate changelog
+        id: changelog
+        run: |
+          # Get commits since last tag
+          LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+          if [ -z "$LAST_TAG" ]; then
+            COMMITS=$(git log --pretty=format:"- %s (%h)" --no-merges)
+          else
+            COMMITS=$(git log ${LAST_TAG}..HEAD --pretty=format:"- %s (%h)" --no-merges)
+          fi
+          
+          # Create changelog
+          cat > CHANGELOG.txt << EOF
+          # Changes in ${{ inputs.version }}
+          
+          ${COMMITS}
+          
+          ## Installation
+          
+          ### Docker (Recommended)
+          \`\`\`bash
+          docker pull ghcr.io/zerr0-c00l/streamarr-pro:${{ inputs.version }}
+          \`\`\`
+          
+          ### Manual Installation
+          1. Download the appropriate archive for your system
+          2. Extract the archive: \`tar -xzf streamarr-pro-linux-amd64.tar.gz\`
+          3. Run migrations: \`./migrate up\`
+          4. Start the server: \`./server\`
+          5. Start the worker: \`./worker\`
+          
+          ### Updating from Previous Version
+          1. Stop services: \`systemctl stop streamarr streamarr-worker\`
+          2. Backup your database
+          3. Extract new binaries over old ones
+          4. Run migrations: \`./migrate up\`
+          5. Start services: \`systemctl start streamarr\`
+          
+          ## Requirements
+          - PostgreSQL 12+
+          - Linux (AMD64 or ARM64)
+          - 1GB+ RAM recommended
+          
+          ## What's New
+          See commits above for detailed changes.
+          EOF
+          
+          cat CHANGELOG.txt
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ inputs.version }}
+          name: StreamArr Pro ${{ inputs.version }}
+          body_path: CHANGELOG.txt
+          draft: false
+          prerelease: ${{ inputs.prerelease }}
+          files: |
+            streamarr-pro-linux-amd64.tar.gz
+            streamarr-pro-linux-arm64.tar.gz
+            streamarr-pro-ui-dist.tar.gz
+            bin/server-linux-amd64
+            bin/worker-linux-amd64
+            bin/migrate-linux-amd64
+            bin/server-linux-arm64
+            bin/worker-linux-arm64
+            bin/migrate-linux-arm64
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

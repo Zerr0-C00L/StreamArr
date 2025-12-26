@@ -1,0 +1,45 @@
+# Git (keep .git directory for version info in build)
+.gitignore
+
+# IDE
+.idea
+.vscode
+*.swp
+*.swo
+
+# Build artifacts
+bin/
+*.exe
+
+# Logs and cache
+logs/
+cache/
+sessions/
+*.log
+*.pid
+
+# Environment files (don't include secrets in image)
+.env
+.env.local
+.env.*.local
+
+# Node modules (rebuilt in Docker)
+streamarr-pro-ui/node_modules/
+
+# Test files
+*_test.go
+**/*_test.go
+
+# Documentation
+*.md
+!README.md
+archive/
+
+# Database files
+*.db
+*.sqlite
+
+# Generated files
+playlist.m3u8
+playlist.json
+tv_playlist.json

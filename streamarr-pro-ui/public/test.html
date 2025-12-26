@@ -1,0 +1,14 @@
+<!DOCTYPE html>
+<html>
+<head><title>Test</title></head>
+<body>
+<h1>Frontend Test</h1>
+<div id="result">Loading...</div>
+<script>
+fetch('http://localhost:8080/api/v1/health')
+  .then(r => r.json())
+  .then(d => document.getElementById('result').innerText = 'Backend: ' + JSON.stringify(d))
+  .catch(e => document.getElementById('result').innerText = 'Error: ' + e);
+</script>
+</body>
+</html>
