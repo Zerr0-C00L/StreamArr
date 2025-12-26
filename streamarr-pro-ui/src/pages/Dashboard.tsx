@@ -38,12 +38,14 @@ export default function Dashboard() {
   // Get upcoming
   const today = new Date();
   const nextWeek = new Date(today);
-  nextWeek.setDate(nextWeek.getDate() + 7);
+  nextWeek.setDate(nextWeek.getDate() + 30); // Look 30 days ahead for upcoming
+  const tomorrow = new Date(today);
+  tomorrow.setDate(tomorrow.getDate() + 1); // Start from tomorrow for "coming soon"
 
   const { data: upcoming = [] } = useQuery({
     queryKey: ['calendar', 'dashboard'],
     queryFn: () => streamarrApi.getCalendar(
-      today.toISOString().split('T')[0],
+      tomorrow.toISOString().split('T')[0],
       nextWeek.toISOString().split('T')[0]
     ).then(res => Array.isArray(res.data) ? res.data.slice(0, 5) : []),
   });
