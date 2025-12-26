@@ -201,6 +201,7 @@ func SetupRoutesWithXtream(handler *Handler, xtreamHandler interface{ RegisterRo
 	api.HandleFunc("/movies/{id}", handler.DeleteMovie).Methods("DELETE")
 	api.HandleFunc("/movies/{id}/streams", handler.GetMovieStreams).Methods("GET")
 	api.HandleFunc("/movies/{id}/play", handler.PlayMovie).Methods("GET")
+	api.HandleFunc("/movies/{id}/videos", handler.GetMediaVideos).Methods("GET")
 
 	// Series
 	api.HandleFunc("/series", handler.ListSeries).Methods("GET")
@@ -209,6 +210,7 @@ func SetupRoutesWithXtream(handler *Handler, xtreamHandler interface{ RegisterRo
 	api.HandleFunc("/series/{id}", handler.UpdateSeries).Methods("PUT")
 	api.HandleFunc("/series/{id}", handler.DeleteSeries).Methods("DELETE")
 	api.HandleFunc("/series/{id}/episodes", handler.GetSeriesEpisodes).Methods("GET")
+	api.HandleFunc("/series/{id}/videos", handler.GetMediaVideos).Methods("GET")
 
 	// Episodes
 	api.HandleFunc("/episodes/{id}/play", handler.PlayEpisode).Methods("GET")

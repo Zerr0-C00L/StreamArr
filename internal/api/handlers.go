@@ -724,6 +724,88 @@ func parseQualityValue(quality string) int {
 	return 0
 }
 
+// GetMediaVideos handles GET /api/movies/{id}/videos and /api/series/{id}/videos
+func (h *Handler) GetMediaVideos(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	vars := mux.Vars(r)
+	
+	id, err := strconv.ParseInt(vars["id"], 10, 64)
+	if err != nil {
+		respondError(w, http.StatusBadRequest, "invalid ID")
+		return
+	}
+
+	// Determine if this is a movie or series based on the URL path
+	path := r.URL.Path
+	var mediaType string
+	var tmdbID int
+	
+	if strings.Contains(path, "/movies/") {
+		mediaType = "movie"
+		movie, err := h.movieStore.Get(ctx, id)
+		if err != nil {
+			respondError(w, http.StatusNotFound, "movie not found")
+			return
+		}
+		tmdbID = movie.TMDBID
+	} else {
+		mediaType = "tv"
+		series, err := h.seriesStore.Get(ctx, id)
+		if err != nil {
+			respondError(w, http.StatusNotFound, "series not found")
+			return
+		}
+		tmdbID = series.TMDBID
+	}
+
+	// Fetch videos from TMDB
+	videos, err := h.tmdbClient.GetVideos(ctx, mediaType, tmdbID)
+	if err != nil {
+		log.Printf("Failed to fetch videos for %s %d: %v", mediaType, tmdbID, err)
+		respondError(w, http.StatusInternalServerError, "failed to fetch videos")
+		return
+	}
+
+	// Sort videos: official trailers first, then teasers, then others
+	// Also prioritize YouTube videos
+	sortedVideos := make([]services.Video, len(videos))
+	copy(sortedVideos, videos)
+	
+	sort.SliceStable(sortedVideos, func(i, j int) bool {
+		vi, vj := sortedVideos[i], sortedVideos[j]
+		
+		// YouTube videos first
+		if vi.Site == "YouTube" && vj.Site != "YouTube" {
+			return true
+		}
+		if vi.Site != "YouTube" && vj.Site == "YouTube" {
+			return false
+		}
+		
+		// Official videos first
+		if vi.Official && !vj.Official {
+			return true
+		}
+		if !vi.Official && vj.Official {
+			return false
+		}
+		
+		// Trailers before teasers, teasers before others
+		typeOrder := map[string]int{"Trailer": 0, "Teaser": 1, "Clip": 2, "Featurette": 3, "Behind the Scenes": 4}
+		orderI, okI := typeOrder[vi.Type]
+		orderJ, okJ := typeOrder[vj.Type]
+		if !okI {
+			orderI = 99
+		}
+		if !okJ {
+			orderJ = 99
+		}
+		return orderI < orderJ
+	})
+
+	respondJSON(w, http.StatusOK, sortedVideos)
+}
+
 // GetMovieStreams handles GET /api/movies/{id}/streams
 func (h *Handler) GetMovieStreams(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()

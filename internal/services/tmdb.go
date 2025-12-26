@@ -328,6 +328,46 @@ type ExternalIDs struct {
 	TVDBID     int    `json:"tvdb_id"`
 }
 
+// Video represents a TMDB video (trailer, teaser, etc.)
+type Video struct {
+	ID        string `json:"id"`
+	Key       string `json:"key"`
+	Name      string `json:"name"`
+	Site      string `json:"site"`
+	Size      int    `json:"size"`
+	Type      string `json:"type"`
+	Official  bool   `json:"official"`
+	Published string `json:"published_at"`
+}
+
+// GetVideos retrieves videos (trailers, teasers, etc.) for a movie or TV show
+func (c *TMDBClient) GetVideos(ctx context.Context, mediaType string, tmdbID int) ([]Video, error) {
+	var endpoint string
+	if mediaType == "movie" {
+		endpoint = fmt.Sprintf("%s/movie/%d/videos", tmdbBaseURL, tmdbID)
+	} else {
+		endpoint = fmt.Sprintf("%s/tv/%d/videos", tmdbBaseURL, tmdbID)
+	}
+	
+	params := url.Values{}
+	params.Set("api_key", c.apiKey)
+	params.Set("language", "en-US")
+
+	data, err := c.makeRequest(ctx, endpoint, params)
+	if err != nil {
+		return nil, err
+	}
+
+	var result struct {
+		Results []Video `json:"results"`
+	}
+	if err := json.Unmarshal(data, &result); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal videos: %w", err)
+	}
+
+	return result.Results, nil
+}
+
 // GetSeriesExternalIDs retrieves external IDs (IMDB, TVDB, etc.) for a series
 func (c *TMDBClient) GetSeriesExternalIDs(ctx context.Context, seriesID int) (*ExternalIDs, error) {
 	endpoint := fmt.Sprintf("%s/tv/%d/external_ids", tmdbBaseURL, seriesID)

@@ -5,9 +5,9 @@ import { streamarrApi, tmdbImageUrl } from '../services/api';
 import { 
   ChevronLeft, ChevronRight, ArrowLeft, X,
   Tv, Film, Loader2, ChevronDown, Search, Trash2, Star, Calendar,
-  CheckSquare, Square, XCircle, Library as LibraryIcon, RefreshCw
+  CheckSquare, Square, XCircle, Library as LibraryIcon, RefreshCw, Play
 } from 'lucide-react';
-import type { Movie, Series, Episode, Collection } from '../types';
+import type { Movie, Series, Episode, Collection, Video } from '../types';
 
 type MediaItem = {
   id: number;
@@ -120,6 +120,24 @@ function DetailModal({
   });
   const showFullStreamNames = !!settingsData?.show_full_stream_name;
 
+  // Fetch videos (trailers) from TMDB
+  const { data: videos = [] } = useQuery<Video[]>({
+    queryKey: ['videos', media.type, media.id],
+    queryFn: async () => {
+      const response = media.type === 'movie' 
+        ? await streamarrApi.getMovieVideos(media.id)
+        : await streamarrApi.getSeriesVideos(media.id);
+      return Array.isArray(response.data) ? response.data : [];
+    },
+  });
+
+  // Get the best trailer (official YouTube trailer preferred)
+  const trailer = useMemo(() => {
+    return videos.find(v => v.site === 'YouTube' && v.type === 'Trailer') || 
+           videos.find(v => v.site === 'YouTube') || 
+           null;
+  }, [videos]);
+
   // Close on escape
   useEffect(() => {
     const handleEsc = (e: KeyboardEvent) => {
@@ -214,7 +232,18 @@ function DetailModal({
             )}
 
             {/* Action buttons */}
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-4 flex-wrap">
+              {trailer && (
+                <a
+                  href={`https://www.youtube.com/watch?v=${trailer.key}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-2 px-6 py-3 bg-white hover:bg-white/90 text-black font-semibold rounded-lg transition-all hover:scale-105"
+                >
+                  <Play className="w-5 h-5 fill-current" />
+                  Watch Trailer
+                </a>
+              )}
               <button 
                 onClick={() => setShowRemoveConfirm(true)}
                 className="flex items-center gap-2 px-6 py-3 bg-red-600 hover:bg-red-500 text-white font-semibold rounded-lg transition-all hover:scale-105" 

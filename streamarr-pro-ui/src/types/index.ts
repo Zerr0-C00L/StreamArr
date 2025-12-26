@@ -80,6 +80,17 @@ export interface Stream {
   expires_at: string;
 }
 
+export interface Video {
+  id: string;
+  key: string;
+  name: string;
+  site: string;
+  size: number;
+  type: string;
+  official: boolean;
+  published_at: string;
+}
+
 export interface AddMovieRequest {
   tmdb_id: number;
   monitored: boolean;

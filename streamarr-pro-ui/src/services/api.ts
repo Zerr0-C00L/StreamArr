@@ -1,5 +1,5 @@
 import axios from 'axios';
-import type { Movie, Series, AddMovieRequest, SearchResult, Stream, Episode, Channel, EPGProgram, CalendarEntry, TVGuideResponse } from '../types';
+import type { Movie, Series, AddMovieRequest, SearchResult, Stream, Episode, Channel, EPGProgram, CalendarEntry, TVGuideResponse, Video } from '../types';
 
 // Use relative URL so Vite proxy can intercept /api requests in development
 const API_BASE_URL = import.meta.env.VITE_API_URL || '/api/v1';
@@ -76,6 +76,9 @@ export const streamarrApi = {
   
   getMoviePlayUrl: (id: number) =>
     api.get<{ stream_url: string; quality: string }>(`/movies/${id}/play`),
+  
+  getMovieVideos: (id: number) =>
+    api.get<Video[]>(`/movies/${id}/videos`),
 
   // Series
   getSeries: (params?: { offset?: number; limit?: number; monitored?: boolean; sort?: string; order?: string }) =>
@@ -95,6 +98,9 @@ export const streamarrApi = {
   
   getSeriesStreams: (tmdb_id: number) =>
     api.get<Stream[]>(`/stream/series/${tmdb_id}`),
+  
+  getSeriesVideos: (id: number) =>
+    api.get<Video[]>(`/series/${id}/videos`),
 
   // Episodes
   getEpisodes: (seriesId: number, season?: number) =>
