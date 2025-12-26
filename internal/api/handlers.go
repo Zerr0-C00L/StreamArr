@@ -2840,7 +2840,13 @@ func (h *Handler) AddCollectionByTMDB(w http.ResponseWriter, r *http.Request) {
 	// Get collection details from TMDB
 	collection, movies, err := h.tmdbClient.GetCollectionWithMovies(ctx, req.TMDBID)
 	if err != nil {
-		respondError(w, http.StatusNotFound, "collection not found in TMDB")
+		respondError(w, http.StatusNotFound, "This item is not a valid movie collection. It may be a TV series or special event.")
+		return
+	}
+
+	// Validate that this is actually a movie collection (has movies)
+	if len(movies) == 0 {
+		respondError(w, http.StatusBadRequest, "This collection has no movies. It may be a TV series or other content type.")
 		return
 	}
 

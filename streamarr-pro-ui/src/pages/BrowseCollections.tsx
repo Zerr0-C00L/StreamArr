@@ -4,7 +4,7 @@ import { useSearchParams, Link } from 'react-router-dom';
 import { streamarrApi, tmdbImageUrl } from '../services/api';
 import { 
   Layers, ChevronLeft, ChevronRight, Plus, Check, Loader2, 
-  Search as SearchIcon, ArrowLeft, CheckCircle
+  Search as SearchIcon, ArrowLeft, CheckCircle, AlertCircle, X, SlidersHorizontal
 } from 'lucide-react';
 import type { Collection } from '../types';
 
@@ -17,6 +17,8 @@ export default function BrowseCollections() {
   const [searchInput, setSearchInput] = useState(searchQuery);
   const [addingCollectionId, setAddingCollectionId] = useState<number | null>(null);
   const [newlyAddedIds, setNewlyAddedIds] = useState<Set<number>>(new Set());
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [sortBy, setSortBy] = useState<'name' | 'name-desc' | 'recent' | 'in-library'>('name');
 
   // Fetch collections with pagination
   const { data: collectionsData, isLoading } = useQuery({
@@ -60,10 +62,14 @@ export default function BrowseCollections() {
   const handleAddCollection = async (collection: Collection) => {
     if (isInLibrary(collection.tmdb_id)) return;
     setAddingCollectionId(collection.tmdb_id);
+    setErrorMessage(null);
     try {
       await addCollectionMutation.mutateAsync(collection.tmdb_id);
-    } catch (error) {
-      console.error('Failed to add collection:', error);
+    } catch (error: any) {
+      const message = error.response?.data?.error || 'Failed to add collection';
+      setErrorMessage(`${collection.name}: ${message}`);
+      // Auto-clear error after 5 seconds
+      setTimeout(() => setErrorMessage(null), 5000);
     } finally {
       setAddingCollectionId(null);
     }
@@ -83,6 +89,26 @@ export default function BrowseCollections() {
 
   const collections = collectionsData?.collections || [];
   const totalPages = collectionsData?.totalPages || 1;
+
+  // Sort collections
+  const sortedCollections = useMemo(() => {
+    const sorted = [...collections];
+    switch (sortBy) {
+      case 'name':
+        return sorted.sort((a, b) => a.name.localeCompare(b.name));
+      case 'name-desc':
+        return sorted.sort((a, b) => b.name.localeCompare(a.name));
+      case 'in-library':
+        return sorted.sort((a, b) => {
+          const aInLib = isInLibrary(a.tmdb_id) ? 1 : 0;
+          const bInLib = isInLibrary(b.tmdb_id) ? 1 : 0;
+          return bInLib - aInLib; // In library first
+        });
+      case 'recent':
+      default:
+        return sorted; // Keep original order (most recent/popular from TMDB)
+    }
+  }, [collections, sortBy, libraryCollectionIds, newlyAddedIds]);
 
   return (
     <div className="min-h-screen bg-[#141414] text-white">
@@ -123,7 +149,36 @@ export default function BrowseCollections() {
             </button>
           </div>
         </form>
+
+        {/* Sort Dropdown */}
+        <div className="flex items-center gap-3 mt-4">
+          <SlidersHorizontal className="w-4 h-4 text-slate-400" />
+          <span className="text-sm text-slate-400">Sort by:</span>
+          <select
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value as any)}
+            className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-sm text-white
+                     focus:outline-none focus:border-cyan-500 cursor-pointer"
+          >
+            <option value="name">Name (A-Z)</option>
+            <option value="name-desc">Name (Z-A)</option>
+            <option value="in-library">In Library First</option>
+            <option value="recent">Default</option>
+          </select>
+        </div>
       </div>
+
+      {/* Error Toast */}
+      {errorMessage && (
+        <div className="fixed top-20 right-4 z-50 flex items-center gap-3 bg-red-900/90 border border-red-700 
+                       text-white px-4 py-3 rounded-lg shadow-lg max-w-md animate-in slide-in-from-right">
+          <AlertCircle className="w-5 h-5 text-red-400 flex-shrink-0" />
+          <p className="text-sm">{errorMessage}</p>
+          <button onClick={() => setErrorMessage(null)} className="text-red-400 hover:text-white">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
 
       {/* Collections Grid */}
       <div className="px-8 pb-8">
@@ -147,7 +202,7 @@ export default function BrowseCollections() {
         ) : (
           <>
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-8 gap-6">
-              {collections.map((collection: Collection) => {
+              {sortedCollections.map((collection: Collection) => {
                 const inLibrary = isInLibrary(collection.tmdb_id);
                 const isAdding = addingCollectionId === collection.tmdb_id;
                 
