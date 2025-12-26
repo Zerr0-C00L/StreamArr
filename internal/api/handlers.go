@@ -288,7 +288,8 @@ func (h *Handler) AddMovie(w http.ResponseWriter, r *http.Request) {
 		if isIPTVVODMovie(movie) {
 			log.Printf("[Collection Sync] Skipping auto-add for IPTV VOD movie %s", movie.Title)
 		} else {
-			go h.addCollectionMovies(ctx, collection.TMDBID, req.Monitored, req.QualityProfile)
+			// Use background context since request context will be canceled after response
+			go h.addCollectionMovies(context.Background(), collection.TMDBID, req.Monitored, req.QualityProfile)
 		}
 	}
 
@@ -2850,8 +2851,8 @@ func (h *Handler) AddCollectionByTMDB(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Start background sync to add all movies
-	go h.addCollectionMovies(ctx, collection.TMDBID, req.Monitored, req.QualityProfile)
+	// Start background sync to add all movies (use background context since request context will be canceled)
+	go h.addCollectionMovies(context.Background(), collection.TMDBID, req.Monitored, req.QualityProfile)
 
 	respondJSON(w, http.StatusCreated, map[string]interface{}{
 		"message":    "Collection added successfully",
@@ -2891,8 +2892,8 @@ func (h *Handler) SyncCollection(w http.ResponseWriter, r *http.Request) {
 		req.QualityProfile = "default"
 	}
 
-	// Start background sync
-	go h.addCollectionMovies(ctx, collection.TMDBID, req.Monitored, req.QualityProfile)
+	// Start background sync (use background context since request context will be canceled after response)
+	go h.addCollectionMovies(context.Background(), collection.TMDBID, req.Monitored, req.QualityProfile)
 
 	respondJSON(w, http.StatusAccepted, map[string]string{
 		"message": "Collection sync started",
