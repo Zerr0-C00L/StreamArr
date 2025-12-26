@@ -148,6 +148,13 @@ func (h *Handler) ListMovies(w http.ResponseWriter, r *http.Request) {
 		monitored = &val
 	}
 
+	// Sorting parameters
+	sortBy := r.URL.Query().Get("sort") // title, date_added, release_date, rating, runtime, monitored, genre
+	sortOrder := r.URL.Query().Get("order") // asc, desc
+	if sortOrder == "" {
+		sortOrder = "asc"
+	}
+
 	movies, err := h.movieStore.List(ctx, offset, limit, monitored)
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, err.Error())
@@ -164,9 +171,13 @@ func (h *Handler) ListMovies(w http.ResponseWriter, r *http.Request) {
 					filtered = append(filtered, m)
 				}
 			}
-			respondJSON(w, http.StatusOK, filtered)
-			return
+			movies = filtered
 		}
+	}
+
+	// Apply sorting
+	if sortBy != "" {
+		sortMovies(movies, sortBy, sortOrder)
 	}
 
 	respondJSON(w, http.StatusOK, movies)
@@ -1244,6 +1255,13 @@ func (h *Handler) ListSeries(w http.ResponseWriter, r *http.Request) {
 		monitored = &val
 	}
 
+	// Sorting parameters
+	sortBy := r.URL.Query().Get("sort") // title, date_added, release_date, rating, monitored, genre
+	sortOrder := r.URL.Query().Get("order") // asc, desc
+	if sortOrder == "" {
+		sortOrder = "asc"
+	}
+
 	series, err := h.seriesStore.List(ctx, offset, limit, monitored)
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, err.Error())
@@ -1260,9 +1278,13 @@ func (h *Handler) ListSeries(w http.ResponseWriter, r *http.Request) {
 					filtered = append(filtered, s)
 				}
 			}
-			respondJSON(w, http.StatusOK, filtered)
-			return
+			series = filtered
 		}
+	}
+
+	// Apply sorting
+	if sortBy != "" {
+		sortSeries(series, sortBy, sortOrder)
 	}
 
 	respondJSON(w, http.StatusOK, series)
@@ -4701,6 +4723,177 @@ func (h *Handler) GetUpdateLog(w http.ResponseWriter, r *http.Request) {
 	
 	respondJSON(w, http.StatusOK, map[string]interface{}{
 		"log": string(data),
+	})
+}
+
+// sortMovies sorts a slice of movies based on sort criteria
+func sortMovies(movies []*models.Movie, sortBy, sortOrder string) {
+	ascending := sortOrder != "desc"
+
+	sort.Slice(movies, func(i, j int) bool {
+		switch sortBy {
+		case "title":
+			if ascending {
+				return strings.ToLower(movies[i].Title) < strings.ToLower(movies[j].Title)
+			}
+			return strings.ToLower(movies[i].Title) > strings.ToLower(movies[j].Title)
+
+		case "date_added":
+			if ascending {
+				return movies[i].AddedAt.Before(movies[j].AddedAt)
+			}
+			return movies[i].AddedAt.After(movies[j].AddedAt)
+
+		case "release_date":
+			// Handle nil dates
+			iDate := time.Time{}
+			jDate := time.Time{}
+			if movies[i].ReleaseDate != nil {
+				iDate = *movies[i].ReleaseDate
+			}
+			if movies[j].ReleaseDate != nil {
+				jDate = *movies[j].ReleaseDate
+			}
+			if ascending {
+				return iDate.Before(jDate)
+			}
+			return iDate.After(jDate)
+
+		case "rating":
+			iRating := 0.0
+			jRating := 0.0
+			if movies[i].Metadata != nil {
+				if r, ok := movies[i].Metadata["vote_average"].(float64); ok {
+					iRating = r
+				}
+			}
+			if movies[j].Metadata != nil {
+				if r, ok := movies[j].Metadata["vote_average"].(float64); ok {
+					jRating = r
+				}
+			}
+			if ascending {
+				return iRating < jRating
+			}
+			return iRating > jRating
+
+		case "runtime":
+			if ascending {
+				return movies[i].Runtime < movies[j].Runtime
+			}
+			return movies[i].Runtime > movies[j].Runtime
+
+		case "monitored":
+			if ascending {
+				if movies[i].Monitored == movies[j].Monitored {
+					return strings.ToLower(movies[i].Title) < strings.ToLower(movies[j].Title)
+				}
+				return movies[i].Monitored
+			}
+			if movies[i].Monitored == movies[j].Monitored {
+				return strings.ToLower(movies[i].Title) < strings.ToLower(movies[j].Title)
+			}
+			return !movies[i].Monitored
+
+		case "genre":
+			iGenre := ""
+			jGenre := ""
+			if len(movies[i].Genres) > 0 {
+				iGenre = movies[i].Genres[0]
+			}
+			if len(movies[j].Genres) > 0 {
+				jGenre = movies[j].Genres[0]
+			}
+			if ascending {
+				return iGenre < jGenre
+			}
+			return iGenre > jGenre
+
+		default:
+			return strings.ToLower(movies[i].Title) < strings.ToLower(movies[j].Title)
+		}
+	})
+}
+
+// sortSeries sorts a slice of series based on sort criteria
+func sortSeries(series []*models.Series, sortBy, sortOrder string) {
+	ascending := sortOrder != "desc"
+
+	sort.Slice(series, func(i, j int) bool {
+		switch sortBy {
+		case "title":
+			if ascending {
+				return strings.ToLower(series[i].Title) < strings.ToLower(series[j].Title)
+			}
+			return strings.ToLower(series[i].Title) > strings.ToLower(series[j].Title)
+
+		case "date_added":
+			if ascending {
+				return series[i].AddedAt.Before(series[j].AddedAt)
+			}
+			return series[i].AddedAt.After(series[j].AddedAt)
+
+		case "release_date":
+			iDate := time.Time{}
+			jDate := time.Time{}
+			if series[i].FirstAirDate != nil {
+				iDate = *series[i].FirstAirDate
+			}
+			if series[j].FirstAirDate != nil {
+				jDate = *series[j].FirstAirDate
+			}
+			if ascending {
+				return iDate.Before(jDate)
+			}
+			return iDate.After(jDate)
+
+		case "rating":
+			iRating := 0.0
+			jRating := 0.0
+			if series[i].Metadata != nil {
+				if r, ok := series[i].Metadata["vote_average"].(float64); ok {
+					iRating = r
+				}
+			}
+			if series[j].Metadata != nil {
+				if r, ok := series[j].Metadata["vote_average"].(float64); ok {
+					jRating = r
+				}
+			}
+			if ascending {
+				return iRating < jRating
+			}
+			return iRating > jRating
+
+		case "monitored":
+			if ascending {
+				if series[i].Monitored == series[j].Monitored {
+					return strings.ToLower(series[i].Title) < strings.ToLower(series[j].Title)
+				}
+				return series[i].Monitored
+			}
+			if series[i].Monitored == series[j].Monitored {
+				return strings.ToLower(series[i].Title) < strings.ToLower(series[j].Title)
+			}
+			return !series[i].Monitored
+
+		case "genre":
+			iGenre := ""
+			jGenre := ""
+			if len(series[i].Genres) > 0 {
+				iGenre = series[i].Genres[0]
+			}
+			if len(series[j].Genres) > 0 {
+				jGenre = series[j].Genres[0]
+			}
+			if ascending {
+				return iGenre < jGenre
+			}
+			return iGenre > jGenre
+
+		default:
+			return strings.ToLower(series[i].Title) < strings.ToLower(series[j].Title)
+		}
 	})
 }
 
